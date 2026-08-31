@@ -100,3 +100,41 @@ def read_experiments(path: Path | str = DEFAULT_LOG) -> list[dict[str, Any]]:
         return []
     with open(path, encoding="utf-8") as fh:
         return [json.loads(line) for line in fh if line.strip()]
+
+
+def completed_keys(path: Path | str, tag: str) -> set[tuple[str, int | None]]:
+    """``(subject, fold)`` pairs already recorded under ``tag``.
+
+    The experiment log is the checkpoint. A row is appended only *after* a fold has
+    trained and been evaluated, so any fold interrupted part-way leaves no row and
+    is simply re-run. That makes every runner safely resumable without a separate
+    checkpoint format to keep in sync.
+
+    A crash during a write can leave a truncated final line; malformed lines are
+    skipped rather than raising, since refusing to resume because of one damaged
+    row would defeat the purpose.
+    """
+    path = Path(path)
+    if not path.exists():
+        return set()
+    done: set[tuple[str, int | None]] = set()
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # truncated trailing row from an interrupted write
+            if row.get("tag") == tag and "subject" in row:
+                done.add((row["subject"], row.get("fold")))
+    return done
+
+
+def describe_resume(done: set, total: int, tag: str) -> str:
+    """One line for the runner to print, so a resumed run says what it skipped."""
+    if not done:
+        return f"resume: no previous rows for tag {tag!r}, starting from the beginning"
+    return (f"resume: {len(done)} of {total} folds already logged under {tag!r}, "
+            f"skipping those")

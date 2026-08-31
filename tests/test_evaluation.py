@@ -336,3 +336,47 @@ def test_holm_thresholds_step_correctly():
 def test_holm_handles_an_empty_family():
     from evaluation.metrics import holm_bonferroni
     assert holm_bonferroni({}) == {}
+
+
+# --------------------------------------------------------------------------
+# resumability: the experiment log is its own checkpoint
+# --------------------------------------------------------------------------
+
+def test_completed_keys_reads_back_what_was_logged(tmp_path):
+    from evaluation.experiment_log import completed_keys, log_experiment
+    p = tmp_path / "log.jsonl"
+    for fold in range(3):
+        log_experiment({"tag": "t1", "subject": "S001", "fold": fold}, path=p)
+    log_experiment({"tag": "other", "subject": "S002", "fold": 0}, path=p)
+    assert completed_keys(p, "t1") == {("S001", 0), ("S001", 1), ("S001", 2)}
+
+
+def test_completed_keys_isolates_by_tag(tmp_path):
+    """Resuming one run must not skip folds belonging to a different run."""
+    from evaluation.experiment_log import completed_keys, log_experiment
+    p = tmp_path / "log.jsonl"
+    log_experiment({"tag": "a", "subject": "S001", "fold": 0}, path=p)
+    log_experiment({"tag": "b", "subject": "S001", "fold": 0}, path=p)
+    assert completed_keys(p, "a") == {("S001", 0)}
+    assert completed_keys(p, "c") == set()
+
+
+def test_completed_keys_survives_a_truncated_final_line(tmp_path):
+    """A crash mid-write must not make the whole run unresumable."""
+    from evaluation.experiment_log import completed_keys, log_experiment
+    p = tmp_path / "log.jsonl"
+    log_experiment({"tag": "t", "subject": "S001", "fold": 0}, path=p)
+    with open(p, "a", encoding="utf-8") as fh:
+        fh.write('{"tag": "t", "subject": "S00')      # torn write
+    assert completed_keys(p, "t") == {("S001", 0)}
+
+
+def test_completed_keys_on_a_missing_log_is_empty(tmp_path):
+    from evaluation.experiment_log import completed_keys
+    assert completed_keys(tmp_path / "nope.jsonl", "t") == set()
+
+
+def test_describe_resume_says_what_it_found():
+    from evaluation.experiment_log import describe_resume
+    assert "starting from the beginning" in describe_resume(set(), 10, "t")
+    assert "3 of 10" in describe_resume({("S001", 0), ("S001", 1), ("S002", 0)}, 10, "t")

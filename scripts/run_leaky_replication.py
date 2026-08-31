@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from data.cache import assert_cache_matches, load_subject  # noqa: E402
 from data.config import all_subjects, load_config  # noqa: E402
 from data.splits import count_shared_trials  # noqa: E402
-from evaluation.experiment_log import log_experiment, set_seed  # noqa: E402
+from evaluation.experiment_log import (  # noqa: E402
+    completed_keys, describe_resume, log_experiment, set_seed)
 from evaluation.pipeline import Trials, prepare_leaky_fold  # noqa: E402
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
 from models.gcns_net import GCNsNet, GCNsNetConfig  # noqa: E402
@@ -40,6 +41,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="leaky-replication")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip subjects already logged under this tag")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -57,8 +60,14 @@ def main() -> int:
     print(f"subjects {len(subjects)}  epochs {args.epochs}  lr {args.lr}  seed {seed}")
     print(f"device {train_cfg.device}\n")
 
+    done = completed_keys(args.log, args.tag) if args.resume else set()
+    if args.resume:
+        print(describe_resume(done, len(subjects), args.tag))
+
     accs: list[float] = []
     for i, subject in enumerate(subjects, 1):
+        if any(s == subject for s, _ in done):
+            continue
         ep = load_subject(subject, cfg.dataset.cache_dir)
         fold = prepare_leaky_fold(Trials(X=ep.X, y=ep.y), test_frac=args.test_frac,
                                   lmax=lmax, seed=seed)
@@ -98,6 +107,9 @@ def main() -> int:
               f"{shared}/{len(ep.X)} trials on both sides)")
 
     print("\n" + "=" * 64)
+    if not accs:
+        print("nothing to do: every subject for this tag was already logged")
+        return 0
     print(f"mean timepoint accuracy {np.mean(accs):.4f} +/- {np.std(accs):.4f} "
           f"over {len(accs)} subjects")
     print("Reported as a replication of the published protocol, NOT as our result.")

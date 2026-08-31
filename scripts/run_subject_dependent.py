@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from data.cache import assert_cache_matches, load_subject  # noqa: E402
 from data.config import all_subjects, load_config  # noqa: E402
 from data.splits import stratified_trial_kfold  # noqa: E402
-from evaluation.experiment_log import log_experiment, set_seed  # noqa: E402
+from evaluation.experiment_log import (  # noqa: E402
+    completed_keys, describe_resume, log_experiment, set_seed)
 from evaluation.pipeline import Trials, prepare_fold  # noqa: E402
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
 from models.gcns_net import GCNsNet, GCNsNetConfig  # noqa: E402
@@ -82,6 +83,9 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="", help="free-text note stored with each row")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip (subject, fold) pairs already logged under this tag, "
+                         "so an interrupted run can be restarted with the same command")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -131,6 +135,10 @@ def main() -> int:
           + (f" ({args.bands}, {n_features} bands)" if args.features == "bandpower" else ""))
     print(f"device {train_cfg.device}\n")
 
+    done = completed_keys(args.log, args.tag) if args.resume else set()
+    if args.resume:
+        print(describe_resume(done, len(subjects) * args.folds, args.tag))
+
     per_subject: list[float] = []
     per_subject_tp: list[float] = []
 
@@ -147,6 +155,8 @@ def main() -> int:
         fold_trial_acc, fold_tp_acc = [], []
 
         for split in stratified_trial_kfold(ep.y, n_splits=args.folds, seed=seed):
+            if (subject, split.fold) in done:
+                continue
             tr_idx, val_idx = split_off_validation(ep.y, split.train, args.val_frac, seed)
             train = Trials(X=ep.X[tr_idx], y=ep.y[tr_idx])
             val = Trials(X=ep.X[val_idx], y=ep.y[val_idx]) if len(val_idx) else None
@@ -207,11 +217,16 @@ def main() -> int:
                   f"trial {result['trial'].accuracy:.4f}  "
                   f"(selection: {history.selection})")
 
+        if not fold_trial_acc:      # every fold for this subject was already done
+            continue
         per_subject.append(float(np.mean(fold_trial_acc)))
         per_subject_tp.append(float(np.mean(fold_tp_acc)))
         print(f"{subject}: trial {per_subject[-1]:.4f}  timepoint {per_subject_tp[-1]:.4f}\n")
 
     print("=" * 64)
+    if not per_subject:
+        print("nothing to do: every fold for this tag was already logged")
+        return 0
     print(f"subjects: {len(per_subject)}")
     print(f"mean trial accuracy     {np.mean(per_subject):.4f} "
           f"+/- {np.std(per_subject):.4f}")
