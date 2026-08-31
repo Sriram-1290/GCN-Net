@@ -22,6 +22,7 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Data loader + epoching + cache | Done | 2026-08-31 |
 | Splits (trial-level, LOSO, leaky) | Done | 2026-08-31 |
 | PCC adjacency + Laplacian + Chebyshev basis | Done | 2026-08-31 |
+| Graclus coarsening + binary-tree permutation | Done | 2026-08-31 |
 | Git repository initialised | Done | 2026-08-31 |
 | Baseline reproduction (subject-dependent) | Not started | — |
 | LOSO evaluation | Not started | — |
@@ -369,7 +370,8 @@ the declared list must agree or the run stops.
 | `data/normalize.py` | per-channel standardiser, fit on train only |
 | `graphs/adjacency.py` | `A = \|P\| - I` from a given split; optional sparsification |
 | `graphs/laplacian.py` | normalised Laplacian, Chebyshev rescaling, `T_0..T_{K-1}` basis |
-| `tests/` | 52 tests, all passing (labels, splits, graphs, normalisation) |
+| `graphs/coarsening.py` | Graclus matching, `compute_perm`, `perm_data`, `perm_adjacency` |
+| `tests/` | 68 tests, all passing (labels, splits, graphs, normalisation, coarsening) |
 
 ### 6.2 Design decisions and why
 
@@ -403,8 +405,7 @@ Balanced to within 1.6 % across classes. Verified on read-back: correct channel
 names, 15 trials per run x 6 runs, plausible microvolt range, zero duplicate
 (run, onset) pairs.
 
-**Not yet built:** Graclus coarsening, the model, training loop, evaluation,
-visualisation.
+**Not yet built:** the model, training loop, evaluation, visualisation.
 
 ### 6.4 Splits and graph construction
 
@@ -476,6 +477,59 @@ the observable signature that the statistics never saw it.
 
 **LOSO shape.** 103 folds; each is 97 train / 5 validation / 1 test subject, i.e. 8,730
 training trials against 90 test trials.
+
+### 6.6 Graclus coarsening
+
+Ported from Defferrard's `cnn_graph`. Repeated heavy-edge matching under the
+normalised-cut criterion `w(i,j) * (1/d_i + 1/d_j)`, then `compute_perm` reorders every
+layer so nodes `2i` and `2i+1` are the two children of coarse node `i` - after which
+`mpool1` is literally a stride-2 max over the node axis.
+
+**Deliberate bug fix.** The reference's `metis_one_level` computes row lengths with an
+off-by-one: `rowlength[count]` is incremented before `count` advances, so every row but
+the last is one too long and the neighbour scan reads the first entry of the *next* row,
+considering a node that is not a neighbour. Row offsets here are computed directly from
+the sorted row indices. Same algorithm, valid matching, slightly different clustering.
+
+**Results on the real graph (S001, fold 0 training split).**
+
+```
+layer sizes  64 -> 32 -> 16 -> 8 -> 4 -> 2      fake nodes: 0
+every level: a perfect matching, zero singletons
+```
+
+The dense PCC graph always leaves an unmarked neighbour available, so matching is
+perfect at every level and the fake-node machinery is never exercised. Sparsify and it
+is: `keep_top_k=8` (density 0.16) gives `64 -> 34 -> 18 -> 9 -> 5 -> 3` with singletons
+at four of five levels. So the fake-node path matters for the sparsification ablation,
+and it is tested directly.
+
+**The coarsening recovers scalp topography without being told about electrode
+positions.** Every level-0 cluster is a genuinely adjacent electrode pair:
+
+```
+AF7+F7 0.911   T7+T9 0.921   CP2+CP4 0.982   FC5+C5  0.924
+CP1+CPz 0.975  AF4+AF8 0.916  P8+PO8 0.941   Oz+Iz   0.872
+TP7+P7 0.928   FC2+FC4 0.969  Fp1+AF3 0.958  F1+Fz   0.980
+```
+
+This is a useful result in its own right: although the correlation graph is near-complete
+(6.5), the *ordering* of its weights encodes spatial adjacency well enough that
+normalised-cut matching reconstructs the montage. It supports the interpretability strand
+of the project and gives the fixed-graph baseline a fair defence.
+
+**lambda_max grows as the graph coarsens**, which refines the finding in 6.5:
+
+```
+layer   0      1      2      3      4      5
+nodes  64     32     16      8      4      2
+lmax  1.027  1.050  1.096  1.189  1.396  2.000
+```
+
+The reference's hardcoded `lmax = 2` is therefore worst at layer 0 - where the spectrum
+occupies barely half of [-1, 1] - and exactly right at the coarsest layer, where a
+two-node graph genuinely has `lambda_max = 2`. The wasted Chebyshev range is an
+early-layer problem, not a uniform one.
 
 ---
 
@@ -584,3 +638,10 @@ paths one at a time so the contribution of each is quantified rather than assert
   learnable-adjacency contribution; and the true lambda_max is 1.03, so the reference's
   hardcoded `lmax = 2` confines the rescaled spectrum to [-1, 0.03] and wastes half the
   Chebyshev domain. Both are logged as ablations (6.5).
+- Ported Graclus coarsening (`graphs/coarsening.py`), fixing an off-by-one in the
+  reference's row-length scan that made the matching consider non-neighbours. Test suite
+  now 68 tests, all passing.
+- **Coarsening validates the graph:** on the real adjacency it gives a perfect
+  64/32/16/8/4/2 hierarchy with zero fake nodes, and every level-0 cluster is a genuinely
+  adjacent electrode pair (AF7+F7, CP2+CP4, Oz+Iz, ...). The correlation graph recovers
+  scalp topography without any electrode-position input (6.6).
