@@ -76,7 +76,10 @@ These are the highest-risk failure modes in this project. Violating any of them 
 - **Don't skip the baseline reproduction** and jump straight to the improved model. Without a verified baseline, no comparison is meaningful.
 - **Don't optimize for VRAM/speed.** The model is tiny; complexity here is wasted effort.
 - **Don't add dependencies casually.** Stick to the declared stack unless there's a clear need.
-- **Don't port the TensorFlow reference (`SuperBruceJia/EEG-DL`) faithfully.** It is a fork of Defferrard's `cnn_graph` with three defects documented in `project_documentation.md` §4.3: samples are single timepoints (no temporal axis at all), BatchNorm is hardcoded to `training=True` so test batches leak their own statistics, and the Pearson-correlation adjacency construction is simply absent from the repo. Its published numbers are not a trustworthy baseline.
+- **Don't port the TensorFlow reference (`SuperBruceJia/EEG-DL`) faithfully.** Local checkout at `D:\projects\EEG-DL`. It is a fork of Defferrard's `cnn_graph` carrying **three leakage paths**, verified against the source and documented in `project_documentation.md` §4.3–4.4: (1) each sample is a single timepoint and the split is `randperm` over timepoints, so the same trial lands in train and test; (2) BatchNorm is hardcoded to `training=True` in `b1relu`/`b2relu`/`fc`, so test batches normalise on their own statistics; (3) the adjacency `A = |P| - I` is computed over the whole pooled dataset before splitting. Its published numbers are not a trustworthy baseline.
+  - It does apply **Common Average Reference** (`make_dataset.m` line 22 — that line is CAR, not dataset-wide mean centring) and **no filtering** (the bandpass/notch calls are commented out). Match both.
+  - Use `b2relu` (bias `[1, M, F]`), which is what `main-GCN.py` configures — not `b1relu`.
+  - Its four classes are **left fist / right fist / both feet / resting-state**, not the L/R/B/F the paper names: both-fists is discarded and the fourth class is random windows from the eyes-open baseline run.
 - **Don't rewrite working code for style.** Prefer minimal, targeted edits.
 
 ---

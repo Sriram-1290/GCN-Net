@@ -35,17 +35,28 @@ epoch:
   length_s: 4.0
 
 preprocess:
-  # The TensorFlow reference (EEG-DL Preprocess_EEG_Data/For-GCN-based-Models/
-  # make_dataset.m) applies NO filtering, NO re-referencing and NO notch. null here
-  # reproduces that faithfully. Set [l_freq, h_freq] to deviate — but per CLAUDE.md,
-  # changing this invalidates all prior results and the baseline must be re-run.
+  # Verified against the local EEG-DL checkout, not a summary.
+  #
+  # Filtering: none. Extract-Raw-Data-Into-Matlab-Files.py defines a 5-30 Hz
+  # Butterworth and a 60 Hz notch but both calls are COMMENTED OUT, so the shipped
+  # pipeline applies no filter at all. null reproduces that.
+  #
+  # Re-referencing: the reference DOES re-reference. make_dataset.m line 22,
+  # `Stack_Dataset - mean(Stack_Dataset, 1)`, operates on a (64 channels x N
+  # timepoints) matrix, so mean(...,1) is the across-CHANNEL mean at each timepoint
+  # -- i.e. Common Average Reference, not dataset-wide mean centring. CAR uses no
+  # cross-sample statistics, so it is leakage-free and belongs in the cache.
+  # It also matters: CAR drops mean |PCC| from 0.686 to 0.353 and raises the
+  # neighbour/distant contrast from 1.47x to 4.45x, so the graph is far more
+  # structured with it than without.
   bandpass: null
   notch: null
-  rereference: null
+  rereference: average
 
-  # Normalisation is deliberately NOT done here. The cache stores raw epochs in uV;
-  # mean/std are fit on the training split only, at training time. The reference
-  # mean-centres over the entire dataset before splitting, which is leakage.
+  # Normalisation is deliberately NOT done here. The cache stores CAR-referenced
+  # epochs in uV; mean/std are fit on the training split only, at training time.
+  # (The reference applies no per-channel standardisation at all -- see above, its
+  # only centring operation is CAR.)
   normalize: false
 
 seed: 42

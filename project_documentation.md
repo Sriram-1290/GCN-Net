@@ -212,58 +212,123 @@ Easy to miss on a skim: `b1relu` applies **softplus**, not ReLU, despite its nam
    graph-conv input width, and the trial count. Our contribution modifies the base
    model's data model, not just its layer stack. State this explicitly in the writeup.
 
-2. **BatchNorm is hardcoded to training mode.** Both `b1relu` and `fc` call
+2. **BatchNorm is hardcoded to training mode.** `b1relu`, `b2relu` and `fc` all call
    `tf.layers.batch_normalization(..., training=True)` with no train/eval switch, so at
    test time it normalises using *test batch* statistics. With `batch_size=1024` of
    shuffled timepoints that is a second, independent leakage path stacked on the first.
    In PyTorch this is just `model.eval()` — but it means the repo's published numbers
    are not a trustworthy baseline.
 
-3. **The adjacency construction is absent.** `main-GCN.py` only does
-   `pd.read_csv('Adjacency_Matrix.csv')`. The `adjacency()` in `graph.py` is
-   Defferrard's kNN-Gaussian builder for *grid* graphs, not the Pearson correlation the
-   paper describes, and the README documents nothing. **The PCC to adjacency step — the
-   paper's core claim and the most leakage-prone operation in the pipeline — has no
-   reference implementation.** We implement it from the paper text alone. This is the
-   highest-risk item in the reproduction.
+   Note `main-GCN.py` sets `params['brelu'] = 'b2relu'`, not `b1relu`. The difference
+   is the bias shape: `b2relu` uses `[1, M, F]` (one bias per vertex per filter),
+   `b1relu` uses `[1, 1, F]` (one per filter). The port must use `b2relu`, which adds
+   `M x F` bias parameters per conv layer rather than `F`.
 
-### 4.4 Preprocessing in the reference (`make_dataset.m`)
+3. **The adjacency is built over all data, including test.** `main-GCN.py` only does
+   `pd.read_csv('Adjacency_Matrix.csv')`, and `adjacency()` in `graph.py` is
+   Defferrard's kNN-Gaussian builder for *grid* graphs — but the PCC construction does
+   exist, in `make_dataset.m`:
 
-Read directly from `Preprocess_EEG_Data/For-GCN-based-Models/make_dataset.m`. This
-settles what preprocessing the baseline actually used, and it is less than expected:
+   ```matlab
+   Pearson_matrix = corrcoef(Stack_Dataset);
+   Absolute_Pearson_matrix = abs(Pearson_matrix);
+   Adjacency_Matrix = Absolute_Pearson_matrix - eye(64, 64);
+   ```
 
-- **No filtering of any kind** — no bandpass, no notch, no re-referencing.
-- **Mean-centring computed over the entire dataset** (`Stack_Dataset - mean(Stack_Dataset, 1)`)
-  *before* the split.
-- **`randperm()` over all samples, then a 90/10 cut.** Since each row is 64 channels
-  at a *single timepoint*, this is precisely the timepoint-level shuffled split that
-  `CLAUDE.md` forbids: timepoints from the same trial land in both train and test.
-- Output layout: columns 1–64 are channels, the final column is the label 0–3.
-  Confirms four classes and confirms `Fin = 1`.
+   Exactly `A = |P| - I`, matching `graphs/adjacency.py`. It is computed on the pooled
+   `Stack_Dataset` before any split, so the graph carries test-set information — the
+   leakage `CLAUDE.md` forbids by name. Our version takes only the split it is handed.
 
-**Consequence — this needs stating plainly in the writeup.** The reference's headline
-accuracy is produced by *three stacked leakage paths*: timepoint-level shuffled
-splitting, full-dataset mean-centring, and BatchNorm running on test-batch statistics
-(§4.3.2). Any of the three alone would inflate the number.
+### 4.4 Preprocessing in the reference — read from the local checkout
 
-This creates a tension with `CLAUDE.md`'s stated reproduction target of ~90–93 %
-subject-dependent accuracy. That figure is very likely **not reachable without the
-leakage that produces it**. An honest trial-level subject-dependent result will
-probably land lower, and that is a finding rather than a failure. **Open question for
-the supervisor/team: does "reproduce the baseline" mean (i) re-implement the leaky
-protocol to confirm we can hit ~93 % and then demonstrate it collapses under a correct
-split, or (ii) only ever run the correct protocol and report the honest number?**
-Option (i) is more work but makes a much stronger argument, since it quantifies the
-leakage instead of asserting it. Not yet decided — see §6, decision 4.
+Verified against `D:\projects\EEG-DL`, superseding an earlier reading of this section
+that was based on a web summary and was wrong in one important respect (see the
+2026-08-31 changelog entry).
+
+**Filtering: none.** `Extract-Raw-Data-Into-Matlab-Files.py` defines
+`butter_bandpass_filter` (5-30 Hz) and a 60 Hz `iirnotch`, but both call sites are
+commented out. The shipped pipeline applies no filter.
+
+**Re-referencing: yes — Common Average Reference.** `make_dataset.m` line 22 reads
+
+```matlab
+Stack_Dataset = Stack_Dataset - mean(Stack_Dataset, 1);
+```
+
+At that point `Stack_Dataset` is **64 channels x N timepoints**, so `mean(...,1)` is the
+mean *across channels* at each timepoint. Subtracting it is Common Average Reference,
+**not** dataset-wide mean centring. CAR uses no cross-sample statistics and is therefore
+**not leakage**. Our config now sets `rereference: average` to match.
+
+**Trial window.** `load_physionet_data` centres a 640-sample (4.0 s) window on the
+annotated task period: `pad = (length - (t - start)) / 2` trims the ~4.1 s period by
+about 8 samples each side. The module constants `MOVEMENT_START = 1*160` and
+`MOVEMENT_END = 5*160` are **dead code** — declared, never referenced. Our `tmin = 0.0,
+length_s = 4.0` is within ~50 ms of theirs.
+
+**Split: timepoint-level and shuffled.** Confirmed:
+
+```matlab
+All_Data = [Stack_Dataset, Labels];       % rows are timepoints, cols 1:64 are channels
+rowrank  = randperm(size(All_Data, 1));
+training_set = All_Dataset(1:fix(row/10*9), 1:64);
+```
+
+Labels are replicated 640x per trial, so each row is one timepoint across 64 channels.
+Shuffling then cutting 90/10 puts timepoints from the same trial on both sides.
+
+**Scale.** The active configuration is **20 subjects** (`subject = range(1, 21)`); the
+100-subject block is commented out. `NUM_TRIALS = 21 * num_classes = 84` per subject.
+
+**Leakage paths in the reference: three, not four.**
+
+1. Timepoint-level shuffled split (here).
+2. BatchNorm on test-batch statistics (4.3.2).
+3. Adjacency computed over all pooled data including test (4.3.3).
+
+The earlier count of four wrongly included the CAR line. Three is still enough that the
+published headline is not a trustworthy baseline, and `CLAUDE.md`'s ~90-93 % target is
+very likely not reachable without them.
 
 ### 4.5 The paper itself (arXiv:2006.08924 / IEEE TNNLS 2022)
 
 Read directly, because the repo could not answer these. Four things are now settled:
 
-**1. The four classes are L / R / B / F, with no rest.** "Four MI tasks are termed as L
-(image left fist), R (image right fist), B (image both fists), and F (image both
-feet)." The rest state (T0) is not a classification target. **This confirms scheme (a)**
-and closes open decision 1.
+**1. The paper names four classes L / R / B / F — but the code does not build them.**
+The paper says "Four MI tasks are termed as L (image left fist), R (image right fist),
+B (image both fists), and F (image both feet)". The shipped extraction code builds
+something else. In `load_physionet_data`:
+
+```python
+if (current_run - 6) % 4 != 0 or current_event[1] == 2:
+    if (current_run - 6) % 4 == 0:
+        current_event[1] = 3
+```
+
+For runs 6/10/14 only `action == 2` (both feet) is kept — **T1, both fists, is
+discarded**. The fourth class is then filled from the *baseline eyes-open run* at random
+offsets:
+
+```python
+path = base_path % (subject_id, BASELINE_RUN)   # run 1
+offset = np.random.randint(0, signals.shape[0] - SAMPLES)
+trials[i, :, :] = signals[offset: offset+SAMPLES, :]
+labels[i, -1] = 1.
+```
+
+So the code's four classes are **left fist / right fist / both feet / resting-state**,
+with the rest trials drawn as overlapping random windows from a single 60 s run. The
+docstring agrees with the code, not the abstract: "num_classes: number of classes
+(2, 3 or 4) for L/R, L/R/0, L/R/0/F".
+
+This is corroborated by the paper's own per-class numbers (Sec. IV-C): 83.45 %, 86.72 %,
+83.96 % and **99.42 %**. A near-perfect fourth class is what resting-state-vs-imagery
+looks like; it is not what "both feet vs both fists" looks like. Those four average to
+88.39 %, matching the reported 88.35 % group-level accuracy — so the easy class carries
+roughly +3.6 points of the headline.
+
+**Consequence: open decision 1 is reopened.** The paper claims a four-way motor-imagery
+problem; the code solves a three-way MI problem plus an easy rest class.
 
 **2. A sample is one timepoint.** "every time point is recognized as a sample to map the
 brain state to the corresponding MI task" gives 640 samples per trial. Confirms
@@ -287,9 +352,12 @@ reproduce - it is the difference between four leakage paths and none. This also
 strengthens the contribution: a correct LOSO evaluation of this architecture appears to
 be genuinely new.
 
-**Total leakage paths in the reference: four.** Timepoint-level shuffled split (4.4),
-whole-dataset mean-centring (4.4), BatchNorm on test-batch statistics (4.3.2), and
-adjacency built from all data including test (here).
+**Leakage paths: three** — see the list in 4.4. (An earlier revision of this document
+counted four, wrongly including the CAR line.)
+
+**Paper/code hyperparameter mismatches**, worth noting before tuning anything: the paper
+states Adam at learning rate 0.01 and weight decay 1e-2; `main-GCN.py` sets
+`learning_rate = 1e-6` and `regularization = 1e-3`.
 
 ---
 
@@ -436,20 +504,37 @@ A = |P| - I    range [0.000, 0.999]    mean edge weight 0.675
 density (>0.01) 0.984
 ```
 
-98.4 % of all electrode pairs carry a non-trivial edge. Because the pipeline applies
-no filtering and no re-referencing (matching the reference), every channel shares a
-large common-mode component, so everything correlates with everything. Spatial
-structure *is* present and in the right direction -
+**Superseded in part — see the CAR correction below.** 98.4 % of all electrode pairs
+carry a non-trivial edge. Spatial structure *is* present and in the right direction -
 
 ```
 |PCC|(C3, C1) 0.973   (C3, C5) 0.912   (C3, C4) 0.851   (C3, Oz) 0.718   (C3, Fp1) 0.638
 mean neighbours 0.950  vs  mean distant 0.645
 ```
 
-- but compressed into a narrow band. A near-complete graph gives the spectral
-convolution little topology to exploit, which is a real weakness of the baseline and a
-direct motivation for the **learnable adjacency** contribution. `threshold_adjacency()`
-exists so sparsification can be ablated.
+- but compressed into a narrow band.
+
+**Correction (2026-08-31, after reading the local checkout).** That measurement was
+taken *without* re-referencing, which we then believed matched the reference. It does
+not: the reference applies CAR (4.4). With CAR the graph is considerably more
+structured:
+
+| | no re-reference | CAR (the reference) |
+|---|---|---|
+| mean edge weight | 0.686 | **0.353** |
+| density(>0.5) | 0.840 | **0.271** |
+| p5..p95 spread | 0.408 .. 0.933 | **0.032 .. 0.748** |
+| C3 neighbours vs distant | 0.950 vs 0.645 (**1.47x**) | 0.656 vs 0.148 (**4.45x**) |
+| lambda_max | 1.027 | 1.091 |
+
+So the "near-complete graph with little topology" claim was substantially an artefact of
+the missing re-reference. With CAR the weight distribution is far more informative -
+the neighbour/distant contrast triples. This **weakens** the motivation for a learnable
+adjacency somewhat, and that should be stated honestly rather than quietly dropped: the
+fixed PCC graph is a more reasonable baseline than the first measurement suggested. The
+contribution now has to earn its keep against a real graph.
+
+`threshold_adjacency()` remains available so sparsification can still be ablated.
 
 **2. The hardcoded `lmax = 2` wastes half the Chebyshev domain.**
 
@@ -537,7 +622,7 @@ early-layer problem, not a uniform one.
 
 | # | Question | Status |
 |---|---|---|
-| 1 | **4-class definition.** (a) left fist / right fist / both fists / both feet, T0 discarded. (b) rest / left / right / feet, mixing T0 in. | **RESOLVED 2026-08-31 to (a).** The paper states the four tasks are L/R/B/F with no rest (4.5). The cache is already built under (a); no rebuild needed. Full comparison in 7.1 |
+| 1 | **4-class definition.** (a) left/right fist + both fists + both feet, all MI. (b) a rest class substituted for one MI class. | **REOPENED 2026-08-31.** The paper *names* L/R/B/F, but the shipped code discards both-fists and substitutes resting-state windows from the baseline run (4.5). Paper and code disagree. Current position: keep (a) for the main pipeline, use the code's scheme only in the leaky replication arm. Needs a call — see 7.1 |
 | 2 | Whether to apply the S089/S090 correction or keep `CLAUDE.md` literal | Correction applied 2026-08-31; revertible |
 | 3 | Delete the 4.4 GB of redundant zip + dead mirror | Awaiting user |
 | 4 | **What "reproduce the baseline" means**, given the reference headline rests on four stacked leakage paths. (i) Re-implement the leaky protocol to confirm ~93 %, then show it collapses under a correct split. (ii) Only ever run the correct protocol. | **RESOLVED 2026-08-31 to (i)**, user decision. We reproduce the leaky protocol as a documented artefact, then quantify how much each leakage path contributes. See 7.2 |
@@ -645,3 +730,33 @@ paths one at a time so the contribution of each is quantified rather than assert
   64/32/16/8/4/2 hierarchy with zero fake nodes, and every level-0 cluster is a genuinely
   adjacent electrode pair (AF7+F7, CP2+CP4, Oz+Iz, ...). The correlation graph recovers
   scalp topography without any electrode-position input (6.6).
+
+**Corrections after reading the local EEG-DL checkout (`D:\projects\EEG-DL`).** Earlier
+entries in this changelog were written from web summaries of the repository. Reading the
+source directly overturned four of those claims. The affected sections have been corrected
+in place; the errors are recorded here.
+
+1. **CAR, not dataset-wide mean centring.** `make_dataset.m` line 22 operates on a
+   (64 channels x N timepoints) matrix, so `mean(...,1)` is the across-channel mean per
+   timepoint — Common Average Reference. It uses no cross-sample statistics and is **not
+   leakage**. The reference's leakage-path count drops from four to **three**. Config
+   updated to `rereference: average` and the cache rebuilt (103 subjects, 9,270 trials,
+   42.5 s).
+2. **The PCC adjacency construction is not absent.** It is in `make_dataset.m`
+   (`abs(corrcoef(...)) - eye(64)`), exactly `A = |P| - I`, matching our implementation.
+   The earlier "no reference implementation, highest-risk item" framing was wrong — what is
+   true is that it is computed over all pooled data including test.
+3. **`b2relu`, not `b1relu`.** `main-GCN.py` sets `params['brelu'] = 'b2relu'`, so the bias
+   is `[1, M, F]` (per vertex per filter), not `[1, 1, F]`. Both hardcode `training=True`,
+   so that finding stands.
+4. **The code's four classes are not the paper's.** Both-fists is discarded and the fourth
+   class is resting-state windows drawn at random offsets from the eyes-open baseline run.
+   The paper's own 99.42 % single-class accuracy corroborates this. Open decision 1 is
+   reopened.
+
+Also corrected: the "98.4 % dense, little topology" observation was measured without CAR.
+With CAR the mean edge weight falls 0.686 -> 0.353 and the neighbour/distant contrast rises
+1.47x -> 4.45x, so the fixed graph is a stronger baseline than first reported (6.5).
+
+Also noted: the paper states Adam at lr 0.01 and weight decay 1e-2, while `main-GCN.py`
+sets lr 1e-6 and regularisation 1e-3.
