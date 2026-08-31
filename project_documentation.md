@@ -253,6 +253,41 @@ split, or (ii) only ever run the correct protocol and report the honest number?*
 Option (i) is more work but makes a much stronger argument, since it quantifies the
 leakage instead of asserting it. Not yet decided — see §6, decision 4.
 
+### 4.5 The paper itself (arXiv:2006.08924 / IEEE TNNLS 2022)
+
+Read directly, because the repo could not answer these. Four things are now settled:
+
+**1. The four classes are L / R / B / F, with no rest.** "Four MI tasks are termed as L
+(image left fist), R (image right fist), B (image both fists), and F (image both
+feet)." The rest state (T0) is not a classification target. **This confirms scheme (a)**
+and closes open decision 1.
+
+**2. A sample is one timepoint.** "every time point is recognized as a sample to map the
+brain state to the corresponding MI task" gives 640 samples per trial. Confirms
+section 4.3.1 from the paper itself, not just from the code.
+
+**3. The adjacency is A = |P| - I**, the absolute Pearson correlation matrix, computed
+over "all the signals of participants" - the entire pooled dataset, test data included.
+This is a **fourth leakage path**, and it is precisely the one CLAUDE.md names: "NEVER
+compute the correlation/adjacency matrix using test data." Our implementation must build
+the PCC from the training split only, which is a deliberate, documented deviation from
+the paper.
+
+**4. "Group level" (88.57 %) is NOT subject-independent.** It pools 20/50/100 subjects
+and then splits 90/10 **across the pooled data**, so the same subjects appear in train
+and test. That is subject-dependent training with more data, not LOSO.
+
+Consequence: **there is no published LOSO baseline for GCNs-Net.** Neither headline
+number (93.06 % subject level, 88.57 % group level) is subject-independent. CLAUDE.md's
+expectation of 60-70 % under LOSO stands, and the gap to 93 % is not a failure to
+reproduce - it is the difference between four leakage paths and none. This also
+strengthens the contribution: a correct LOSO evaluation of this architecture appears to
+be genuinely new.
+
+**Total leakage paths in the reference: four.** Timepoint-level shuffled split (4.4),
+whole-dataset mean-centring (4.4), BatchNorm on test-batch statistics (4.3.2), and
+adjacency built from all data including test (here).
+
 ---
 
 ## 5. Port plan
@@ -371,10 +406,62 @@ coarsening, the model, training loop, evaluation, visualisation.
 
 | # | Question | Status |
 |---|---|---|
-| 1 | **4-class definition.** (a) left fist / right fist / both fists / both feet, T0 discarded, all 6 imagery runs, ~90 trials/subject. (b) rest / left / right / feet, mixing T0 in. `M=[4]` confirms four classes but not which. | **Proceeding with (a)** as the config default; not yet confirmed by user |
+| 1 | **4-class definition.** (a) left fist / right fist / both fists / both feet, T0 discarded. (b) rest / left / right / feet, mixing T0 in. | **RESOLVED 2026-08-31 to (a).** The paper states the four tasks are L/R/B/F with no rest (4.5). The cache is already built under (a); no rebuild needed. Full comparison in 7.1 |
 | 2 | Whether to apply the S089/S090 correction or keep `CLAUDE.md` literal | Correction applied 2026-08-31; revertible |
 | 3 | Delete the 4.4 GB of redundant zip + dead mirror | Awaiting user |
-| 4 | **What "reproduce the baseline" means**, given §4.4 shows the reference's ~93 % rests on three stacked leakage paths. (i) Re-implement the leaky protocol to confirm ~93 %, then show it collapses under a correct split — quantifies the leakage. (ii) Only ever run the correct protocol and report the honest number. | **Open — needs a call from the team/supervisor.** Affects how `CLAUDE.md`'s "Expected Results" target should be read |
+| 4 | **What "reproduce the baseline" means**, given the reference headline rests on four stacked leakage paths. (i) Re-implement the leaky protocol to confirm ~93 %, then show it collapses under a correct split. (ii) Only ever run the correct protocol. | **RESOLVED 2026-08-31 to (i)**, user decision. We reproduce the leaky protocol as a documented artefact, then quantify how much each leakage path contributes. See 7.2 |
+
+---
+
+## 7.1 Class scheme (a) vs (b) - the comparison, for the record
+
+**(a) L / R / B / F** - left fist, right fist (runs 4/8/12), both fists, both feet
+(runs 6/10/14). T0 discarded. ~22-23 trials per class, 90 per subject. **This is what
+the paper used, and what we use.**
+
+**(b) rest / L / R / F** - substitutes T0 rest for one motor class (usually B).
+~90 rest trials against ~22 per motor class per subject.
+
+| | (a) L/R/B/F | (b) rest/L/R/F |
+|---|---|---|
+| Matches the paper | **Yes** | No - breaks comparability |
+| Class balance | Natural, ~22-23 each | ~90 rest vs ~22 each; needs subsampling or weighting |
+| Data used | All 6 imagery runs, nothing wasted | Discards one motor class; subsampling discards rest trials |
+| Difficulty | Harder - four active imagery states | Easier - rest-vs-task ERD/ERS is a large, well-localised effect |
+| Headline accuracy | Lower, honest | Inflated relative to (a); not comparable to a no-rest 4-class number |
+| Class purity | All four are motor imagery | "Rest" T0 sits between task periods, contaminated by preparation and after-effects |
+| BCI realism | A 4-way command decoder | Includes an idle state, closer to an asynchronous BCI |
+
+**Known confound affecting (a) - must be reported.** L and R come *only* from runs
+4/8/12; B and F come *only* from runs 6/10/14. Any run-level non-neural signal
+(electrode drift, impedance change, alertness) separates {L,R} from {B,F} for free,
+without decoding imagery at all. This is inherent to the dataset, not to our
+implementation, and it is not a train/test leak - but it means a 4-class accuracy can
+look respectable while the model decodes almost no imagery.
+
+Mitigation, to be reported alongside the 4-class number:
+
+- the **confusion matrix** - near-zero between-family confusion combined with high
+  within-family confusion is the signature of a model exploiting run identity;
+- the **within-family binary accuracies** (L vs R, and B vs F), which are confound-free
+  and are the honest measure of imagery decoding.
+
+Scheme (b) partially breaks the confound for the rest class (T0 occurs in every run) but
+leaves it intact for the motor classes.
+
+## 7.2 Baseline reproduction protocol (decision 4, option (i))
+
+Two runs of the same architecture, reported side by side:
+
+1. **Leaky replication** - timepoint samples, shuffled 90/10 split, whole-dataset
+   mean-centring, BatchNorm in train mode at test, adjacency from all data. Expected to
+   land near the published 93 %. Reported explicitly as a reproduction of the published
+   protocol, never as our result.
+2. **Correct protocol** - trial-level split, train-split-only normalisation and
+   adjacency, proper `model.eval()`. Then LOSO.
+
+The difference between them is the headline finding. Where feasible, ablate the four
+paths one at a time so the contribution of each is quantified rather than asserted.
 
 ---
 
@@ -402,3 +489,12 @@ coarsening, the model, training loop, evaluation, visualisation.
 - Built `configs/default.yaml`, `data/{config,labels,edf_loader,cache}.py`,
   `scripts/build_cache.py`, `tests/test_labels.py` (12 tests passing).
 - **Built the full trial cache: 103 subjects, 9,270 trials, 0 dropped, 447 MB.**
+- Read the GCNs-Net paper (arXiv:2006.08924). Confirmed the four classes are L/R/B/F
+  with no rest (**resolves decision 1, scheme (a)**), that a sample is one timepoint,
+  that the adjacency is A = |P| - I computed over **all** signals including test
+  (**a fourth leakage path**), and that the 88.57 % "group level" figure is **not**
+  subject-independent. There is therefore no published LOSO baseline for this model.
+- User chose option (i) for the baseline protocol (**resolves decision 4**); the
+  two-run plan is recorded in 7.2.
+- Documented the run-family confound inherent to scheme (a) and the diagnostics that
+  must accompany any 4-class number (7.1).
