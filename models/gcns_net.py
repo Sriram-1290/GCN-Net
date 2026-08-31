@@ -54,6 +54,11 @@ class GCNsNetConfig:
     learnable_graph: bool = False   # Phase 5: learn the adjacency (9.6)
     learn_graph_scale: bool = False
     adjacency_l1: float = 0.0       # sparsity on the learned correction
+    temporal_attention: bool = False  # H2: attend over time before the convs
+    attention_heads: int = 4
+    attention_hidden: int = 32
+    attention_per_node: bool = False
+    attention_dropout: float = 0.0
     dropout: float = 0.0  # dead in the reference; kept switchable
     fc_hidden: tuple[int, ...] = field(default_factory=tuple)
 
@@ -80,8 +85,27 @@ class GCNsNet(nn.Module):
             raise ValueError(f"got {len(bases)} graph bases for {n_layers} conv layers")
 
         convs, norms, poolers = [], [], []
-        n_in = self.cfg.in_features
         n_nodes = bases[0].shape[1]
+
+        # Attention pools the time axis before the first convolution, so the convs
+        # see n_heads features rather than the raw window length.
+        if self.cfg.temporal_attention:
+            if self.cfg.in_features < 2:
+                raise ValueError(
+                    "temporal_attention needs a time axis; in_features is "
+                    f"{self.cfg.in_features}. Use a windowed sample, not the "
+                    "reference's single timepoint."
+                )
+            from .temporal_attention import TemporalAttention
+            self.attention = TemporalAttention(
+                n_nodes=n_nodes, hidden=self.cfg.attention_hidden,
+                n_heads=self.cfg.attention_heads,
+                per_node=self.cfg.attention_per_node,
+                dropout=self.cfg.attention_dropout)
+            n_in = self.cfg.attention_heads
+        else:
+            self.attention = None
+            n_in = self.cfg.in_features
 
         for i, (n_out, K, p) in enumerate(
             zip(self.cfg.filters, self.cfg.orders, self.cfg.pools)
@@ -142,6 +166,8 @@ class GCNsNet(nn.Module):
         """
         if x.dim() == 2:
             x = x.unsqueeze(2)
+        if self.attention is not None:
+            x = self.attention(x)
         for conv, norm, pool in zip(self.convs, self.norms, self.pools):
             x = pool(norm(conv(x)))
         x = x.flatten(1)

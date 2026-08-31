@@ -56,6 +56,10 @@ def main() -> int:
                     help="restrict to a binary problem between two class indices, "
                          "e.g. --classes 0 1. Both classes must come from the same run "
                          "family or the run-family confound re-enters.")
+    ap.add_argument("--temporal-attention", action="store_true",
+                    help="attend over time before the convs; needs --window > 1")
+    ap.add_argument("--attention-heads", type=int, default=4)
+    ap.add_argument("--attention-per-node", action="store_true")
     ap.add_argument("--learnable-graph", action="store_true",
                     help="learn the adjacency, initialised at the PCC graph so the "
                          "model starts identical to the fixed baseline")
@@ -108,6 +112,9 @@ def main() -> int:
         n_features = args.window
     model_cfg = GCNsNetConfig(n_classes=n_classes,
                               in_features=n_features,
+                              temporal_attention=args.temporal_attention,
+                              attention_heads=args.attention_heads,
+                              attention_per_node=args.attention_per_node,
                               learnable_graph=args.learnable_graph,
                               learn_graph_scale=args.learn_graph_scale,
                               adjacency_l1=args.adjacency_l1,
@@ -117,6 +124,7 @@ def main() -> int:
           f"lr {train_cfg.learning_rate}  lmax {lmax}  leaky {args.leaky}  seed {seed}")
     print(f"cache {cfg.dataset.cache_dir}  bandpass {cfg.preprocess.bandpass}  "
           f"window {args.window}  stride {args.stride or args.window}")
+    print(f"attention {'ON (' + str(args.attention_heads) + ' heads)' if args.temporal_attention else 'off'}")
     print(f"graph {'LEARNABLE (init at PCC)' if args.learnable_graph else 'fixed PCC'}"
           + (f"  L1 {args.adjacency_l1}" if args.adjacency_l1 else ""))
     print(f"features {args.features}"
@@ -175,6 +183,9 @@ def main() -> int:
                 "n_classes": n_classes,
                 "window": args.window,
                 "stride": args.stride or args.window,
+                "temporal_attention": args.temporal_attention,
+                "attention_heads": args.attention_heads if args.temporal_attention else None,
+                "learnable_graph": args.learnable_graph,
                 "features": args.features,
                 "bands": args.bands if args.features == "bandpower" else None,
                 "n_features": n_features,
