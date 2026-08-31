@@ -1119,7 +1119,104 @@ bottleneck. The learnable adjacency (Phase 5) should be brought forward.
 
 ---
 
-## 10. Changelog
+## 10. Pre-registration of the remaining ablations
+
+**Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
+
+*Epistemic state at time of writing.* The learnable-graph ablation is running and has
+written 28 of 100 fold rows for one of its three tags to the experiment log. **No
+aggregate over any `F-` tag has been computed or inspected.** Everything in 9.1-9.6 is
+known; nothing about the learnable graph is. The commit above timestamps this against the
+run.
+
+*Why this exists.* §"If the results stay weak" in the plan names the failure mode: with
+enough configurations, one will cross a significance threshold and will not replicate.
+Fixing the list, the outcome measure and the decision rules in advance is the defence, and
+it is only worth anything if written before the results are seen.
+
+### 10.1 Development set versus confirmation set
+
+Every result so far (9.1-9.6) used the **same 20 subjects**, and they have been looked at
+repeatedly while choosing what to try next. Those 20 are therefore a **development set**,
+and results on them are exploratory no matter how clean the statistics look.
+
+**All confirmatory tests below run on the full 103 subjects.** The 83 unseen subjects have
+never influenced any design decision. Where a confirmatory result is reported, it is the
+103-subject number; the 20-subject number may be shown alongside as the exploratory
+estimate that motivated the test.
+
+### 10.2 Primary outcome
+
+**Mean within-family accuracy across the two binary problems** (left vs right fist; both
+fists vs both feet), computed per subject, chance 0.5.
+
+Chosen because it is the only confound-free measure available: both classes in each
+problem come from the same run family, so the artefact quantified in 9.2 cannot
+contribute. The 4-class number is *not* the primary outcome — it has already misled twice
+(9.4, 9.6), improving while the improvement was mostly better run-family identification.
+
+**Secondary outcomes**, reported always but not used for decisions: 4-class accuracy with
+the family / within-family decomposition, Cohen's kappa, macro-F1, per-class accuracy and
+the confusion matrix.
+
+### 10.3 Confirmatory hypotheses
+
+Fixed list. No test will be added after seeing any result.
+
+| # | Hypothesis | Direction | Comparison |
+|---|---|---|---|
+| H1 | A learnable adjacency beats the fixed PCC graph | one-sided, learnable higher | paired, same folds |
+| H2 | Temporal attention beats no attention | one-sided, attention higher | paired, same folds |
+| H3 | Learnable adjacency + temporal attention beats the better of either alone | one-sided | paired |
+| H4 | The best configuration differs from CSP+LDA | **two-sided** — no prediction | paired, same folds |
+| H5 | LOSO within-family accuracy exceeds chance | one-sided | bootstrap CI vs 0.5 |
+
+H4 is two-sided deliberately. On the evidence so far CSP is ahead, and predicting our own
+method wins would be motivated reasoning.
+
+### 10.4 Analysis plan
+
+- Paired across subjects; the pairing unit is the subject, since between-subject variance
+  dwarfs every effect measured so far.
+- 95 % bootstrap CI on the paired difference, 10,000 resamples, seed 0.
+- **Holm-Bonferroni correction across the five confirmatory tests**, family-wise alpha 0.05.
+- A hypothesis is **supported** only if its Holm-corrected interval excludes zero in the
+  predicted direction. Anything else is reported as **not supported** — never as a trend,
+  and never re-tested with different hyperparameters.
+- All five outcomes are reported whichever way they fall, including in the writeup.
+
+### 10.5 Stopping rules
+
+- **One configuration per hypothesis.** Each arm gets the hyperparameters already fixed by
+  the development phase (8-30 Hz, 64-timepoint window, stride 16, 50 epochs, Adam at 1e-3,
+  batch 256). A losing arm is **not** re-run with different settings and the best reported.
+- Three seeds per confirmatory arm; the reported value is the mean across seeds.
+- If an arm fails, it is recorded as a negative result. The audit (9.1-9.2) already stands
+  as a complete finding, so nothing depends on any of these succeeding.
+
+### 10.6 Exploratory analyses — explicitly not confirmatory
+
+These may inform future work and will be **labelled exploratory** wherever they appear. No
+correction is applied, no claim is made from them, and none may be promoted to a
+confirmatory test after the fact:
+
+- window length (0.4 s / 1 s / 2 s / full trial) and band edges (3b, 3c)
+- true lambda_max versus the reference's hardcoded 2 (6.5, 6.6)
+- adjacency L1 sparsity levels, and graph sparsification via `threshold_adjacency`
+- the over-smoothing measurement across the six conv layers
+- learned-versus-PCC graph topography (Phase 6 interpretability)
+
+### 10.7 What gets reported regardless of outcome
+
+The leakage audit and its decomposition (9.1, 9.2); the full-scale leaky replication
+(0.8975 across 103 subjects and 3 seeds); the CSP+LDA comparison (9.5); the Phase 3a
+negative result (9.6); and all five confirmatory outcomes above. A well-characterised
+negative result is the stated acceptable outcome in `CLAUDE.md`, and on current evidence it
+is the likely one.
+
+---
+
+## 11. Changelog
 
 ### 2026-08-31
 
@@ -1241,6 +1338,16 @@ sets lr 1e-6 and regularisation 1e-3.
   raised utilisation to 84 % and cut the estimate from ~11 h to ~4 h with no change to any
   result. The original driver had to be killed to avoid duplicate (subject, fold, seed)
   rows, which would have silently double-counted in every summary.
+- **Pre-registered the remaining ablations (10)** before reading the learnable-graph
+  result: five confirmatory hypotheses with directions, within-family accuracy on the
+  binary problems as the primary outcome, Holm correction across the family, and the
+  20 subjects used so far demoted to a **development set** with all confirmatory tests
+  moved to the full 103. Exploratory analyses listed separately and barred from promotion.
+- Added `scripts/run_loso.py`; `loso_folds` existed but nothing called it, so Phase 4 was
+  blocked on a missing script. It loads subjects once rather than ~10,000 times and refuses
+  configurations whose per-fold sample count makes the run infeasible — the reference's
+  one-timepoint formulation needs 5.9M samples per fold, which is another way that sample
+  definition fails.
 - **Phase 3a: band power as node features (9.6).** 4-class rose 0.3300 -> 0.4222, but the
   decomposition shows ~4/5 of that is better *run-family identification* (0.6100 ->
   0.7378), with within-family up only +0.0298 [+0.0051, +0.0532]. On the matched binary
