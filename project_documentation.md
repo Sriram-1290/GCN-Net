@@ -25,7 +25,9 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Graclus coarsening + binary-tree permutation | Done | 2026-08-31 |
 | Git repository initialised | Done | 2026-08-31 |
 | GCNs-Net model port (PyTorch) | Done | 2026-08-31 |
-| Baseline reproduction (subject-dependent) | Not started | — |
+| Training loop, metrics, experiment log | Done | 2026-08-31 |
+| Leaky replication of the published protocol | Done (20 subj) | 2026-08-31 |
+| Correct-protocol subject-dependent baseline | Done (20 subj) | 2026-08-31 |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
 
@@ -678,6 +680,7 @@ subject is 46,080 timepoint samples, so ~0.10 s per epoch forward-only. Confirms
 | 1 | **4-class definition.** (a) left/right fist + both fists + both feet, all MI. (b) a rest class substituted for one MI class. | **REOPENED 2026-08-31.** The paper *names* L/R/B/F, but the shipped code discards both-fists and substitutes resting-state windows from the baseline run (4.5). Paper and code disagree. Current position: keep (a) for the main pipeline, use the code's scheme only in the leaky replication arm. Needs a call — see 7.1 |
 | 2 | Whether to apply the S089/S090 correction or keep `CLAUDE.md` literal | Correction applied 2026-08-31; revertible |
 | 3 | Delete the 4.4 GB of redundant zip + dead mirror | Awaiting user |
+| 5 | **`CLAUDE.md`'s Expected Results section** states ~90-93 % subject-dependent as the reproduction target and 60-70 % as normal for LOSO. Both derive from the leaky literature, and 9.1-9.2 show the correct-protocol number is ~30 % with no decoding in it. As written the rule reads as "you failed to reproduce". | **Open — flagged to the user 2026-08-31, not yet decided.** Proposal: separate *published-protocol* targets from *correct-protocol* expectations. Not edited unilaterally: it is a research judgement |
 | 4 | **What "reproduce the baseline" means**, given the reference headline rests on four stacked leakage paths. (i) Re-implement the leaky protocol to confirm ~93 %, then show it collapses under a correct split. (ii) Only ever run the correct protocol. | **RESOLVED 2026-08-31 to (i)**, user decision. We reproduce the leaky protocol as a documented artefact, then quantify how much each leakage path contributes. See 7.2 |
 
 ---
@@ -867,10 +870,87 @@ half is straightforwardly pre-empted by the base paper's own authors.
 PhysioNet, (ii) whether either reports LOSO, (iii) their exact adjacency-learning formulation
 so ours is not a re-derivation. Useful survey for the lit review:
 *Graph Neural Network-based EEG Classification: A Survey*, arXiv:2310.02152.
+---
+
+## 9. Results
+
+### 9.1 Leaky replication vs correct protocol (20 subjects)
+
+Identical model, identical data, identical train/test sizes. Only the protocol differs.
+Leaky arm: `scripts/run_leaky_replication.py`. Correct arm:
+`scripts/run_subject_dependent.py`, stratified trial-level 5-fold. 25 epochs, Adam at
+lr 1e-2, seed 42.
+
+| | Published protocol | Correct protocol |
+|---|---|---|
+| trials on both sides of the split | **90 of 90** | **0** |
+| adjacency / standardiser fit on | all data | training trials only |
+| BatchNorm at test | train mode | eval mode |
+| **timepoint accuracy** | **0.8824 +/- 0.1541** | **0.2773 +/- 0.0262** |
+| trial accuracy | — | 0.3000 +/- 0.0500 |
+
+**Paired over the 20 subjects: +0.6051, 95 % bootstrap CI [+0.5364, +0.6691].**
+
+The leaky arm reproduces the paper's published **88.35 %** group-level figure almost
+exactly (we get 88.24 %), which is the evidence that the port is faithful and that the
+gap below is a protocol effect and not an implementation failure.
+
+**Mechanism, from the training curve** (S001, correct protocol):
+
+```
+epoch  1   train 0.2806   val 0.2283
+epoch 10   train 0.9001   val 0.1634
+epoch 25   train 0.9985   val 0.3403
+```
+
+Train accuracy reaches 99.85 % while validation stays at chance. The model is not
+failing to learn — it memorises trial-specific voltage patterns completely. Under the
+published protocol ~90 % of every trial's timepoints are in the training set, so the
+held-out 10 % are trivially recovered. A learning-rate sweep (1e-6, 1e-4, 1e-3, 1e-2)
+leaves the held-out number at chance throughout, so this is not an optimisation artefact.
+The reference's own lr of 1e-6 additionally does not train at all within 25 epochs.
+
+### 9.2 The 30 % contains no motor-imagery decoding
+
+Section 7.1 recorded the run-family confound **in advance** and specified the diagnostics
+that must accompany any 4-class number. Running them (`scripts/run_family_analysis.py`)
+on the pooled 1,800 test trials:
+
+| | Correct protocol | Published protocol |
+|---|---|---|
+| 4-class accuracy (chance 0.25) | 0.3000 | 0.8824 |
+| **run-family** accuracy (chance 0.50) | **0.6239** | 0.9355 |
+| **within-family** accuracy (chance 0.50) | **0.4809** | 0.9432 |
+| left vs right fist (chance 0.50) | 0.4937 | 0.9427 |
+| both fists vs both feet (chance 0.50) | 0.4642 | 0.9437 |
+
+Under the correct protocol the model identifies **which run family a trial came from**
+at 12.4 points above chance, while discriminating *within* a family at 1.9 points
+**below** chance. Classes 0/1 occur only in runs 4/8/12 and classes 2/3 only in runs
+6/10/14, so family identification is available from any run-level non-neural signal —
+electrode drift, impedance change, alertness — with no imagery decoding whatsoever.
+
+**Conclusion: the entire above-chance 4-class performance is the run-family artefact.
+Evaluated correctly, the published architecture and sample definition decode no motor
+imagery at all.** Under leakage the same decomposition shows 94 % within-family, which
+is memorisation of trials, not decoding.
+
+This is the strongest single result in the project so far, and it is strengthened by the
+confound having been predicted and written down before it was measured.
+
+### 9.3 Caveats
+
+- 20 subjects of 103, one seed. Extend before writing up.
+- This is a verdict on the **published formulation** — one timepoint per sample — not on
+  graph approaches to motor imagery in general. A single 6.25 ms sample carries no
+  spectral content, and motor imagery is a band-power phenomenon, so it is unsurprising
+  in hindsight that the formulation cannot generalise across trials.
+- 17/20 subjects sit above chance on the 4-class number, but 9.2 shows that lift is
+  family identification, so per-subject counts above chance are not evidence of decoding.
 
 ---
 
-## 9. Changelog
+## 10. Changelog
 
 ### 2026-08-31
 
@@ -960,7 +1040,17 @@ sets lr 1e-6 and regularisation 1e-3.
   audit, or interpretability rather than on learnable adjacency alone (8.1).
 - Ported the model to PyTorch (`models/`), **359,428 parameters**, matching the ~350K in
   `CLAUDE.md`. Found that the reference's `dropout = 0.50` is dead code under `M = [4]`.
-  Benchmarked at 2.2 ms / 1024 samples and 54 MB VRAM. Test suite now 86 tests.
+  Benchmarked at 2.2 ms / 1024 samples and 54 MB VRAM.
+- Built `evaluation/` (metrics with trial aggregation and paired bootstrap CIs, seeding and
+  git-stamped JSONL experiment log, fold assembly with every leakage-sensitive step in one
+  place, trainer with best-by-validation checkpointing) plus four runner scripts. 108 tests.
+- **Ran both arms over 20 subjects (9).** The leaky replication reproduces the published
+  88.35 % (we get 88.24 %); the correct protocol gives 27.73 % timepoint / 30.00 % trial,
+  a paired gap of **+0.6051, CI [+0.5364, +0.6691]**.
+- **Decomposed the correct-protocol result (9.2): run-family accuracy 0.6239 but
+  within-family accuracy 0.4809 — at chance.** The above-chance 4-class number is entirely
+  the run-family artefact predicted in 7.1. Evaluated correctly, the published formulation
+  decodes no motor imagery.
 - Surveyed the research directions across [1], [2], [4], [5] (8.2). Key takeaways:
   **band-pass filtering to mu/beta is the largest missing lever** and should be the first
   ablation; per-band adjacency is nearly free with existing code; over-smoothing should be

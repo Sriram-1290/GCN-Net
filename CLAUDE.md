@@ -45,6 +45,7 @@ These are the highest-risk failure modes in this project. Violating any of them 
 ## Expected Results — Do Not "Fix" These
 
 - **Subject-dependent accuracy ~90-93%** is the expected reproduction target for the baseline.
+  - *Measured 2026-08-31 — under review.* Reproducing the **published protocol** gives 88.24% (matching the paper's 88.35%). Under a **correct trial-level split** the same model gives 30.0%, and `project_documentation.md` §9.2 shows that number is entirely the run-family artefact — within-family decoding is at chance. These targets derive from the leaky literature; see open decision 5. Not yet revised.
 - **LOSO / subject-independent 4-class accuracy of 60-70% is NORMAL and expected**, not a bug. The gap between these two numbers is the entire point of the project.
 - Do not tune hyperparameters, change splits, or alter the protocol to make LOSO numbers look closer to subject-dependent numbers. Report what is measured.
 - A well-analyzed negative result (improvement doesn't beat baseline) is an acceptable outcome. Do not manufacture gains.

@@ -8,6 +8,12 @@ physionet.org/
 checkpoints/
 runs/
 outputs/
+
+# ...but the experiment log is a result, not an output. CLAUDE.md requires one
+# persistent row per run; versioning it makes the reported numbers auditable.
+!runs/
+runs/*
+!runs/experiments.jsonl
 *.pt
 *.pth
 *.npy
