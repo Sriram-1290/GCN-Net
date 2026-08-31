@@ -681,7 +681,80 @@ paths one at a time so the contribution of each is quantified rather than assert
 
 ---
 
-## 8. Changelog
+## 8. References (verified 2026-08-31)
+
+Checked against Crossref and, for [1], the arXiv PDF title page. **Two entries in the
+draft list were wrong — see the notes.**
+
+**[1]** Y. Hou, S. Jia, X. Lun, **Z. Hao, Y. Shi, Y. Li, R. Zeng**, and J. Lv, "GCNs-Net:
+A Graph Convolutional Neural Network Approach for Decoding Time-Resolved EEG Motor
+Imagery Signals," *IEEE Transactions on Neural Networks and Learning Systems*,
+vol. 35, no. 6, pp. 7312-7323, 2024. DOI: 10.1109/TNNLS.2022.3202569.
+
+> **Corrected.** The draft gave this paper the author list of [2]. The real authors are
+> Yimin Hou\*, Shuyue Jia\*, Xiangmin Lun, **Ziqian Hao, Yan Shi, Yang Li, Rui Zeng**,
+> Jinglei Lv (\* = co-first authorship, per the arXiv title page). S. Zhang, T. Chen and
+> F. Wang are **not** authors of this paper.
+> **Year corrected 2022 -> 2024.** Early access September 2022 (hence the 2022 DOI and the
+> 2022 PubMed date), final issue vol. 35, no. 6, 2024. Cite 2024, or "early access 2022"
+> explicitly if the 2022 date matters.
+
+**[2]** Y. Hou, S. Jia, X. Lun, S. Zhang, T. Chen, F. Wang, and J. Lv, "Deep Feature
+Mining via the Attention-Based Bidirectional Long Short Term Memory Graph Convolutional
+Neural Network for Human Motor Imagery Recognition," *Frontiers in Bioengineering and
+Biotechnology*, vol. 9, art. 706229, 2022. DOI: 10.3389/fbioe.2021.706229. — **correct as
+drafted**; add volume and article number.
+
+**[3]** G. Schalk, D. J. McFarland, T. Hinterberger, N. Birbaumer, and J. R. Wolpaw,
+"BCI2000: A General-Purpose Brain-Computer Interface (BCI) System," *IEEE Transactions on
+Biomedical Engineering*, vol. 51, no. 6, pp. 1034-1043, 2004.
+DOI: 10.1109/TBME.2004.827072. — **correct as drafted.**
+
+> PhysioNet's terms require citing the resource paper **in addition** to [3]:
+> A. L. Goldberger *et al.*, "PhysioBank, PhysioToolkit, and PhysioNet: Components of a
+> New Research Resource for Complex Physiologic Signals," *Circulation*, vol. 101, no. 23,
+> pp. e215-e220, 2000. Add this as a separate entry.
+
+**[4]** X. Deng, D. Xu, H. Huo, X. Hong, and B. Liu, "Multi-level hierarchical dynamic
+graph convolutional network**s** for motor imagery EEG analysis," *Neurocomputing*,
+vol. 626, art. 129594, 2025. DOI: 10.1016/j.neucom.2025.129594. — title takes
+"Network**s**" (plural); "MHD-GCN" is the in-paper acronym, not part of the title.
+
+**[5]** M. Meng, P. Yu, S. Zhang, F. Fang, Y. Ma, Q. She, and Y. Zhang, "SAMGCN: A
+self-adaptive multilevel graph convolutional network for motor imagery classification,"
+*Biomedical Signal Processing and Control*, vol. 116, art. 109506, 2026.
+DOI: 10.1016/j.bspc.2026.109506. — the draft had **no authors**; added.
+
+### 8.1 Positioning note — [4] and [5] are direct prior art
+
+Both are **adaptive/dynamic graph learning for motor imagery**, which is the same space
+as our stated contribution ("dynamic/learnable adjacency + temporal attention"):
+
+- **[4] MHD-GCN** combines a spatiotemporal attention mechanism with hierarchical
+  global/local dynamic topologies built by community clustering.
+- **[5] SAMGCN** learns inter-channel relationships with channel position encoding and a
+  channel self-attention graph-embedding module, over a multilevel GCN.
+
+So "learnable adjacency + attention on a GCN for MI" is **not novel in itself as of 2026**.
+The defensible novelty has to be elsewhere, and on current evidence the strongest candidates
+are:
+
+1. **Subject-independent LOSO evaluation.** Neither GCNs-Net headline number is
+   subject-independent (4.5), and this needs checking for [4] and [5] too — if they also
+   report only within-subject or pooled splits, a rigorous LOSO benchmark across these
+   architectures is a genuine contribution.
+2. **The leakage audit itself.** Quantifying how much of the published GCNs-Net accuracy
+   comes from the three leakage paths (4.4) is a result no one else has published.
+3. **Scalp-topography interpretability**, given the finding that the PCC graph recovers
+   the montage unprompted (6.6).
+
+**Action:** check whether [4] and [5] evaluate under LOSO and on which datasets, before
+finalising the novelty claim. If either already reports LOSO on PhysioNet, the framing
+needs to change.
+
+---
+
+## 9. Changelog
 
 ### 2026-08-31
 
@@ -760,3 +833,12 @@ With CAR the mean edge weight falls 0.686 -> 0.353 and the neighbour/distant con
 
 Also noted: the paper states Adam at lr 0.01 and weight decay 1e-2, while `main-GCN.py`
 sets lr 1e-6 and regularisation 1e-3.
+
+- Verified the five-item reference list against Crossref and the arXiv title page (8).
+  **[1] carried the author list of [2]** — the real authors include Ziqian Hao, Yan Shi,
+  Yang Li and Rui Zeng, not S. Zhang / T. Chen / F. Wang — and its year is **2024**
+  (vol. 35, no. 6, pp. 7312-7323), not 2022. [5] had no authors listed. [2] and [3] were
+  correct. Added the required PhysioNet resource citation (Goldberger et al., 2000).
+- Flagged that [4] MHD-GCN and [5] SAMGCN are **direct prior art** for adaptive graph
+  learning in MI, so the novelty claim needs to rest on LOSO evaluation, the leakage
+  audit, or interpretability rather than on learnable adjacency alone (8.1).
