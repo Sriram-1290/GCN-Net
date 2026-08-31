@@ -1,0 +1,23 @@
+# Raw and cached data — 3.4 GB, reproducible from the PhysioNet archive
+data/raw/
+data/cache/
+physionet.org/
+*.zip
+
+# Experiment outputs
+checkpoints/
+runs/
+outputs/
+*.pt
+*.pth
+*.npy
+*.h5
+*.hdf5
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+.pytest_cache/
