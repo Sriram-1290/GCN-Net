@@ -56,6 +56,12 @@ def main() -> int:
                     help="restrict to a binary problem between two class indices, "
                          "e.g. --classes 0 1. Both classes must come from the same run "
                          "family or the run-family confound re-enters.")
+    ap.add_argument("--learnable-graph", action="store_true",
+                    help="learn the adjacency, initialised at the PCC graph so the "
+                         "model starts identical to the fixed baseline")
+    ap.add_argument("--learn-graph-scale", action="store_true")
+    ap.add_argument("--adjacency-l1", type=float, default=0.0,
+                    help="L1 on the learned graph correction (sparsity)")
     ap.add_argument("--features", choices=["raw", "bandpower"], default="raw",
                     help="node features: raw voltage, or log band power per band. "
                          "bandpower requires an UNFILTERED cache")
@@ -102,12 +108,17 @@ def main() -> int:
         n_features = args.window
     model_cfg = GCNsNetConfig(n_classes=n_classes,
                               in_features=n_features,
+                              learnable_graph=args.learnable_graph,
+                              learn_graph_scale=args.learn_graph_scale,
+                              adjacency_l1=args.adjacency_l1,
                               always_train_bn=args.leaky)
 
     print(f"subjects {len(subjects)}  folds {args.folds}  epochs {args.epochs}  "
           f"lr {train_cfg.learning_rate}  lmax {lmax}  leaky {args.leaky}  seed {seed}")
     print(f"cache {cfg.dataset.cache_dir}  bandpass {cfg.preprocess.bandpass}  "
           f"window {args.window}  stride {args.stride or args.window}")
+    print(f"graph {'LEARNABLE (init at PCC)' if args.learnable_graph else 'fixed PCC'}"
+          + (f"  L1 {args.adjacency_l1}" if args.adjacency_l1 else ""))
     print(f"features {args.features}"
           + (f" ({args.bands}, {n_features} bands)" if args.features == "bandpower" else ""))
     print(f"device {train_cfg.device}\n")
@@ -137,7 +148,7 @@ def main() -> int:
                                 sfreq=ep.sfreq, window=args.window, stride=args.stride,
                                 features=args.features, bands=args.bands,
                                 leaky=args.leaky)
-            model = GCNsNet(fold.bases, model_cfg)
+            model = GCNsNet(fold.bases, model_cfg, adjacencies=fold.adjacencies)
             trainer = Trainer(model, train_cfg, n_classes=n_classes)
 
             history = trainer.fit(

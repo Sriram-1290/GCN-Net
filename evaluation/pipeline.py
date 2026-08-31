@@ -25,7 +25,7 @@ import numpy as np
 from data.normalize import Standardizer, fit_standardizer
 from graphs.adjacency import pcc_adjacency
 from graphs.coarsening import coarsen, perm_data
-from models.gcns_net import build_bases
+from models.gcns_net import build_bases, dense_adjacencies
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,7 @@ class Fold:
     val: Samples | None
     test: Samples
     bases: list[np.ndarray]
+    adjacencies: list[np.ndarray]  # per-layer dense graphs, to seed a learnable one
     perm: list[int]
     adjacency: np.ndarray
     standardizer: Standardizer
@@ -153,6 +154,7 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
     adjacency = pcc_adjacency(fit_source)
     graphs, perm = coarsen(adjacency, levels=levels, self_connections=False, seed=seed)
     bases = build_bases(graphs, orders, lmax=lmax)
+    adjacencies = dense_adjacencies(graphs)
     standardizer = fit_standardizer(fit_source)
 
     step = stride if stride is not None else window
@@ -190,8 +192,9 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
     val_s = convert(val, 100_000) if val is not None else None
     test_s = convert(test, 200_000)
 
-    return Fold(train=train_s, val=val_s, test=test_s, bases=bases, perm=perm,
-                adjacency=adjacency, standardizer=standardizer, leaky=leaky)
+    return Fold(train=train_s, val=val_s, test=test_s, bases=bases,
+                adjacencies=adjacencies, perm=perm, adjacency=adjacency,
+                standardizer=standardizer, leaky=leaky)
 
 
 def concat_trials(parts: list[Trials]) -> Trials:
@@ -227,6 +230,7 @@ def prepare_leaky_fold(trials: Trials, test_frac: float = 0.1, *, levels: int = 
     adjacency = pcc_adjacency(trials.X)
     graphs, perm = coarsen(adjacency, levels=levels, self_connections=False, seed=seed)
     bases = build_bases(graphs, orders, lmax=lmax)
+    adjacencies = dense_adjacencies(graphs)
     standardizer = fit_standardizer(trials.X)
 
     X = perm_data(standardizer.apply(trials.X), perm)
@@ -239,4 +243,5 @@ def prepare_leaky_fold(trials: Trials, test_frac: float = 0.1, *, levels: int = 
         return Samples(X=pooled.X[idx], y=pooled.y[idx], trial_id=pooled.trial_id[idx])
 
     return Fold(train=take(train_idx), val=None, test=take(test_idx), bases=bases,
-                perm=perm, adjacency=adjacency, standardizer=standardizer, leaky=True)
+                adjacencies=adjacencies, perm=perm, adjacency=adjacency,
+                standardizer=standardizer, leaky=True)

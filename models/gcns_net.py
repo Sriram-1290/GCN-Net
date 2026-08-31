@@ -51,6 +51,9 @@ class GCNsNetConfig:
     in_features: int = 1
     weight_std: float = 0.1
     always_train_bn: bool = False
+    learnable_graph: bool = False   # Phase 5: learn the adjacency (9.6)
+    learn_graph_scale: bool = False
+    adjacency_l1: float = 0.0       # sparsity on the learned correction
     dropout: float = 0.0  # dead in the reference; kept switchable
     fc_hidden: tuple[int, ...] = field(default_factory=tuple)
 
@@ -68,7 +71,8 @@ class GCNsNet(nn.Module):
         cfg: architecture configuration.
     """
 
-    def __init__(self, bases: list[np.ndarray], cfg: GCNsNetConfig | None = None) -> None:
+    def __init__(self, bases: list[np.ndarray], cfg: GCNsNetConfig | None = None,
+                 adjacencies: list[np.ndarray] | None = None) -> None:
         super().__init__()
         self.cfg = cfg or GCNsNetConfig()
         n_layers = len(self.cfg.filters)
@@ -90,7 +94,18 @@ class GCNsNet(nn.Module):
                     f"layer {i}: basis has {basis.shape[1]} nodes, "
                     f"but the previous layer produced {n_nodes}"
                 )
-            convs.append(ChebConv(n_in, n_out, basis, weight_std=self.cfg.weight_std))
+            if self.cfg.learnable_graph:
+                if adjacencies is None:
+                    raise ValueError(
+                        "learnable_graph=True needs the per-layer adjacencies, so the "
+                        "learned graph can be initialised at the PCC prior"
+                    )
+                from .dynamic_adjacency import DynamicChebConv
+                convs.append(DynamicChebConv(
+                    n_in, n_out, adjacencies[i], K, weight_std=self.cfg.weight_std,
+                    learn_scale=self.cfg.learn_graph_scale))
+            else:
+                convs.append(ChebConv(n_in, n_out, basis, weight_std=self.cfg.weight_std))
             # Bias is applied before pooling, so it is sized on the pre-pool graph.
             norms.append(VertexBiasNorm(n_nodes, n_out, always_train_bn=self.cfg.always_train_bn))
             poolers.append(GraphMaxPool(p))
@@ -147,6 +162,22 @@ class GCNsNet(nn.Module):
                     total = total + 0.5 * (module.bias ** 2).sum()
         return total
 
+    def adjacency_penalty(self) -> torch.Tensor:
+        """L1 over the learned graph corrections; zero for the fixed baseline."""
+        total = torch.zeros((), device=self.logits.weight.device)
+        for conv in self.convs:
+            if hasattr(conv, "adjacency"):
+                total = total + conv.adjacency.delta_l1()
+        return total
+
+    def learned_adjacencies(self) -> list[np.ndarray]:
+        """Current graph per layer, for the interpretability figures (Phase 6)."""
+        out = []
+        for conv in self.convs:
+            if hasattr(conv, "adjacency"):
+                out.append(conv.adjacency().detach().cpu().numpy())
+        return out
+
     def n_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
@@ -169,3 +200,8 @@ def build_bases(graphs, orders: tuple[int, ...], lmax: float | None = 2.0) -> li
         L = laplacian(A, normalized=True)
         bases.append(chebyshev_basis(rescale_laplacian(L, lmax=lmax), K).astype(np.float32))
     return bases
+
+
+def dense_adjacencies(graphs) -> list[np.ndarray]:
+    """Per-layer dense adjacency matrices, used to initialise a learnable graph."""
+    return [np.asarray(G.todense(), dtype=np.float64) for G in graphs]

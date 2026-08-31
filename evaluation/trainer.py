@@ -90,6 +90,11 @@ class Trainer:
         loss = self.criterion(logits, target)
         if self.cfg.regularization > 0 and hasattr(self.model, "l2_penalty"):
             loss = loss + self.cfg.regularization * self.model.l2_penalty()
+        # Optional sparsity on a learned graph's correction, so the result stays
+        # interpretable against the PCC prior instead of drifting to a dense matrix.
+        l1 = getattr(getattr(self.model, "cfg", None), "adjacency_l1", 0.0)
+        if l1 > 0 and hasattr(self.model, "adjacency_penalty"):
+            loss = loss + l1 * self.model.adjacency_penalty()
         return loss
 
     # --------------------------------------------------------------- training
