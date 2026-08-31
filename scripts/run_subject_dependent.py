@@ -56,6 +56,12 @@ def main() -> int:
                     help="restrict to a binary problem between two class indices, "
                          "e.g. --classes 0 1. Both classes must come from the same run "
                          "family or the run-family confound re-enters.")
+    ap.add_argument("--features", choices=["raw", "bandpower"], default="raw",
+                    help="node features: raw voltage, or log band power per band. "
+                         "bandpower requires an UNFILTERED cache")
+    ap.add_argument("--bands", default="mu_beta",
+                    help="named band set for --features bandpower "
+                         "(fbcsp, mu_beta, mu_beta_fine, broad)")
     ap.add_argument("--window", type=int, default=1,
                     help="timepoints per sample; 1 is the reference's definition")
     ap.add_argument("--stride", type=int, default=None,
@@ -83,14 +89,27 @@ def main() -> int:
         verbose=not args.quiet,
     )
     n_classes = 2 if args.classes else len(cfg.class_names)
+    if args.features == "bandpower":
+        from data.features import resolve_bands
+        n_features = len(resolve_bands(args.bands))
+        if cfg.preprocess.bandpass is not None:
+            raise SystemExit(
+                f"--features bandpower needs an unfiltered cache, but "
+                f"{cfg.source_path} sets bandpass={cfg.preprocess.bandpass}. "
+                f"A band-passed signal has no power outside its passband."
+            )
+    else:
+        n_features = args.window
     model_cfg = GCNsNetConfig(n_classes=n_classes,
-                              in_features=args.window,
+                              in_features=n_features,
                               always_train_bn=args.leaky)
 
     print(f"subjects {len(subjects)}  folds {args.folds}  epochs {args.epochs}  "
           f"lr {train_cfg.learning_rate}  lmax {lmax}  leaky {args.leaky}  seed {seed}")
     print(f"cache {cfg.dataset.cache_dir}  bandpass {cfg.preprocess.bandpass}  "
           f"window {args.window}  stride {args.stride or args.window}")
+    print(f"features {args.features}"
+          + (f" ({args.bands}, {n_features} bands)" if args.features == "bandpower" else ""))
     print(f"device {train_cfg.device}\n")
 
     per_subject: list[float] = []
@@ -115,7 +134,8 @@ def main() -> int:
             test = Trials(X=ep.X[split.test], y=ep.y[split.test])
 
             fold = prepare_fold(train, test, val, lmax=lmax, seed=seed,
-                                window=args.window, stride=args.stride,
+                                sfreq=ep.sfreq, window=args.window, stride=args.stride,
+                                features=args.features, bands=args.bands,
                                 leaky=args.leaky)
             model = GCNsNet(fold.bases, model_cfg)
             trainer = Trainer(model, train_cfg, n_classes=n_classes)
@@ -144,6 +164,9 @@ def main() -> int:
                 "n_classes": n_classes,
                 "window": args.window,
                 "stride": args.stride or args.window,
+                "features": args.features,
+                "bands": args.bands if args.features == "bandpower" else None,
+                "n_features": n_features,
                 "train_config": train_cfg,
                 "model_config": model_cfg,
                 "n_parameters": model.n_parameters(),

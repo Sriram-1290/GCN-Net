@@ -118,8 +118,10 @@ def to_window_samples(X: np.ndarray, y: np.ndarray, window: int, stride: int,
 
 def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
                  levels: int = 5, orders: tuple[int, ...] = (2,) * 6,
-                 lmax: float | None = 2.0, seed: int = 42,
+                 lmax: float | None = 2.0, seed: int = 42, sfreq: float = 160.0,
                  window: int = 1, stride: int | None = None,
+                 features: str = "raw",
+                 bands: str | tuple[tuple[float, float], ...] = "mu_beta",
                  leaky: bool = False) -> Fold:
     """Build graph, statistics and tensors for one fold.
 
@@ -130,6 +132,10 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
         window: timepoints per sample. ``1`` is the reference's definition; larger
             values give the model temporal extent (see :func:`to_window_samples`).
         stride: hop between windows; defaults to ``window`` (non-overlapping).
+        features: ``"raw"`` uses voltage samples as node features; ``"bandpower"``
+            uses log band power per channel per band (see :mod:`data.features`).
+            Band power must be computed from an *unfiltered* cache.
+        bands: named band set or explicit ``((lo, hi), ...)``, for band power only.
         leaky: reproduce the reference's protocol — build the adjacency and the
             standardiser from **all** splits pooled. Only for the replication arm.
 
@@ -151,12 +157,33 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
 
     step = stride if stride is not None else window
 
-    def convert(split: Trials, offset: int) -> Samples:
-        X = standardizer.apply(split.X)
-        X = perm_data(X, perm)
-        if window == 1 and step == 1:
-            return to_timepoint_samples(X, split.y, trial_offset=offset)
-        return to_window_samples(X, split.y, window, step, trial_offset=offset)
+    if features == "bandpower":
+        # The graph still comes from the raw time series, so this is a single
+        # change of node features and nothing else.
+        from data.features import band_power_features, resolve_bands
+        band_tuple = resolve_bands(bands)
+
+        def featurise(split: Trials) -> tuple[np.ndarray, np.ndarray]:
+            return band_power_features(split.X, sfreq, band_tuple, window, step)
+
+        train_feat, _ = featurise(train)
+        standardizer = fit_standardizer(train_feat, per_feature=True)
+
+        def convert(split: Trials, offset: int) -> Samples:
+            feat, trial_index = featurise(split)
+            feat = perm_data(standardizer.apply(feat), perm)
+            return Samples(X=feat.astype(np.float32),
+                           y=split.y[trial_index].astype(np.int64),
+                           trial_id=trial_index + offset)
+    elif features != "raw":
+        raise ValueError(f"unknown features {features!r}; expected 'raw' or 'bandpower'")
+    else:
+        def convert(split: Trials, offset: int) -> Samples:
+            X = standardizer.apply(split.X)
+            X = perm_data(X, perm)
+            if window == 1 and step == 1:
+                return to_timepoint_samples(X, split.y, trial_offset=offset)
+            return to_window_samples(X, split.y, window, step, trial_offset=offset)
 
     # Distinct trial-id ranges per split so aggregated ids never collide.
     train_s = convert(train, 0)

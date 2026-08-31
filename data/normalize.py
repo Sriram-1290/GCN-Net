@@ -37,21 +37,29 @@ class Standardizer:
         return ((X - self.mean) / self.std).astype(np.float32)
 
 
-def fit_standardizer(X_train: np.ndarray, eps: float = 1e-8) -> Standardizer:
-    """Estimate per-channel statistics from the training split only.
+def fit_standardizer(X_train: np.ndarray, eps: float = 1e-8,
+                     per_feature: bool = False) -> Standardizer:
+    """Estimate statistics from the training split only.
 
     Per-channel rather than global: electrode variance differs by an order of
     magnitude across the scalp, and a single global scale would let high-variance
     channels dominate the correlation structure the graph is built on.
+
+    Args:
+        per_feature: reduce over samples only, giving one statistic per
+            ``(channel, feature)`` pair rather than per channel. Required for band
+            power, where the last axis is frequency bands whose scales differ by
+            orders of magnitude — collapsing them would let the low-frequency
+            bands set the scale for every band.
     """
     if X_train.ndim != 3:
         raise ValueError(f"expected (n_trials, n_channels, n_samples), got {X_train.shape}")
     if X_train.shape[0] == 0:
         raise ValueError("cannot fit a standardizer on zero trials")
 
-    # Reduce over trials and time, keeping the channel axis.
-    mean = X_train.mean(axis=(0, 2), keepdims=True)[0]
-    std = X_train.std(axis=(0, 2), keepdims=True)[0]
+    axes = (0,) if per_feature else (0, 2)
+    mean = X_train.mean(axis=axes, keepdims=True)[0]
+    std = X_train.std(axis=axes, keepdims=True)[0]
 
     dead = np.flatnonzero(std.ravel() < eps)
     if dead.size:
