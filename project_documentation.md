@@ -32,6 +32,14 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Classical baseline (CSP+LDA) — Gate A | Done (20 subj) | 2026-08-31 |
 | Phase 1 anchor runs (103 subj x 3 seeds) | Running | 2026-08-31 |
 | Phase 3a: band power as node features | Done (20 subj) | 2026-09-01 |
+| Learnable adjacency implemented | Done | 2026-09-01 |
+| Temporal attention implemented | Done | 2026-09-01 |
+| LOSO runner | Done | 2026-09-01 |
+| Interpretability figures | Done | 2026-09-01 |
+| Holm correction + confirmatory results script | Done | 2026-09-01 |
+| README + pinned requirements | Done | 2026-09-01 |
+| Learnable-graph ablation (20 subj, exploratory) | Running | 2026-09-01 |
+| Confirmatory runs (103 subj) | Not started | — |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
 
@@ -446,6 +454,15 @@ the declared list must agree or the run stops.
 | `graphs/adjacency.py` | `A = \|P\| - I` from a given split; optional sparsification |
 | `graphs/laplacian.py` | normalised Laplacian, Chebyshev rescaling, `T_0..T_{K-1}` basis |
 | `graphs/coarsening.py` | Graclus matching, `compute_perm`, `perm_data`, `perm_adjacency` |
+| `models/dynamic_adjacency.py` | learnable graph, torch Laplacian/Chebyshev, `DynamicChebConv` |
+| `models/temporal_attention.py` | attention over the sample's time axis |
+| `data/features.py` | log band power per channel per band (Hann-tapered rFFT) |
+| `visualization/topography.py` | scalp figures, adjacency heatmaps, confusion with family blocks |
+| `scripts/run_loso.py` | LOSO runner with a per-fold cost guard |
+| `scripts/run_csp_baseline.py` | CSP+LDA classical baseline |
+| `scripts/confirmatory_results.py` | the pre-registered table, Holm-corrected |
+| `scripts/make_figures.py` | writes `figures/` |
+| `README.md`, `requirements.txt` | reproduction instructions and pinned versions |
 | `models/cheb_conv.py` | dense `chebyshev5` equivalent, `b2relu`, `mpool1` |
 | `models/gcns_net.py` | the six-layer stack, `GCNsNetConfig`, `build_bases` |
 | `tests/` | 86 tests, all passing |
@@ -674,6 +691,74 @@ configured `dropout = 0.50` is never applied. Reproduced by default (`dropout=0.
 **Throughput** (RTX 5060, real data): 2.2 ms per 1024-sample batch, 54 MB VRAM. One
 subject is 46,080 timepoint samples, so ~0.10 s per epoch forward-only. Confirms
 `CLAUDE.md`'s expectation that VRAM and speed are not constraints.
+
+---
+
+### 6.8 Contribution components (implemented, not yet evaluated)
+
+**Learnable adjacency** (`models/dynamic_adjacency.py`). `A = relu(A_pcc + delta)`,
+symmetrised and zero-diagonal *by construction* — a normalised Laplacian is only defined
+for a symmetric non-negative adjacency, so a soft penalty would permit invalid graphs
+mid-training. `delta` initialises to zero, so the model starts **bit-for-bit identical to
+the fixed baseline**; a test asserts both produce the same output at init. Without that
+property the ablation would confound "learning the graph" with "a different starting
+point". The coarsening hierarchy stays fixed: Graclus is discrete and non-differentiable,
+and recomputing the pooling tree each step would change which electrodes are siblings
+during training. Cost is **5,460 parameters against 359,428 (1.5 %)**, pinned by a test so
+a gain cannot be attributed to capacity. The Laplacian, rescaling and Chebyshev recurrence
+are reimplemented in torch and tested against the numpy versions the baseline uses.
+
+*Measured cost:* the dynamic convolution recomputes the basis every forward pass at every
+layer, which is unavoidable since the graph changes as `delta` updates. This runs at
+**20.6 s/fold against 3.1 s/fold** for the fixed graph — partly GPU contention, partly a
+real ~2-3x training cost that must be reported alongside any benefit.
+
+**Temporal attention** (`models/temporal_attention.py`). Scores are computed from the whole
+64-channel pattern at each instant and shared across nodes by default, pooling `T`
+timepoints into `n_heads` summaries. **Honest limitation:** unlike the adjacency this is
+*not* initialisation-equivalent to the baseline — the first conv sees `Fin = n_heads`
+rather than `Fin = T`, and no parameter setting reproduces the fixed linear mix. The
+comparison is "attention pooling versus linear mixing"; parameter counts move in both
+directions (attention adds weights but shrinks conv1 from 64 to 4 input features) and both
+are logged.
+
+### 6.9 LOSO runner
+
+`scripts/run_loso.py`. `loso_folds` had been written and tested but nothing called it, so
+Phase 4 was blocked on a script that did not exist. Two things it must get right that the
+subject-dependent runner did not: subjects are loaded **once** rather than re-read inside
+each fold (~10,000 cache decompressions otherwise), and it **estimates per-fold sample
+count and refuses infeasible configurations** instead of appearing to hang.
+
+That guard produced a finding. LOSO is ~100x the subject-dependent protocol — ~8,700
+training trials per fold instead of ~58 — so the reference's one-timepoint sample
+definition needs **5.9M samples per fold** and would run for days across 103 folds.
+Windowing brings it inside budget. **This is a third way the published sample definition
+fails**: beyond decoding nothing under an honest split, it makes subject-independent
+evaluation computationally impossible, which may be part of why no LOSO number exists in
+the literature for this architecture.
+
+### 6.10 Figures, statistics and reproducibility
+
+**Figures** (`visualization/topography.py`, `scripts/make_figures.py`). Each makes a claim
+checkable by eye. `montage_recovery.png` quantifies 6.6: **mean cluster edge 0.045 against
+0.109 for a random pairing**, so clusters are ~2.4x more local than chance. The
+random-pairing baseline is drawn on the figure so "short and local" is a number rather than
+an impression, and the handful of long edges that do cross are visible rather than hidden.
+
+**Statistics.** `bootstrap_p_value` (directional, re-centred null, never returns zero from
+a finite resample) and `holm_bonferroni` (step-down). `scripts/confirmatory_results.py`
+evaluates the five pre-registered hypotheses and labels anything run on fewer than 100
+subjects **EXPLORATORY regardless of its p-value**, enforcing 10.1 in code rather than by
+discipline.
+
+*A test of ours was wrong rather than the code:* asserting a single null seed gives a large
+p-value tests that seed's luck, not the estimator. Replaced with a calibration test over
+200 nulls — **4.5 % fall below 0.05 against a nominal 5 %, median p 0.456**.
+
+**Reproducibility.** `README.md` and `requirements.txt`. torch is called out separately
+since the sm_120 build is not on PyPI. The README carries a "things that will bite you"
+section listing every trap this project actually hit.
 
 ---
 
@@ -1338,6 +1423,18 @@ sets lr 1e-6 and regularisation 1e-3.
   raised utilisation to 84 % and cut the estimate from ~11 h to ~4 h with no change to any
   result. The original driver had to be killed to avoid duplicate (subject, fold, seed)
   rows, which would have silently double-counted in every summary.
+- **Documentation drift, and its correction.** Sections 6.8-6.10 and the entries below
+  were written in one catch-up pass after the user asked whether the documentation was
+  still being maintained. It was not: two commits (`8372c11`, `2e17ddb`) landed with no
+  doc update, and the learnable adjacency, temporal attention, figures, Holm correction,
+  README and requirements were all absent from this record. The cause was treating
+  detailed commit messages as the record once the work became code-heavy. They are not —
+  a commit message is not discoverable by someone reading the project. Recorded here
+  rather than quietly fixed, because a living document that silently skips a day is worse
+  than one that admits the gap.
+- Implemented the **learnable adjacency** and **temporal attention** (6.8), the **LOSO
+  runner** (6.9), and the **figures, Holm correction and reproducibility files** (6.10).
+  166 tests passing.
 - **Pre-registered the remaining ablations (10)** before reading the learnable-graph
   result: five confirmatory hypotheses with directions, within-family accuracy on the
   binary problems as the primary outcome, Holm correction across the family, and the
