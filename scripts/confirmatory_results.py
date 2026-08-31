@@ -82,6 +82,8 @@ def main() -> int:
     ap.add_argument("--alpha", type=float, default=0.05)
     args = ap.parse_args()
 
+    from evaluation.experiment_log import warn_if_duplicated
+    warn_if_duplicated(args.log)
     rows = [json.loads(l) for l in open(args.log, encoding="utf-8") if l.strip()]
 
     print("CONFIRMATORY RESULTS -- pre-registered in project_documentation.md 10")

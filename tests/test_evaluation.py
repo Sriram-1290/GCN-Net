@@ -380,3 +380,37 @@ def test_describe_resume_says_what_it_found():
     from evaluation.experiment_log import describe_resume
     assert "starting from the beginning" in describe_resume(set(), 10, "t")
     assert "3 of 10" in describe_resume({("S001", 0), ("S001", 1), ("S002", 0)}, 10, "t")
+
+
+def test_find_duplicates_is_empty_on_a_clean_log(tmp_path):
+    from evaluation.experiment_log import find_duplicates, log_experiment
+    p = tmp_path / "log.jsonl"
+    for fold in range(3):
+        log_experiment({"tag": "t", "subject": "S001", "fold": fold}, path=p)
+    assert find_duplicates(p) == {}
+
+
+def test_find_duplicates_catches_a_repeated_fold(tmp_path):
+    from evaluation.experiment_log import find_duplicates, log_experiment
+    p = tmp_path / "log.jsonl"
+    log_experiment({"tag": "t", "subject": "S001", "fold": 0}, path=p)
+    log_experiment({"tag": "t", "subject": "S001", "fold": 0}, path=p)
+    assert find_duplicates(p) == {"t": 1}
+
+
+def test_two_rows_per_subject_are_not_duplicates_when_the_problem_differs(tmp_path):
+    """The CSP baseline writes one row per binary problem; that is correct."""
+    from evaluation.experiment_log import find_duplicates, log_experiment
+    p = tmp_path / "log.jsonl"
+    log_experiment({"tag": "csp", "subject": "S001", "problem": "left_vs_right"}, path=p)
+    log_experiment({"tag": "csp", "subject": "S001", "problem": "fists_vs_feet"}, path=p)
+    assert find_duplicates(p) == {}
+
+
+def test_a_sweep_over_learning_rates_is_not_duplicated(tmp_path):
+    from evaluation.experiment_log import find_duplicates, log_experiment
+    p = tmp_path / "log.jsonl"
+    for lr in (1e-3, 1e-2):
+        log_experiment({"tag": "sweep", "subject": "S001", "fold": 0,
+                        "train_config": {"learning_rate": lr}}, path=p)
+    assert find_duplicates(p) == {}

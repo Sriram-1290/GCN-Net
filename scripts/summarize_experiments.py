@@ -57,6 +57,8 @@ def main() -> int:
     ap.add_argument("--honest-tag", default="honest-20subj")
     args = ap.parse_args()
 
+    from evaluation.experiment_log import warn_if_duplicated
+    warn_if_duplicated(args.log)
     rows = load_rows(Path(args.log))
     leaky_rows = [r for r in rows if r.get("tag") == args.leaky_tag]
     honest_rows = [r for r in rows if r.get("tag") == args.honest_tag]

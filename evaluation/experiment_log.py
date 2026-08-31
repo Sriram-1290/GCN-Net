@@ -138,3 +138,54 @@ def describe_resume(done: set, total: int, tag: str) -> str:
         return f"resume: no previous rows for tag {tag!r}, starting from the beginning"
     return (f"resume: {len(done)} of {total} folds already logged under {tag!r}, "
             f"skipping those")
+
+
+def _row_identity(row: dict) -> tuple:
+    """Fields that make a log row unique.
+
+    Includes more than (tag, subject, fold) because some runs legitimately write
+    several rows per subject under one tag: the CSP baseline writes one per binary
+    *problem*, and a sweep writes one per learning rate. Keying on those avoids
+    reporting correct rows as duplicates.
+    """
+    return (
+        row.get("tag"),
+        row.get("subject"),
+        row.get("fold"),
+        row.get("problem"),
+        row.get("train_config", {}).get("learning_rate"),
+        tuple(row["classes"]) if row.get("classes") else None,
+    )
+
+
+def find_duplicates(path: Path | str = DEFAULT_LOG) -> dict[str, int]:
+    """Duplicated row identities per tag, empty when the log is clean.
+
+    Worth calling at the top of any analysis: a duplicated fold silently
+    double-counts in a per-subject mean, which looks like a result rather than an
+    error. This happened once for real -- an orphaned driver survived a stop and
+    ran the same tags concurrently with its replacement.
+    """
+    counts: dict[tuple, int] = {}
+    for row in read_experiments(path):
+        k = _row_identity(row)
+        counts[k] = counts.get(k, 0) + 1
+    per_tag: dict[str, int] = {}
+    for key, n in counts.items():
+        if n > 1:
+            per_tag[key[0]] = per_tag.get(key[0], 0) + (n - 1)
+    return per_tag
+
+
+def warn_if_duplicated(path: Path | str = DEFAULT_LOG) -> bool:
+    """Print a loud warning if the log has duplicates. Returns True if clean."""
+    dupes = find_duplicates(path)
+    if not dupes:
+        return True
+    print("!" * 70)
+    print("WARNING: duplicated rows in the experiment log. Per-subject means below")
+    print("are double-counting. Deduplicate before trusting any number.")
+    for tag, n in sorted(dupes.items(), key=lambda kv: -kv[1]):
+        print(f"  {tag}: {n} extra rows")
+    print("!" * 70)
+    return False
