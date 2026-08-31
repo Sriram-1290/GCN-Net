@@ -52,6 +52,10 @@ def main() -> int:
                     help="default is the reference's 1e-6; the paper says 0.01")
     ap.add_argument("--batch-size", type=int, default=1024)
     ap.add_argument("--val-frac", type=float, default=0.2)
+    ap.add_argument("--classes", nargs=2, type=int, default=None, metavar=("A", "B"),
+                    help="restrict to a binary problem between two class indices, "
+                         "e.g. --classes 0 1. Both classes must come from the same run "
+                         "family or the run-family confound re-enters.")
     ap.add_argument("--window", type=int, default=1,
                     help="timepoints per sample; 1 is the reference's definition")
     ap.add_argument("--stride", type=int, default=None,
@@ -78,7 +82,8 @@ def main() -> int:
         learning_rate=args.lr if args.lr is not None else TrainConfig.learning_rate,
         verbose=not args.quiet,
     )
-    model_cfg = GCNsNetConfig(n_classes=len(cfg.class_names),
+    n_classes = 2 if args.classes else len(cfg.class_names)
+    model_cfg = GCNsNetConfig(n_classes=n_classes,
                               in_features=args.window,
                               always_train_bn=args.leaky)
 
@@ -93,6 +98,14 @@ def main() -> int:
 
     for subject in subjects:
         ep = load_subject(subject, cfg.dataset.cache_dir)
+        X_all, y_all = ep.X, ep.y
+        if args.classes:
+            # Relabel the chosen pair to {0, 1}; everything downstream is unchanged.
+            mask = np.isin(y_all, args.classes)
+            X_all = X_all[mask]
+            y_all = (y_all[mask] == args.classes[1]).astype(np.int64)
+        ep = type(ep)(subject=ep.subject, X=X_all, y=y_all, run=ep.run[:len(y_all)],
+                      onset=ep.onset[:len(y_all)], ch_names=ep.ch_names, sfreq=ep.sfreq)
         fold_trial_acc, fold_tp_acc = [], []
 
         for split in stratified_trial_kfold(ep.y, n_splits=args.folds, seed=seed):
@@ -105,7 +118,7 @@ def main() -> int:
                                 window=args.window, stride=args.stride,
                                 leaky=args.leaky)
             model = GCNsNet(fold.bases, model_cfg)
-            trainer = Trainer(model, train_cfg, n_classes=len(cfg.class_names))
+            trainer = Trainer(model, train_cfg, n_classes=n_classes)
 
             history = trainer.fit(
                 fold, checkpoint_path=f"checkpoints/{subject}_fold{split.fold}.pt")
@@ -127,6 +140,8 @@ def main() -> int:
                 "preprocess": {"bandpass": cfg.preprocess.bandpass,
                                "rereference": cfg.preprocess.rereference},
                 "lmax": lmax,
+                "classes": args.classes,
+                "n_classes": n_classes,
                 "window": args.window,
                 "stride": args.stride or args.window,
                 "train_config": train_cfg,

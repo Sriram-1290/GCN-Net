@@ -29,6 +29,8 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Leaky replication of the published protocol | Done (20 subj) | 2026-08-31 |
 | Correct-protocol subject-dependent baseline | Done (20 subj) | 2026-08-31 |
 | Representation ablation (band-pass x window) | Done (20 subj) | 2026-08-31 |
+| Classical baseline (CSP+LDA) — Gate A | Done (20 subj) | 2026-08-31 |
+| Phase 1 anchor runs (103 subj x 3 seeds) | Running | 2026-08-31 |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
 
@@ -1010,6 +1012,56 @@ should not be quoted.
 
 ---
 
+### 9.5 Gate A — the classical baseline beats the network
+
+The question 9.4 could not answer: is 0.54 within-family a limit of *this architecture*
+or of *this task under honest evaluation*? Common Spatial Patterns + LDA settles it.
+
+`scripts/run_csp_baseline.py` runs CSP (4 components, Ledoit-Wolf regularised) with
+shrinkage LDA on the same subjects, the same `stratified_trial_kfold` splits, the same
+8-30 Hz cache and the same metrics module. CSP is fit on training trials only — it is a
+supervised spatial filter, so fitting it on all data would leak exactly as the reference's
+adjacency does.
+
+**Making the comparison exact.** The first CSP run was not strictly comparable: the
+network's "within-family" accuracy is conditioned on it *predicting* the right family,
+whereas CSP is handed the true family. A `--classes A B` flag was added to
+`run_subject_dependent.py` so the network solves the identical two binary problems. Both
+classes in each problem come from the same run family, so the run-family confound cannot
+contribute.
+
+| problem | GCNs-Net | CSP+LDA | paired GCN − CSP |
+|---|---|---|---|
+| left vs right fist | 0.5178 | **0.5711** | −0.0533 [−0.1000, −0.0044] |
+| both fists vs both feet | 0.5767 | **0.6722** | −0.0956 [−0.1511, −0.0367] |
+| **mean within-family** | **0.5472** | **0.6217** | **−0.0744 [−0.1111, −0.0367]** |
+
+**CSP+LDA beats the network on both problems and on 16 of 20 subjects.** Both CIs exclude
+zero.
+
+**Gate A verdict: continue to Phase 3.** The ceiling is not the task — 0.67 is reachable
+on fists-vs-feet where the network manages 0.58. The architecture, or our representation
+of its input, is genuinely underperforming a linear method that predates it by two
+decades. There is real headroom, so representation work is justified rather than
+speculative.
+
+**This sharpens the thesis.** It is no longer only "the published result was leakage" but
+"the published result was leakage, and under honest evaluation the architecture is beaten
+by CSP+LDA". That is a more pointed finding and it makes Phase 3 the obvious next step.
+
+**A neurophysiological sanity check that passes.** Both methods find fists-vs-feet
+(0.67 / 0.58) much easier than left-vs-right (0.57 / 0.52). Hand and foot motor cortex are
+well separated on the homunculus, while left-vs-right hand requires finer lateralisation.
+The ordering is what the anatomy predicts, which is mild evidence that both pipelines are
+measuring something real rather than noise.
+
+**Direct implication for Phase 3a.** CSP is explicitly a spatial-filter-plus-log-band-power
+method. The network is currently being handed raw microvolts and asked to infer band power
+from a waveform. Making band power an explicit node feature is therefore not a generic
+tuning idea — it is giving the network the representation its winning competitor uses.
+
+---
+
 ## 10. Changelog
 
 ### 2026-08-31
@@ -1120,6 +1172,13 @@ sets lr 1e-6 and regularisation 1e-3.
 - **Recorded a failed prediction**: band-passing did not reduce family accuracy as 9.2's
   drift mechanism implied, and the 7.1 diagnostic was over-stated because family accuracy
   includes a real bilateral-vs-unilateral neural difference. 114 tests passing.
+- Published the phased research plan as an artifact (Phases 1-6, decision gates, fallback).
+- Wrote `scripts/run_csp_baseline.py` and added a `--classes` flag to the runner so the
+  network can be measured on the identical binary problems.
+- **Gate A resolved (9.5): CSP+LDA beats the network.** Mean within-family 0.6217 vs
+  0.5472, paired −0.0744 [−0.1111, −0.0367], CSP ahead on 16/20 subjects. The ceiling is
+  the architecture/representation, not the task, so Phase 3 proceeds.
+- Started Phase 1 anchor runs (103 subjects x 3 configs x 3 seeds, unattended).
 - Surveyed the research directions across [1], [2], [4], [5] (8.2). Key takeaways:
   **band-pass filtering to mu/beta is the largest missing lever** and should be the first
   ablation; per-band adjacency is nearly free with existing code; over-smoothing should be
