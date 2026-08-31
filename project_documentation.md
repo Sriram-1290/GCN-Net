@@ -752,6 +752,69 @@ are:
 finalising the novelty claim. If either already reports LOSO on PhysioNet, the framing
 needs to change.
 
+### 8.2 Research directions in the reference list, and what we take from them
+
+Sources: [1] read in full; [2] abstract + published record; [4] and [5] **abstracts only**
+— both are paywalled on ScienceDirect (403) and the SSRN preprint of [4] is also blocked.
+Claims below about [4] and [5] are therefore abstract-level and must be re-checked against
+the PDFs before anything is written up.
+
+**The arc.**
+
+| | Paper | Graph | Temporal / spectral | Evaluation |
+|---|---|---|---|---|
+| 2022/24 | [1] GCNs-Net | **static** `\|PCC\| - I` over all signals | none — one timepoint per sample | within-subject + pooled |
+| 2022 | [2] BiLSTM-GCN *(same group)* | static PCC | **BiLSTM + attention**, 0.4 s windows | within-subject + pooled |
+| 2025 | [4] MHD-GCN | **dynamic**, hierarchical global/local topologies from community clustering | spatiotemporal attention + **multi-level wavelet** bands | PhysioNet **and** BCI Competition |
+| 2026 | [5] SAMGCN | **adaptive**, adjacency updated during training; channel position encoding + channel self-attention | dual branch: **differential entropy** (frequency) + temporal | BCI IV-2a and OpenBMI |
+
+**Five directions the field has converged on since [1]:**
+
+1. **The adjacency is learned, not fixed.** Both [4] and [5] update it during training.
+2. **Frequency decomposition replaced the raw broadband signal.** [4] uses multi-level
+   wavelet blocks for clinical bands; [5] uses differential entropy features. [1] uses
+   unfiltered broadband, which is now clearly the outlier.
+3. **Attention over channels and/or time**, rather than pure convolution.
+4. **Hierarchical / multi-level topology** instead of a single graph — [4] builds separate
+   global and local functional spaces by community clustering.
+5. **Over-smoothing is named as the failure mode** to design against ([5] explicitly).
+
+**What we take, ranked by value per unit of work.**
+
+1. **Band-pass filtering to the mu/beta range.** The single biggest lever we are missing.
+   Our pipeline follows [1] with *no filtering at all* — broadband 0-80 Hz — while motor
+   imagery lives in mu (8-13 Hz) and beta (13-30 Hz). Both modern papers work in the
+   frequency domain. Cost: one config line, `bandpass: [8, 30]`, plus a cache rebuild
+   (~45 s). Likely a larger gain than a learnable adjacency, and it must be ablated
+   separately or it will contaminate attribution of every later result.
+2. **Per-band adjacency.** One PCC graph per band rather than one broadband graph — the
+   idea behind [4]'s "multispectral representations". Our `pcc_adjacency` already takes
+   arbitrary data, so this is a loop, not new machinery.
+3. **Measure over-smoothing before designing against it.** With six conv layers on a
+   64-node near-complete graph, the baseline is a prime candidate. Node-feature similarity
+   per layer is a cheap diagnostic and a good figure, and it would *justify* the
+   contribution rather than assert it.
+4. **Community clustering as an alternative pooling hierarchy** ([4]) — a direct ablation
+   against our Graclus port, which already produces anatomically sensible clusters (6.6).
+
+**Positioning consequence — [2] matters more than we assumed.** [2] is the *same group's*
+follow-up and already pairs a GCN with temporal attention (BiLSTM + attention). Our stated
+contribution must therefore be positioned against [2], not only [1], or the temporal-attention
+half is straightforwardly pre-empted by the base paper's own authors.
+
+**What still looks defensible:**
+
+- **LOSO on PhysioNet.** [5] does not use PhysioNet at all (BCI IV-2a and OpenBMI), so it
+  does not compete here. **[4] does use PhysioNet** — whether under LOSO is unknown and is
+  the single most important thing to check.
+- **The leakage audit** (4.4). No one appears to have published it.
+- **Interpretability**, supported by the montage-recovery result (6.6).
+
+**Open action:** obtain the PDFs of [4] and [5] and confirm (i) [4]'s evaluation protocol on
+PhysioNet, (ii) whether either reports LOSO, (iii) their exact adjacency-learning formulation
+so ours is not a re-derivation. Useful survey for the lit review:
+*Graph Neural Network-based EEG Classification: A Survey*, arXiv:2310.02152.
+
 ---
 
 ## 9. Changelog
@@ -842,3 +905,9 @@ sets lr 1e-6 and regularisation 1e-3.
 - Flagged that [4] MHD-GCN and [5] SAMGCN are **direct prior art** for adaptive graph
   learning in MI, so the novelty claim needs to rest on LOSO evaluation, the leakage
   audit, or interpretability rather than on learnable adjacency alone (8.1).
+- Surveyed the research directions across [1], [2], [4], [5] (8.2). Key takeaways:
+  **band-pass filtering to mu/beta is the largest missing lever** and should be the first
+  ablation; per-band adjacency is nearly free with existing code; over-smoothing should be
+  *measured* on the baseline before being designed against; and **[2] already pairs a GCN
+  with temporal attention**, so the contribution must be positioned against [2], not only
+  [1]. [5] does not use PhysioNet; [4] does, and its protocol is the critical unknown.
