@@ -20,6 +20,8 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Dataset quality audit (all 109 subjects) | Done | 2026-08-31 |
 | Reference implementation analysed | Done | 2026-08-31 |
 | Data loader + epoching + cache | Done | 2026-08-31 |
+| Splits (trial-level, LOSO, leaky) | Done | 2026-08-31 |
+| PCC adjacency + Laplacian + Chebyshev basis | Done | 2026-08-31 |
 | Git repository initialised | Done | 2026-08-31 |
 | Baseline reproduction (subject-dependent) | Not started | — |
 | LOSO evaluation | Not started | — |
@@ -363,7 +365,11 @@ the declared list must agree or the run stops.
 | `data/edf_loader.py` | EDF read, channel standardisation, validation, manual epoching |
 | `data/cache.py` | per-subject `.npz`, `manifest.json`, config-fingerprint guard |
 | `scripts/build_cache.py` | CLI cache builder |
-| `tests/test_labels.py` | 12 tests, all passing |
+| `data/splits.py` | trial-level k-fold, LOSO with disjoint val subjects, and the leaky reference split |
+| `data/normalize.py` | per-channel standardiser, fit on train only |
+| `graphs/adjacency.py` | `A = \|P\| - I` from a given split; optional sparsification |
+| `graphs/laplacian.py` | normalised Laplacian, Chebyshev rescaling, `T_0..T_{K-1}` basis |
+| `tests/` | 52 tests, all passing (labels, splits, graphs, normalisation) |
 
 ### 6.2 Design decisions and why
 
@@ -397,8 +403,79 @@ Balanced to within 1.6 % across classes. Verified on read-back: correct channel
 names, 15 trials per run x 6 runs, plausible microvolt range, zero duplicate
 (run, onset) pairs.
 
-**Not yet built:** splits (trial-level and LOSO), PCC adjacency, Laplacian,
-coarsening, the model, training loop, evaluation, visualisation.
+**Not yet built:** Graclus coarsening, the model, training loop, evaluation,
+visualisation.
+
+### 6.4 Splits and graph construction
+
+`data/splits.py` provides three split families, and the distinction between them is
+the methodological core of the project:
+
+- `stratified_trial_kfold` - subject-dependent, split at **trial** level. Correct.
+- `loso_folds` - one fold per subject, with `n_val_subjects` drawn from the remaining
+  subjects for checkpoint selection so model selection never sees the test subject.
+  Per-fold seeds vary the validation draw; identical validation subjects across all
+  folds would bias selection toward whatever those subjects happen to reward.
+- `leaky_timepoint_holdout` - **deliberately wrong**, reproducing the reference
+  protocol. `count_shared_trials()` measures the damage: with 640 timepoints per trial
+  and a 10 % cut, **all 90 trials contribute to both sides**. This is what makes the
+  replication arm a measurement rather than an assertion.
+
+`data/normalize.py` deliberately offers no `fit_transform` over a whole dataset. The
+missing convenience method is the point.
+
+### 6.5 First observations from real data (S001, fold 0)
+
+Verified end to end on cached EEG. Two findings worth carrying forward.
+
+**1. The paper's graph is nearly complete, and barely a graph at all.**
+
+```
+A = |P| - I    range [0.000, 0.999]    mean edge weight 0.675
+density (>0.01) 0.984
+```
+
+98.4 % of all electrode pairs carry a non-trivial edge. Because the pipeline applies
+no filtering and no re-referencing (matching the reference), every channel shares a
+large common-mode component, so everything correlates with everything. Spatial
+structure *is* present and in the right direction -
+
+```
+|PCC|(C3, C1) 0.973   (C3, C5) 0.912   (C3, C4) 0.851   (C3, Oz) 0.718   (C3, Fp1) 0.638
+mean neighbours 0.950  vs  mean distant 0.645
+```
+
+- but compressed into a narrow band. A near-complete graph gives the spectral
+convolution little topology to exploit, which is a real weakness of the baseline and a
+direct motivation for the **learnable adjacency** contribution. `threshold_adjacency()`
+exists so sparsification can be ablated.
+
+**2. The hardcoded `lmax = 2` wastes half the Chebyshev domain.**
+
+```
+true lambda_max 1.0269   (the reference hardcodes 2.0)
+rescaled spectrum with lmax=2.0  ->  [-1.0000, 0.0269]
+```
+
+`lmax = 2` is a valid upper bound for a normalised Laplacian, but the actual spectrum
+here reaches only 1.03, so `L_tilde` occupies just over half of [-1, 1]. The Chebyshev
+polynomials are therefore evaluated over a compressed range and lose expressive power.
+`rescale_laplacian(L, lmax=None)` uses the computed lambda_max instead. This is a cheap,
+well-motivated ablation and a possible free improvement over the baseline - and it is
+independent of our headline contribution, so it must be ablated separately rather than
+bundled in.
+
+**3. Adjacency leakage is real but modest at subject level.** Train-only vs all-data
+adjacency for S001: `max|diff| 0.051`, `mean|diff| 0.0086`. Small, but the graph is
+shared across every layer, so the effect is systematic rather than noise. At group
+level, where the paper pools subjects, the comparison will differ.
+
+**Normalisation check.** After fitting on the training split only, train standardises to
+exactly 0.000 / 1.000 while test lands at 0.056 / 0.903 - not forced to 0/1, which is
+the observable signature that the statistics never saw it.
+
+**LOSO shape.** 103 folds; each is 97 train / 5 validation / 1 test subject, i.e. 8,730
+training trials against 90 test trials.
 
 ---
 
@@ -498,3 +575,12 @@ paths one at a time so the contribution of each is quantified rather than assert
   two-run plan is recorded in 7.2.
 - Documented the run-family confound inherent to scheme (a) and the diagnostics that
   must accompany any 4-class number (7.1).
+- Built `data/splits.py` (trial-level k-fold, LOSO with disjoint validation subjects,
+  and the leaky reference split with a `count_shared_trials` audit),
+  `data/normalize.py`, `graphs/adjacency.py` and `graphs/laplacian.py`. Test suite now
+  52 tests, all passing.
+- **Observed on real data:** the paper's adjacency is 98.4 % dense with mean edge
+  weight 0.675 - a near-complete graph with little topology, which motivates the
+  learnable-adjacency contribution; and the true lambda_max is 1.03, so the reference's
+  hardcoded `lmax = 2` confines the rescaled spectrum to [-1, 0.03] and wastes half the
+  Chebyshev domain. Both are logged as ablations (6.5).
