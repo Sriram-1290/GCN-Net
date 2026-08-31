@@ -127,3 +127,28 @@ def test_correct_trial_split_shares_no_trials_when_expanded_to_timepoints():
     split = stratified_trial_kfold(y, n_splits=5, seed=0)[0]
     expand = lambda idx: (idx[:, None] * n_samples + np.arange(n_samples)).ravel()
     assert count_shared_trials(expand(split.train), expand(split.test), n_samples) == 0
+
+
+# --------------------------------------------------------------------------
+# LOSO cost estimation (guards against launching an infeasible run)
+# --------------------------------------------------------------------------
+
+def test_sample_estimate_matches_the_reference_formulation():
+    from scripts.run_loso import estimate_samples
+    # window=1 is the reference's one-timepoint sample: trials x timepoints
+    assert estimate_samples(8730, 640, window=1, stride=1, features="raw") == 8730 * 640
+
+
+def test_sample_estimate_counts_windows_not_timepoints():
+    from scripts.run_loso import estimate_samples
+    # (640 - 64) // 32 + 1 = 19 windows per trial
+    assert estimate_samples(100, 640, window=64, stride=32, features="raw") == 1900
+
+
+def test_windowing_brings_loso_inside_the_budget_and_timepoints_do_not():
+    """The check that stops an infeasible LOSO run from looking like a hang."""
+    from scripts.run_loso import SAMPLE_BUDGET, estimate_samples
+    timepoint = estimate_samples(8730, 640, 1, 1, "raw")
+    windowed = estimate_samples(8730, 640, 64, 64, "raw")
+    assert timepoint > SAMPLE_BUDGET      # the reference formulation is hopeless
+    assert windowed <= SAMPLE_BUDGET      # windowing makes it feasible
