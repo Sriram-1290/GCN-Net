@@ -19,7 +19,8 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Environment / GPU verified | Done | 2026-08-31 |
 | Dataset quality audit (all 109 subjects) | Done | 2026-08-31 |
 | Reference implementation analysed | Done | 2026-08-31 |
-| Data loader | Not started | — |
+| Data loader + epoching + cache | Done | 2026-08-31 |
+| Git repository initialised | Done | 2026-08-31 |
 | Baseline reproduction (subject-dependent) | Not started | — |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
@@ -46,12 +47,12 @@ raised in `CLAUDE.md` is resolved.
 **Installed:** numpy 2.4.4, scipy 1.18.0, scikit-learn 1.9.0, matplotlib 3.11.1,
 pandas 3.0.5, torch 2.12.1.
 
-**Required, not yet installed** (all confirmed installable on Python 3.14 via
-`pip install --dry-run`): `mne 1.12.1`, `h5py 3.16.0`, `torch_geometric 2.8.0`.
-PyG 2.8 is pure-Python, so no compiled `torch-scatter` wheel is needed.
+**Also installed** (2026-08-31): `mne 1.12.1`, `h5py 3.16.0`, `torch_geometric 2.8.0.post1`,
+`pyyaml 6.0.3`, `pytest`. PyG 2.8 is pure-Python, so no compiled `torch-scatter`
+wheel is needed on Python 3.14.
 
 ```bash
-pip install mne h5py torch_geometric
+pip install mne h5py torch_geometric pyyaml pytest
 ```
 
 ---
@@ -223,6 +224,35 @@ Easy to miss on a skim: `b1relu` applies **softplus**, not ReLU, despite its nam
    reference implementation.** We implement it from the paper text alone. This is the
    highest-risk item in the reproduction.
 
+### 4.4 Preprocessing in the reference (`make_dataset.m`)
+
+Read directly from `Preprocess_EEG_Data/For-GCN-based-Models/make_dataset.m`. This
+settles what preprocessing the baseline actually used, and it is less than expected:
+
+- **No filtering of any kind** — no bandpass, no notch, no re-referencing.
+- **Mean-centring computed over the entire dataset** (`Stack_Dataset - mean(Stack_Dataset, 1)`)
+  *before* the split.
+- **`randperm()` over all samples, then a 90/10 cut.** Since each row is 64 channels
+  at a *single timepoint*, this is precisely the timepoint-level shuffled split that
+  `CLAUDE.md` forbids: timepoints from the same trial land in both train and test.
+- Output layout: columns 1–64 are channels, the final column is the label 0–3.
+  Confirms four classes and confirms `Fin = 1`.
+
+**Consequence — this needs stating plainly in the writeup.** The reference's headline
+accuracy is produced by *three stacked leakage paths*: timepoint-level shuffled
+splitting, full-dataset mean-centring, and BatchNorm running on test-batch statistics
+(§4.3.2). Any of the three alone would inflate the number.
+
+This creates a tension with `CLAUDE.md`'s stated reproduction target of ~90–93 %
+subject-dependent accuracy. That figure is very likely **not reachable without the
+leakage that produces it**. An honest trial-level subject-dependent result will
+probably land lower, and that is a finding rather than a failure. **Open question for
+the supervisor/team: does "reproduce the baseline" mean (i) re-implement the leaky
+protocol to confirm we can hit ~93 % and then demonstrate it collapses under a correct
+split, or (ii) only ever run the correct protocol and report the honest number?**
+Option (i) is more work but makes a much stronger argument, since it quantifies the
+leakage instead of asserting it. Not yet decided — see §6, decision 4.
+
 ---
 
 ## 5. Port plan
@@ -238,13 +268,21 @@ cross-check oracle.
 ### 5.2 Module layout
 
 ```
-configs/        yaml — subjects, runs, class map, seeds, hyperparameters
-data/           edf_loader, epoching, caching (npy/h5), splits (trial-level, LOSO)
-graphs/         pcc_adjacency, laplacian, coarsening (Graclus port)
-models/         cheb_conv, gcns_net baseline, dynamic_adj + temporal_attn
-evaluation/     train loop, LOSO runner, metrics, experiment log (jsonl)
-visualization/  topomaps, confusion matrices, learned-adjacency plots
+configs/        default.yaml — paths, runs, exclusions, class map, epoching, seed
+data/           config.py, labels.py, edf_loader.py, cache.py  (+ splits, to come)
+data/raw/       raw EDFs (gitignored payload, not code)
+data/cache/     epoched .npz per subject + manifest.json (gitignored)
+graphs/         pcc_adjacency, laplacian, coarsening (Graclus port)   [empty]
+models/         cheb_conv, gcns_net baseline, dynamic_adj + temporal_attn  [empty]
+evaluation/     train loop, LOSO runner, metrics, experiment log (jsonl) [empty]
+visualization/  topomaps, confusion matrices, learned-adjacency plots [empty]
+scripts/        build_cache.py
+tests/          test_labels.py
 ```
+
+`data/` is deliberately both a Python package and the home of the gitignored `raw/`
+and `cache/` payload directories. They do not collide, and it keeps the layout
+matching the module split named in `CLAUDE.md`.
 
 ### 5.3 Build order
 
@@ -278,17 +316,69 @@ the declared list must agree or the run stops.
 
 ---
 
-## 6. Open decisions
+## 6. What is built
+
+### 6.1 Modules
+
+| File | Purpose |
+|---|---|
+| `configs/default.yaml` | paths, imagery runs, exclusions, class scheme, epoching, preprocessing, seed |
+| `data/config.py` | frozen dataclasses loaded from YAML; passed explicitly, no global singleton |
+| `data/labels.py` | `(run, T-code) -> class`; raises rather than guessing |
+| `data/edf_loader.py` | EDF read, channel standardisation, validation, manual epoching |
+| `data/cache.py` | per-subject `.npz`, `manifest.json`, config-fingerprint guard |
+| `scripts/build_cache.py` | CLI cache builder |
+| `tests/test_labels.py` | 12 tests, all passing |
+
+### 6.2 Design decisions and why
+
+- **Manual epoching by annotation onset**, not `mne.Epochs`. Run lengths vary
+  (123/124/125 s) so fixed offsets are wrong, and `mne.Epochs` applies baseline
+  correction by default, which at `tmin=0` would subtract a degenerate one-sample
+  baseline.
+- **`eegbci.standardize()`** normalises the dotted Sharbrough labels to standard
+  names (`Fc5.` -> `FC5`, `Cz..` -> `CZ`/`Cz`), required before montage lookup.
+- **MNE returns volts; the cache stores microvolts** (x1e6), the units the data was
+  recorded in.
+- **No normalisation in the cache.** Mean/std are fit on the training split at
+  training time. The reference mean-centres the whole dataset pre-split (§4.4).
+- **`bandpass: null` by default**, reproducing the reference's complete absence of
+  filtering. Changing it changes the config fingerprint, which invalidates the cache.
+- **Config fingerprint guard.** `assert_cache_matches()` refuses to run against a
+  cache built under different preprocessing — the mechanism enforcing CLAUDE.md's
+  "don't silently change preprocessing between experiments".
+- **Validation aborts, never coerces.** Wrong sampling rate, wrong channel count,
+  wrong annotation count, or an epoch running off the end of a recording all raise.
+
+### 6.3 Cache built 2026-08-31
+
+```
+103 subjects, 9,270 trials, 0 dropped, 59.4 s, 447 MB
+every subject exactly 90 trials, every epoch exactly (64, 640)
+class totals: left_fist 2336, right_fist 2299, both_fists 2319, both_feet 2316
+```
+
+Balanced to within 1.6 % across classes. Verified on read-back: correct channel
+names, 15 trials per run x 6 runs, plausible microvolt range, zero duplicate
+(run, onset) pairs.
+
+**Not yet built:** splits (trial-level and LOSO), PCC adjacency, Laplacian,
+coarsening, the model, training loop, evaluation, visualisation.
+
+---
+
+## 7. Open decisions
 
 | # | Question | Status |
 |---|---|---|
 | 1 | **4-class definition.** (a) left fist / right fist / both fists / both feet, T0 discarded, all 6 imagery runs, ~90 trials/subject. (b) rest / left / right / feet, mixing T0 in. `M=[4]` confirms four classes but not which. | **Proceeding with (a)** as the config default; not yet confirmed by user |
 | 2 | Whether to apply the S089/S090 correction or keep `CLAUDE.md` literal | Correction applied 2026-08-31; revertible |
 | 3 | Delete the 4.4 GB of redundant zip + dead mirror | Awaiting user |
+| 4 | **What "reproduce the baseline" means**, given §4.4 shows the reference's ~93 % rests on three stacked leakage paths. (i) Re-implement the leaky protocol to confirm ~93 %, then show it collapses under a correct split — quantifies the leakage. (ii) Only ever run the correct protocol and report the honest number. | **Open — needs a call from the team/supervisor.** Affects how `CLAUDE.md`'s "Expected Results" target should be read |
 
 ---
 
-## 7. Changelog
+## 8. Changelog
 
 ### 2026-08-31
 
@@ -303,3 +393,12 @@ the declared list must agree or the run stops.
   missing adjacency construction).
 - Established the port plan and module layout.
 - Created this document; updated `CLAUDE.md`.
+- Read `make_dataset.m`: the reference applies **no filtering**, mean-centres over the
+  **whole dataset pre-split**, and splits with `randperm` at the **timepoint level** —
+  a third leakage path on top of the two in §4.3. Raised as open decision 4.
+- Initialised the git repository with a `.gitignore` covering the 3.4 GB payload;
+  first commit `1011e03`.
+- Installed `mne`, `h5py`, `torch_geometric`, `pyyaml`, `pytest`.
+- Built `configs/default.yaml`, `data/{config,labels,edf_loader,cache}.py`,
+  `scripts/build_cache.py`, `tests/test_labels.py` (12 tests passing).
+- **Built the full trial cache: 103 subjects, 9,270 trials, 0 dropped, 447 MB.**

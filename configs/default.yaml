@@ -1,0 +1,51 @@
+# Default configuration for the GCNs-Net reproduction.
+#
+# Nothing in this file is read from a global; callers load it explicitly and pass
+# the resulting Config object down. See CLAUDE.md ("Don't use global mutable config
+# shared across modules — pass explicit arguments").
+
+dataset:
+  root: data/raw/eegmmidb
+  cache_dir: data/cache
+
+  # Motor-imagery runs only. Runs 3/5/7/9/11/13 are executed movement and must not
+  # be included — see CLAUDE.md, Dataset Rules.
+  imagery_runs: [4, 6, 8, 10, 12, 14]
+
+  # Corrupted subjects. S089 (not S090) is the defective one — verified empirically,
+  # see project_documentation.md 3.5. Kept at six subjects for comparability with
+  # the paper even though only S088/S092/S100 are unusable on the imagery runs.
+  exclude_subjects: [S088, S089, S092, S100, S104, S106]
+
+  # Hard validators. A run failing any of these aborts the build rather than being
+  # silently coerced — silent shape coercion is how leakage and misalignment hide.
+  expect_sfreq: 160.0
+  expect_n_channels: 64
+  expect_events_per_run: 30
+
+labels:
+  # (a) four motor-imagery classes, rest (T0) discarded. The alternative (b) is
+  # rest/left/right/feet. See project_documentation.md 6, open decision 1.
+  scheme: four_class_motor
+  names: [left_fist, right_fist, both_fists, both_feet]
+
+epoch:
+  # Trials are annotated at 4.1 s. 4.0 s at 160 Hz gives exactly 640 samples.
+  tmin: 0.0
+  length_s: 4.0
+
+preprocess:
+  # The TensorFlow reference (EEG-DL Preprocess_EEG_Data/For-GCN-based-Models/
+  # make_dataset.m) applies NO filtering, NO re-referencing and NO notch. null here
+  # reproduces that faithfully. Set [l_freq, h_freq] to deviate — but per CLAUDE.md,
+  # changing this invalidates all prior results and the baseline must be re-run.
+  bandpass: null
+  notch: null
+  rereference: null
+
+  # Normalisation is deliberately NOT done here. The cache stores raw epochs in uV;
+  # mean/std are fit on the training split only, at training time. The reference
+  # mean-centres over the entire dataset before splitting, which is leakage.
+  normalize: false
+
+seed: 42
