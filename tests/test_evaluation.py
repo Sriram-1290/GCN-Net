@@ -257,3 +257,82 @@ def test_prepare_fold_with_windows_sets_the_feature_dimension():
     fold = prepare_fold(_trials(n=8, ch=64, t=64), _trials(n=8, ch=64, t=64, seed=2),
                         window=16, stride=16)
     assert fold.train.X.shape[1:] == (64, 16)
+
+
+# --------------------------------------------------------------------------
+# multiple-comparison correction (pre-registration 10.4)
+# --------------------------------------------------------------------------
+
+def test_bootstrap_p_is_small_for_a_real_effect():
+    from evaluation.metrics import bootstrap_p_value
+    rng = np.random.default_rng(0)
+    a = rng.normal(0.70, 0.03, 40)
+    assert bootstrap_p_value(a, a - 0.05, "greater") < 0.01
+
+
+def test_bootstrap_p_is_calibrated_under_the_null():
+    """The property that matters: a controlled false-positive rate.
+
+    Asserting one seed's p-value is large only tests that seed's luck -- two
+    independent samples of 40 differ by ~1.8 SE often enough. What must hold is
+    that across many nulls, about 5 % of p-values fall below 0.05.
+    """
+    from evaluation.metrics import bootstrap_p_value
+    ps = []
+    for s in range(200):
+        r = np.random.default_rng(s)
+        ps.append(bootstrap_p_value(r.normal(0, 1, 40), r.normal(0, 1, 40),
+                                    "two-sided", n_boot=2000, seed=s))
+    ps = np.array(ps)
+    assert 0.01 < (ps < 0.05).mean() < 0.12, (ps < 0.05).mean()
+    assert 0.35 < np.median(ps) < 0.65, np.median(ps)
+
+
+def test_bootstrap_p_respects_direction():
+    """A one-sided test in the wrong direction must not be significant."""
+    from evaluation.metrics import bootstrap_p_value
+    rng = np.random.default_rng(0)
+    a = rng.normal(0.70, 0.03, 40)
+    b = a + 0.05                      # b is genuinely larger
+    assert bootstrap_p_value(a, b, "greater") > 0.9
+    assert bootstrap_p_value(a, b, "less") < 0.01
+
+
+def test_bootstrap_p_never_returns_zero():
+    from evaluation.metrics import bootstrap_p_value
+    a = np.full(30, 1.0)
+    assert bootstrap_p_value(a, np.zeros(30), "greater", n_boot=1000) >= 1 / 1000
+
+
+def test_holm_is_stricter_than_uncorrected():
+    from evaluation.metrics import holm_bonferroni
+    out = holm_bonferroni({"H1": 0.04, "H2": 0.04, "H3": 0.04, "H4": 0.04, "H5": 0.04})
+    # each would pass alone at 0.05; none survives the correction
+    assert not any(v["reject"] for v in out.values())
+
+
+def test_holm_keeps_a_strong_result():
+    from evaluation.metrics import holm_bonferroni
+    out = holm_bonferroni({"H1": 0.0001, "H2": 0.4, "H3": 0.6})
+    assert out["H1"]["reject"] and not out["H2"]["reject"]
+
+
+def test_holm_steps_down_once_a_test_fails():
+    """A later test cannot be rejected after an earlier one fails."""
+    from evaluation.metrics import holm_bonferroni
+    out = holm_bonferroni({"a": 0.001, "b": 0.30, "c": 0.31})
+    assert out["a"]["reject"]
+    assert not out["b"]["reject"] and not out["c"]["reject"]
+
+
+def test_holm_thresholds_step_correctly():
+    from evaluation.metrics import holm_bonferroni
+    out = holm_bonferroni({"a": 0.001, "b": 0.002, "c": 0.003}, alpha=0.06)
+    assert out["a"]["threshold"] == pytest.approx(0.02)
+    assert out["b"]["threshold"] == pytest.approx(0.03)
+    assert out["c"]["threshold"] == pytest.approx(0.06)
+
+
+def test_holm_handles_an_empty_family():
+    from evaluation.metrics import holm_bonferroni
+    assert holm_bonferroni({}) == {}

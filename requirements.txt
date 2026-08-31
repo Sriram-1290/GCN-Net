@@ -1,0 +1,25 @@
+# Pinned to the versions every result in project_documentation.md was produced with.
+# Verified 2026-09-01 on Windows 11, Python 3.14.6.
+#
+# PyTorch is NOT installable from PyPI at this pin. The RTX 5060 is Blackwell
+# (sm_120) and needs a CUDA 12.8+ build; install it first from the PyTorch index,
+# then the rest of this file:
+#
+#     pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cu132
+#     pip install -r requirements.txt
+#
+# Check the GPU is actually usable before trusting any timing:
+#     python -c "import torch; print(torch.cuda.get_arch_list())"   # needs sm_120
+
+numpy==2.4.4
+scipy==1.18.0
+scikit-learn==1.9.0
+matplotlib==3.11.1
+pandas==3.0.5
+mne==1.12.1
+h5py==3.16.0
+PyYAML==6.0.3
+torch-geometric==2.8.0.post1
+pytest==9.1.1
+
+# torch==2.12.1+cu132   -- see the note above; not installable from PyPI

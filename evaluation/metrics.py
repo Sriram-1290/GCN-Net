@@ -150,3 +150,73 @@ def paired_bootstrap_ci(a: np.ndarray, b: np.ndarray, n_boot: int = 10_000,
     idx = rng.integers(0, len(diff), size=(n_boot, len(diff)))
     means = diff[idx].mean(axis=1)
     return float(diff.mean()), float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+
+
+def bootstrap_p_value(a: np.ndarray, b: np.ndarray, alternative: str = "greater",
+                      n_boot: int = 10_000, seed: int = 0) -> float:
+    """Bootstrap p-value for a paired difference ``a - b``.
+
+    The null is that the mean paired difference is zero. The differences are
+    re-centred on zero and resampled, and the p-value is the fraction of null
+    resamples at least as extreme as the observed mean.
+
+    Args:
+        alternative: ``"greater"`` (a > b), ``"less"``, or ``"two-sided"``.
+            Directional tests must be declared in advance — see the
+            pre-registration in project_documentation.md 10.3.
+    """
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    if a.shape != b.shape:
+        raise ValueError(f"paired inputs must match: {a.shape} vs {b.shape}")
+    diff = a - b
+    observed = diff.mean()
+    centred = diff - observed
+    rng = np.random.default_rng(seed)
+    null = centred[rng.integers(0, len(diff), size=(n_boot, len(diff)))].mean(axis=1)
+
+    if alternative == "greater":
+        p = (null >= observed).mean()
+    elif alternative == "less":
+        p = (null <= observed).mean()
+    elif alternative == "two-sided":
+        p = (np.abs(null) >= abs(observed)).mean()
+    else:
+        raise ValueError(f"unknown alternative {alternative!r}")
+    # Never report p = 0 from a finite resample; the resolution is 1/n_boot.
+    return float(max(p, 1.0 / n_boot))
+
+
+def holm_bonferroni(p_values: dict[str, float], alpha: float = 0.05
+                    ) -> dict[str, dict[str, float | bool]]:
+    """Holm-Bonferroni step-down correction over a family of tests.
+
+    Required by the pre-registration (10.4): with five confirmatory tests,
+    uncorrected intervals would be expected to produce a false positive about
+    one time in four.
+
+    Holm rather than plain Bonferroni because it is uniformly more powerful at the
+    same family-wise error rate — it compares the k-th smallest p-value against
+    ``alpha / (m - k + 1)`` rather than ``alpha / m`` for all.
+
+    Returns one entry per test with its raw p, the threshold it was compared
+    against, its adjusted p, and whether it was rejected. Once a test fails, all
+    later ones fail regardless of their p-values — that step-down behaviour is the
+    whole point and is tested.
+    """
+    if not p_values:
+        return {}
+    ordered = sorted(p_values.items(), key=lambda kv: kv[1])
+    m = len(ordered)
+    out: dict[str, dict[str, float | bool]] = {}
+    running_max = 0.0
+    still_rejecting = True
+
+    for k, (name, p) in enumerate(ordered):
+        threshold = alpha / (m - k)
+        adjusted = min(1.0, max(running_max, p * (m - k)))
+        running_max = adjusted
+        if still_rejecting and p > threshold:
+            still_rejecting = False
+        out[name] = {"p": float(p), "threshold": float(threshold),
+                     "p_adjusted": float(adjusted), "reject": bool(still_rejecting)}
+    return out
