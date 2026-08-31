@@ -31,6 +31,7 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Representation ablation (band-pass x window) | Done (20 subj) | 2026-08-31 |
 | Classical baseline (CSP+LDA) — Gate A | Done (20 subj) | 2026-08-31 |
 | Phase 1 anchor runs (103 subj x 3 seeds) | Running | 2026-08-31 |
+| Phase 3a: band power as node features | Done (20 subj) | 2026-09-01 |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
 
@@ -1062,6 +1063,62 @@ tuning idea — it is giving the network the representation its winning competit
 
 ---
 
+### 9.6 Phase 3a — band power as node features
+
+Gate A's implication was that the network should be given the representation CSP
+uses. `data/features.py` computes log band power per channel per window (Hann-tapered
+rFFT, `fbcsp` 4 Hz bins from 4-40 Hz, 1 s window at stride 32 for 1 Hz resolution).
+The graph is still built from the raw time series, so node features are the only change.
+
+**4-class, 20 subjects:**
+
+| arm | node features | 4-class | family | within-family |
+|---|---|---|---|---|
+| A | raw voltage, 1 timepoint | 0.3000 | 0.6239 | 0.4859 |
+| D | raw voltage, 64 tp window, 8-30 Hz | 0.3300 | 0.6100 | 0.5418 |
+| **E** | **log band power, fbcsp** | **0.4222** | **0.7378** | **0.5716** |
+
+E − D within-family: **+0.0298, 95 % CI [+0.0051, +0.0532]** — significant.
+
+**But read the decomposition, not the headline.** The 4-class number jumped 0.3300 →
+0.4222, which looks like a large win. Family accuracy jumped 0.6100 → 0.7378 (+12.8
+points) while within-family rose only +3.0 points. **Roughly four fifths of the apparent
+gain is better run-family identification, not better motor-imagery decoding.** This is
+the second time the 4-class number has been misleading in the direction the §7.1
+diagnostic predicted.
+
+**Against the matched binary problems, band power did not help at all:**
+
+| problem | raw-voltage GCN | band-power GCN | CSP+LDA | band power − CSP |
+|---|---|---|---|---|
+| left vs right fist | 0.5178 | 0.4944 | **0.5711** | −0.0767 [−0.1378, −0.0178] |
+| both fists vs feet | 0.5767 | 0.5967 | **0.6722** | −0.0756 [−0.1367, −0.0167] |
+
+Band power versus raw voltage is **not significantly different on either problem**
+(−0.0233 [−0.0611, +0.0144] and +0.0200 [−0.0178, +0.0589]), and band-power
+left-vs-right sits **at chance**: 0.4944, CI [0.4644, 0.5222].
+
+**Verdict: Phase 3a did not close the gap to CSP.** The hypothesis — that the network
+was losing because it had to infer band power from waveforms — is **not supported**.
+Handing it band power explicitly changed nothing on the confound-free comparisons.
+
+**What this points to instead.** CSP is not merely a band-power method; it is a
+*discriminative spatial filter* fit to maximise the between-class variance ratio. Our
+network convolves over a **fixed** correlation graph built without reference to the
+labels. The remaining gap is therefore most likely spatial, not spectral.
+
+That is a direct, evidence-based argument for the learnable-adjacency contribution —
+one now motivated by a measured failure rather than by the literature being fashionable.
+It also revises §6.5's reading: the fixed PCC graph looked like a reasonable baseline
+once CAR was applied, but a graph built without label information cannot do what CSP
+does regardless of how well it captures resting correlation structure.
+
+**Revised priority for Phase 3.** 3b (window length) and 3c (band edges) now look
+low-yield — they tune a spectral representation that has just been shown not to be the
+bottleneck. The learnable adjacency (Phase 5) should be brought forward.
+
+---
+
 ## 10. Changelog
 
 ### 2026-08-31
@@ -1178,7 +1235,21 @@ sets lr 1e-6 and regularisation 1e-3.
 - **Gate A resolved (9.5): CSP+LDA beats the network.** Mean within-family 0.6217 vs
   0.5472, paired −0.0744 [−0.1111, −0.0367], CSP ahead on 16/20 subjects. The ceiling is
   the architecture/representation, not the task, so Phase 3 proceeds.
-- Started Phase 1 anchor runs (103 subjects x 3 configs x 3 seeds, unattended).
+- Started Phase 1 anchor runs (103 subjects x 3 configs x 3 seeds, unattended). Stopped
+  and re-launched them as three concurrent per-seed drivers after profiling showed the
+  workload is launch-bound rather than GPU-bound (33 % utilisation, 47 W); concurrency
+  raised utilisation to 84 % and cut the estimate from ~11 h to ~4 h with no change to any
+  result. The original driver had to be killed to avoid duplicate (subject, fold, seed)
+  rows, which would have silently double-counted in every summary.
+- **Phase 3a: band power as node features (9.6).** 4-class rose 0.3300 -> 0.4222, but the
+  decomposition shows ~4/5 of that is better *run-family identification* (0.6100 ->
+  0.7378), with within-family up only +0.0298 [+0.0051, +0.0532]. On the matched binary
+  problems band power is **indistinguishable from raw voltage** and still loses to CSP by
+  ~0.076 on both; band-power left-vs-right is **at chance** (0.4944 [0.4644, 0.5222]).
+  **The hypothesis that the network was losing for want of spectral features is not
+  supported.** The remaining gap is most likely *spatial* — CSP fits a discriminative
+  spatial filter, our graph is fixed and label-blind — which is now a measured argument
+  for bringing the learnable adjacency forward ahead of 3b/3c.
 - Surveyed the research directions across [1], [2], [4], [5] (8.2). Key takeaways:
   **band-pass filtering to mu/beta is the largest missing lever** and should be the first
   ablation; per-band adjacency is nearly free with existing code; over-smoothing should be
