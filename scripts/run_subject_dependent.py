@@ -52,6 +52,10 @@ def main() -> int:
                     help="default is the reference's 1e-6; the paper says 0.01")
     ap.add_argument("--batch-size", type=int, default=1024)
     ap.add_argument("--val-frac", type=float, default=0.2)
+    ap.add_argument("--window", type=int, default=1,
+                    help="timepoints per sample; 1 is the reference's definition")
+    ap.add_argument("--stride", type=int, default=None,
+                    help="hop between windows; defaults to --window (no overlap)")
     ap.add_argument("--lmax", type=float, default=2.0,
                     help="2.0 reproduces the reference; pass 0 for the true lambda_max")
     ap.add_argument("--leaky", action="store_true", help="reproduce the reference protocol")
@@ -75,10 +79,13 @@ def main() -> int:
         verbose=not args.quiet,
     )
     model_cfg = GCNsNetConfig(n_classes=len(cfg.class_names),
+                              in_features=args.window,
                               always_train_bn=args.leaky)
 
     print(f"subjects {len(subjects)}  folds {args.folds}  epochs {args.epochs}  "
           f"lr {train_cfg.learning_rate}  lmax {lmax}  leaky {args.leaky}  seed {seed}")
+    print(f"cache {cfg.dataset.cache_dir}  bandpass {cfg.preprocess.bandpass}  "
+          f"window {args.window}  stride {args.stride or args.window}")
     print(f"device {train_cfg.device}\n")
 
     per_subject: list[float] = []
@@ -94,7 +101,9 @@ def main() -> int:
             val = Trials(X=ep.X[val_idx], y=ep.y[val_idx]) if len(val_idx) else None
             test = Trials(X=ep.X[split.test], y=ep.y[split.test])
 
-            fold = prepare_fold(train, test, val, lmax=lmax, seed=seed, leaky=args.leaky)
+            fold = prepare_fold(train, test, val, lmax=lmax, seed=seed,
+                                window=args.window, stride=args.stride,
+                                leaky=args.leaky)
             model = GCNsNet(fold.bases, model_cfg)
             trainer = Trainer(model, train_cfg, n_classes=len(cfg.class_names))
 
@@ -118,6 +127,8 @@ def main() -> int:
                 "preprocess": {"bandpass": cfg.preprocess.bandpass,
                                "rereference": cfg.preprocess.rereference},
                 "lmax": lmax,
+                "window": args.window,
+                "stride": args.stride or args.window,
                 "train_config": train_cfg,
                 "model_config": model_cfg,
                 "n_parameters": model.n_parameters(),

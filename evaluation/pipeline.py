@@ -84,9 +84,42 @@ def to_timepoint_samples(X: np.ndarray, y: np.ndarray, trial_offset: int = 0) ->
     return Samples(X=flat.astype(np.float32), y=labels, trial_id=trial_id)
 
 
+def to_window_samples(X: np.ndarray, y: np.ndarray, window: int, stride: int,
+                      trial_offset: int = 0) -> Samples:
+    """Cut each trial into overlapping windows of ``window`` timepoints.
+
+    The reference's ``window = 1`` gives one sample per timepoint and therefore no
+    temporal or spectral information whatsoever — section 9.2 shows that
+    formulation decodes nothing once the split is honest. Widening the window is
+    the minimal change that gives the network something a band-power effect could
+    actually be visible in, and it is also what a temporal-attention module needs.
+
+    Windows never cross a trial boundary, so a window is always wholly inside one
+    trial and inherits that trial's label. Overlap between windows of the *same*
+    trial is fine — they stay on the same side of any trial-level split.
+    """
+    n_trials, n_nodes, n_time = X.shape
+    if not 1 <= window <= n_time:
+        raise ValueError(f"window {window} must be in [1, {n_time}]")
+    if stride < 1:
+        raise ValueError(f"stride must be >= 1, got {stride}")
+
+    starts = np.arange(0, n_time - window + 1, stride)
+    if len(starts) == 0:
+        raise ValueError(f"window {window} / stride {stride} yields no windows")
+
+    # (trials, windows, nodes, window) -> (trials*windows, nodes, window)
+    chunks = np.stack([X[:, :, s:s + window] for s in starts], axis=1)
+    flat = chunks.reshape(n_trials * len(starts), n_nodes, window)
+    labels = np.repeat(y, len(starts)).astype(np.int64)
+    trial_id = np.repeat(np.arange(n_trials, dtype=np.int64) + trial_offset, len(starts))
+    return Samples(X=np.ascontiguousarray(flat, dtype=np.float32), y=labels, trial_id=trial_id)
+
+
 def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
                  levels: int = 5, orders: tuple[int, ...] = (2,) * 6,
                  lmax: float | None = 2.0, seed: int = 42,
+                 window: int = 1, stride: int | None = None,
                  leaky: bool = False) -> Fold:
     """Build graph, statistics and tensors for one fold.
 
@@ -94,6 +127,9 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
         train, test, val: trial-level splits. ``val`` may be ``None`` for the
             subject-dependent protocol where a k-fold already holds out test.
         lmax: ``2.0`` reproduces the reference; ``None`` uses the true lambda_max.
+        window: timepoints per sample. ``1`` is the reference's definition; larger
+            values give the model temporal extent (see :func:`to_window_samples`).
+        stride: hop between windows; defaults to ``window`` (non-overlapping).
         leaky: reproduce the reference's protocol — build the adjacency and the
             standardiser from **all** splits pooled. Only for the replication arm.
 
@@ -113,10 +149,14 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
     bases = build_bases(graphs, orders, lmax=lmax)
     standardizer = fit_standardizer(fit_source)
 
+    step = stride if stride is not None else window
+
     def convert(split: Trials, offset: int) -> Samples:
         X = standardizer.apply(split.X)
         X = perm_data(X, perm)
-        return to_timepoint_samples(X, split.y, trial_offset=offset)
+        if window == 1 and step == 1:
+            return to_timepoint_samples(X, split.y, trial_offset=offset)
+        return to_window_samples(X, split.y, window, step, trial_offset=offset)
 
     # Distinct trial-id ranges per split so aggregated ids never collide.
     train_s = convert(train, 0)

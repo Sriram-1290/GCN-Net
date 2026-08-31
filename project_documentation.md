@@ -28,6 +28,7 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Training loop, metrics, experiment log | Done | 2026-08-31 |
 | Leaky replication of the published protocol | Done (20 subj) | 2026-08-31 |
 | Correct-protocol subject-dependent baseline | Done (20 subj) | 2026-08-31 |
+| Representation ablation (band-pass x window) | Done (20 subj) | 2026-08-31 |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
 
@@ -950,6 +951,65 @@ confound having been predicted and written down before it was measured.
 
 ---
 
+### 9.4 Representation ablation: band-pass x sample definition
+
+A 2x2 over the same 20 subjects and the same correct protocol (stratified trial-level
+5-fold). Band-pass arms use `configs/bandpass_8_30.yaml` and a separate cache. Window
+arms use 64 timepoints (0.4 s, the length used by [2]) at stride 16.
+Run with `scripts/ablation_summary.py`.
+
+| arm | band-pass | sample | 4-class | family | **within-family** | within 95 % CI |
+|---|---|---|---|---|---|---|
+| A | none | 1 tp | 0.3000 | 0.6239 | 0.4859 | [0.4533, 0.5193] |
+| B | 8-30 Hz | 1 tp | 0.3472 | 0.6778 | 0.5110 | [0.4810, 0.5439] |
+| C | none | 64 tp | 0.3311 | 0.6544 | 0.5051 | [0.4655, 0.5489] |
+| **D** | **8-30 Hz** | **64 tp** | 0.3300 | 0.6100 | **0.5418** | **[0.5050, 0.5817]** |
+| chance | | | 0.2500 | 0.5000 | 0.5000 | |
+
+**Only arm D's within-family CI excludes chance**, and only barely — the lower bound is
+0.5050. Paired contrasts across subjects:
+
+```
+B - A  band-pass at 1 timepoint       +0.0250  [-0.0108, +0.0600]  not significant
+D - C  band-pass at 64 tp             +0.0368  [-0.0079, +0.0808]  not significant
+C - A  window, unfiltered             +0.0191  [-0.0130, +0.0540]  not significant
+D - B  window, band-passed            +0.0309  [+0.0126, +0.0486]  significant
+D - A  both vs published formulation  +0.0559  [+0.0184, +0.0921]  significant
+```
+
+Neither factor is significant alone; only the combination is. That is consistent with the
+mechanism — a window supplies time extent, the filter supplies the right band, and a
+band-power effect needs both to be visible — but with five uncorrected contrasts this
+should be treated as suggestive rather than established.
+
+**The 4-class number is a poor guide, and this is the useful part.** Arm D's 4-class
+accuracy (0.3300) is no better than B or C, yet its *composition* changed: family accuracy
+**fell** (0.6239 -> 0.6100) while within-family accuracy **rose** (0.4859 -> 0.5418). The
+model shifted from exploiting the run-family artefact toward weak genuine decoding, and a
+headline accuracy would have hidden that entirely. Subjects above chance within-family:
+**A 8/20, D 12/20**.
+
+**Honest reading.** Fixing the representation produces a small, statistically detectable,
+practically weak improvement. Within-family 0.5418 on a binary problem is barely above
+chance. So the published formulation's failure is *not* only preprocessing: 4-class motor
+imagery on PhysioNet under a correct trial-level split is genuinely hard for this
+architecture, and better inputs recover only a fraction of what the leakage was supplying.
+
+**A prediction that failed, recorded because it was made in advance.** Section 9.2's
+mechanism suggested band-passing would push *family* accuracy toward chance, on the
+grounds that sub-8 Hz drift (61.5 % of unfiltered power, versus 3.5 % after filtering) is
+the run-level artefact. At the timepoint level it went the other way (0.6239 -> 0.6778).
+The diagnostic in 7.1 was also over-stated: family accuracy conflates run-level artefact
+with a *genuine* neural difference, since bilateral and unilateral imagery differ
+topographically. **Within-family remains the clean measure; family accuracy is not purely
+confound.**
+
+**Caution on partial runs.** At 35/100 folds arm D showed within-family 0.5774; the
+completed 100 folds give 0.5418. Partial results overstated the effect, so interim numbers
+should not be quoted.
+
+---
+
 ## 10. Changelog
 
 ### 2026-08-31
@@ -1051,6 +1111,15 @@ sets lr 1e-6 and regularisation 1e-3.
   within-family accuracy 0.4809 — at chance.** The above-chance 4-class number is entirely
   the run-family artefact predicted in 7.1. Evaluated correctly, the published formulation
   decodes no motor imagery.
+- Added window-based samples (`to_window_samples`) and a band-pass config, then ran a 2x2
+  representation ablation (9.4). **Only band-pass + 64-tp window (arm D) is significantly
+  above chance within-family: 0.5418, CI [0.5050, 0.5817]**; paired against the published
+  formulation, +0.0559 CI [+0.0184, +0.0921]. Neither factor is significant alone.
+  Arm D's 4-class accuracy is no better than the others, but its composition shifts from
+  run-family artefact toward genuine decoding — the headline number hides this.
+- **Recorded a failed prediction**: band-passing did not reduce family accuracy as 9.2's
+  drift mechanism implied, and the 7.1 diagnostic was over-stated because family accuracy
+  includes a real bilateral-vs-unilateral neural difference. 114 tests passing.
 - Surveyed the research directions across [1], [2], [4], [5] (8.2). Key takeaways:
   **band-pass filtering to mu/beta is the largest missing lever** and should be the first
   ablation; per-band adjacency is nearly free with existing code; over-smoothing should be

@@ -200,3 +200,60 @@ def test_leaky_fold_graph_uses_all_trials():
     tr = _trials(n=8, ch=64, t=64)
     fold = prepare_leaky_fold(tr, seed=0)
     assert np.allclose(fold.adjacency, pcc_adjacency(tr.X))
+
+
+# --------------------------------------------------------------------------
+# window-based samples
+# --------------------------------------------------------------------------
+
+def test_windows_never_cross_a_trial_boundary():
+    from evaluation.pipeline import to_window_samples
+    X = np.arange(3 * 2 * 10, dtype=np.float32).reshape(3, 2, 10)
+    s = to_window_samples(X, np.array([0, 1, 2]), window=5, stride=5)
+    assert s.X.shape == (6, 2, 5)          # 3 trials x 2 windows
+    # window 0 is trial 0's first half; its content must come only from trial 0
+    assert np.allclose(s.X[0], X[0, :, 0:5])
+    assert np.allclose(s.X[1], X[0, :, 5:10])
+    assert np.allclose(s.X[2], X[1, :, 0:5])
+    assert s.trial_id.tolist() == [0, 0, 1, 1, 2, 2]
+
+
+def test_window_samples_inherit_the_trial_label():
+    from evaluation.pipeline import to_window_samples
+    X = np.zeros((2, 3, 8), dtype=np.float32)
+    s = to_window_samples(X, np.array([3, 1]), window=4, stride=2)
+    assert set(s.y[s.trial_id == 0]) == {3}
+    assert set(s.y[s.trial_id == 1]) == {1}
+
+
+def test_overlapping_windows_produce_more_samples():
+    from evaluation.pipeline import to_window_samples
+    X = np.zeros((1, 2, 100), dtype=np.float32)
+    y = np.array([0])
+    assert len(to_window_samples(X, y, window=20, stride=20)) == 5
+    assert len(to_window_samples(X, y, window=20, stride=10)) == 9
+
+
+def test_window_of_one_matches_the_timepoint_expansion():
+    from evaluation.pipeline import to_timepoint_samples, to_window_samples
+    X = np.random.default_rng(0).normal(size=(2, 4, 6)).astype(np.float32)
+    y = np.array([0, 1])
+    a = to_timepoint_samples(X, y)
+    b = to_window_samples(X, y, window=1, stride=1)
+    assert np.allclose(a.X, b.X)
+    assert np.array_equal(a.y, b.y) and np.array_equal(a.trial_id, b.trial_id)
+
+
+def test_window_rejects_impossible_sizes():
+    from evaluation.pipeline import to_window_samples
+    X = np.zeros((1, 2, 10), dtype=np.float32)
+    with pytest.raises(ValueError):
+        to_window_samples(X, np.array([0]), window=20, stride=1)
+    with pytest.raises(ValueError):
+        to_window_samples(X, np.array([0]), window=5, stride=0)
+
+
+def test_prepare_fold_with_windows_sets_the_feature_dimension():
+    fold = prepare_fold(_trials(n=8, ch=64, t=64), _trials(n=8, ch=64, t=64, seed=2),
+                        window=16, stride=16)
+    assert fold.train.X.shape[1:] == (64, 16)

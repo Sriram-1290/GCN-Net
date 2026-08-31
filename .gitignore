@@ -1,6 +1,8 @@
 # Raw and cached data — 3.4 GB, reproducible from the PhysioNet archive
 data/raw/
-data/cache/
+# every cache variant, not just the default one -- an ablation config gets its
+# own cache dir (data/cache_bp830, ...) and those are payload too
+data/cache*/
 physionet.org/
 *.zip
 
