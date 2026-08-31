@@ -24,6 +24,7 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | PCC adjacency + Laplacian + Chebyshev basis | Done | 2026-08-31 |
 | Graclus coarsening + binary-tree permutation | Done | 2026-08-31 |
 | Git repository initialised | Done | 2026-08-31 |
+| GCNs-Net model port (PyTorch) | Done | 2026-08-31 |
 | Baseline reproduction (subject-dependent) | Not started | — |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
@@ -439,7 +440,9 @@ the declared list must agree or the run stops.
 | `graphs/adjacency.py` | `A = \|P\| - I` from a given split; optional sparsification |
 | `graphs/laplacian.py` | normalised Laplacian, Chebyshev rescaling, `T_0..T_{K-1}` basis |
 | `graphs/coarsening.py` | Graclus matching, `compute_perm`, `perm_data`, `perm_adjacency` |
-| `tests/` | 68 tests, all passing (labels, splits, graphs, normalisation, coarsening) |
+| `models/cheb_conv.py` | dense `chebyshev5` equivalent, `b2relu`, `mpool1` |
+| `models/gcns_net.py` | the six-layer stack, `GCNsNetConfig`, `build_bases` |
+| `tests/` | 86 tests, all passing |
 
 ### 6.2 Design decisions and why
 
@@ -473,7 +476,7 @@ Balanced to within 1.6 % across classes. Verified on read-back: correct channel
 names, 15 trials per run x 6 runs, plausible microvolt range, zero duplicate
 (run, onset) pairs.
 
-**Not yet built:** the model, training loop, evaluation, visualisation.
+**Not yet built:** training loop, evaluation/metrics, experiment log, visualisation.
 
 ### 6.4 Splits and graph construction
 
@@ -615,6 +618,56 @@ The reference's hardcoded `lmax = 2` is therefore worst at layer 0 - where the s
 occupies barely half of [-1, 1] - and exactly right at the coarsest layer, where a
 two-node graph genuinely has `lambda_max = 2`. The wasted Chebyshev range is an
 early-layer problem, not a uniform one.
+
+### 6.7 Model port
+
+`models/gcns_net.py` reproduces the reference architecture at
+`F = [16,32,64,128,256,512]`, `K = 2`, `p = [2]x6`, `M = [4]`.
+
+**Parameter count: 359,428** — matching the ~350K stated in `CLAUDE.md`. This is the
+sharpest single check that the port is faithful, because it is sensitive to the
+`b1relu`/`b2relu` distinction: `b2relu` sizes its bias `[1, M, F]` per vertex per filter,
+and using `b1relu` by mistake would change the count by tens of thousands. There is a test
+asserting the range.
+
+```
+layer     nodes in   Fin  Fout  nodes out     params
+conv1           64     1    16         32      1,088
+conv2           32    16    32         16      2,112
+conv3           16    32    64          8      5,248
+conv4            8    64   128          4     17,664
+conv5            4   128   256          2     67,072
+conv6            2   256   512          1    264,192
+logits           1   512     4          -      2,052
+```
+
+Note `conv6` alone is 73 % of the parameters (`256 x 2 x 512`), on a two-node graph. A
+half-megabyte of weights operating on two nodes is worth flagging as an efficiency
+ablation later; it is not obviously earning its place.
+
+**Sample definition.** One timepoint is one sample, `Fin = 1`, exactly as the reference
+defines it (`tf.expand_dims(x, 2)`). We keep this deliberately: it makes the leaky-vs-correct
+comparison exact, since the model and the sample definition are identical and only the
+*split* differs. Trial-level predictions come from aggregating a trial's 640 timepoint
+predictions, not from changing the architecture. `in_features` is a parameter because the
+temporal-attention contribution will need a window.
+
+**Deliberate deviations, all switchable:**
+
+- BatchNorm respects `.eval()`. `always_train_bn=True` reproduces the reference's
+  hardcoded `training=True` for the replication arm.
+- `build_bases(..., lmax=None)` uses the true lambda_max instead of the hardcoded 2.
+- `l2_penalty()` covers the fully-connected parameters only, matching the reference,
+  where `regularization=True` is passed only inside `fc`.
+
+**Discovered while porting: the reference's dropout is dead code.** `_inference` applies
+dropout only between `self.M[:-1]` layers; with `M = [4]` that list is empty, so the
+configured `dropout = 0.50` is never applied. Reproduced by default (`dropout=0.0`,
+`fc_hidden=()`).
+
+**Throughput** (RTX 5060, real data): 2.2 ms per 1024-sample batch, 54 MB VRAM. One
+subject is 46,080 timepoint samples, so ~0.10 s per epoch forward-only. Confirms
+`CLAUDE.md`'s expectation that VRAM and speed are not constraints.
 
 ---
 
@@ -905,6 +958,9 @@ sets lr 1e-6 and regularisation 1e-3.
 - Flagged that [4] MHD-GCN and [5] SAMGCN are **direct prior art** for adaptive graph
   learning in MI, so the novelty claim needs to rest on LOSO evaluation, the leakage
   audit, or interpretability rather than on learnable adjacency alone (8.1).
+- Ported the model to PyTorch (`models/`), **359,428 parameters**, matching the ~350K in
+  `CLAUDE.md`. Found that the reference's `dropout = 0.50` is dead code under `M = [4]`.
+  Benchmarked at 2.2 ms / 1024 samples and 54 MB VRAM. Test suite now 86 tests.
 - Surveyed the research directions across [1], [2], [4], [5] (8.2). Key takeaways:
   **band-pass filtering to mu/beta is the largest missing lever** and should be the first
   ablation; per-band adjacency is nearly free with existing code; over-smoothing should be
