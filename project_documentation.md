@@ -39,7 +39,7 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Holm correction + confirmatory results script | Done | 2026-09-01 |
 | README + pinned requirements | Done | 2026-09-01 |
 | Learnable-graph ablation (20 subj, exploratory) | Done | 2026-09-01 |
-| Confirmatory runs (103 subj) | Not started | — |
+| Confirmatory runs (103 subj) | **Done — all five** | 2026-09-02 |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
 
@@ -1319,6 +1319,77 @@ validation of the `--resume` mechanism described in 6.11.
 
 ---
 
+### 9.9 Confirmatory results — all five hypotheses, 103 subjects
+
+Run once over the complete family, exactly as pre-registered in 10. Holm-Bonferroni at
+family-wise alpha 0.05, directions fixed in advance, primary outcome mean within-family
+accuracy over the two binary problems.
+
+**Within-family accuracy (chance 0.5), 103 subjects:**
+
+| configuration | mean | 95 % CI | above chance |
+|---|---|---|---|
+| fixed graph, no attention (baseline) | 0.5438 | [0.5288, 0.5598] | 64/103 |
+| + learnable adjacency (H1) | 0.5469 | [0.5317, 0.5632] | 70/103 |
+| **+ temporal attention (H2)** | **0.6038** | [0.5805, 0.6278] | 83/103 |
+| + both (H3/H4) | 0.5976 | [0.5745, 0.6220] | 79/103 |
+| CSP+LDA (H4 reference) | **0.6239** | [0.5977, 0.6521] | 81/103 |
+| **LOSO, attention config (H5)** | **0.6040** | [0.5823, 0.6268] | 88/103 |
+
+**Verdicts:**
+
+| | hypothesis | difference | 95 % CI | p | p (Holm) | verdict |
+|---|---|---|---|---|---|---|
+| H1 | learnable adjacency > fixed graph | +0.0031 | [−0.0038, +0.0102] | 0.196 | 0.392 | **not supported** |
+| H2 | temporal attention > none | **+0.0600** | [+0.0463, +0.0745] | 0.0001 | 0.0005 | **SUPPORTED** |
+| H3 | both > better of either alone | −0.0061 | [−0.0154, +0.0031] | 0.899 | 0.899 | **not supported** |
+| H4 | full contribution vs CSP+LDA | **−0.0263** | [−0.0413, −0.0112] | 0.0004 | 0.0012 | **SUPPORTED** |
+| H5 | LOSO within-family > chance | **+0.1040** | [+0.0826, +0.1269] | 0.0001 | 0.0005 | **SUPPORTED** |
+
+**H4's verdict must be read with its sign.** The test was pre-specified two-sided, so
+"supported" means only that a difference exists — and the difference is **negative**.
+CSP+LDA still beats the full contribution by 0.0263 [0.0112, 0.0413]. Reporting H4 as
+"supported" without the direction would be actively misleading; the honest statement is
+that the architecture remains significantly *behind* a linear method from 2000.
+
+### 9.9.1 What the four outcomes mean together
+
+**Temporal attention works; the learnable graph does not.** H2 gains +0.0600 while H1
+gains +0.0031, and H3 shows the combination is no better than attention alone (in fact
+marginally worse). The confirmatory result reproduces the exploratory one in 9.7 on 83
+unseen subjects, so this is not a development-set artefact.
+
+That pattern is coherent with 9.7.1's argument. The deficit was never *which* electrodes
+the graph connects — it was that the architecture had no way to weight *when* within a
+trial. Attention supplies exactly that. Reshaping the graph supplies something the model
+did not need.
+
+**The gap to CSP narrowed but did not close.** Baseline 0.5438 -> 0.6038 with attention,
+against CSP's 0.6239. The contribution recovers roughly three quarters of the deficit,
+and the remainder is still statistically real. On the reading in 9.7.1, what is left is
+the graph-convolutional inductive bias itself, which no component tested here removes.
+
+**H5 is the strongest positive result in the project, and it is a surprise.** LOSO
+within-family reaches 0.6040 [0.5823, 0.6268] with 88/103 subjects above chance —
+**higher than the subject-dependent number of 0.6038**, not lower. Subject-independent
+decoding is normally harder, and the expectation recorded in `CLAUDE.md` was that LOSO
+would sit well below within-subject performance.
+
+The explanation is data volume. A LOSO fold trains on ~4,600 trials from 102 subjects;
+a subject-dependent fold trains on ~36 trials from one. Roughly 100x more training data
+outweighs the cost of never having seen the test subject. It also implies the
+subject-dependent protocol is *data-starved*, not that between-subject transfer is easy.
+
+This is, as far as we can tell, the first correct subject-independent evaluation of this
+architecture: neither published headline is subject-independent (4.5).
+
+**Nothing here rescues the published claim.** The audit stands: 0.8975 under the
+published protocol, chance within-family under a correct one (9.8). What the
+contribution buys is a model that decodes *something* — 0.60 on a binary problem — which
+is well short of the 0.93 the paper reports and still behind CSP+LDA.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -1576,6 +1647,14 @@ sets lr 1e-6 and regularisation 1e-3.
   raised utilisation to 84 % and cut the estimate from ~11 h to ~4 h with no change to any
   result. The original driver had to be killed to avoid duplicate (subject, fold, seed)
   rows, which would have silently double-counted in every summary.
+- **All five confirmatory hypotheses resolved (9.9), 103 subjects, Holm-corrected.**
+  H2 (temporal attention) **supported**, +0.0600 [+0.0463, +0.0745]. H1 (learnable
+  adjacency) **not supported**, +0.0031, reproducing the exploratory null on 83 unseen
+  subjects. H3 **not supported** — combining adds nothing over attention alone. H4
+  significant but **negative**: CSP+LDA still ahead by 0.0263. H5 **supported**, LOSO
+  within-family 0.6040 with 88/103 subjects above chance — *higher* than the
+  subject-dependent figure, because a LOSO fold trains on ~100x more data, which implies
+  the subject-dependent protocol is data-starved.
 - **Phase 1 complete at full scale (9.8).** 103 subjects x 3 seeds, zero duplicates.
   Published protocol 0.8975 [0.8794, 0.9147]; published formulation under a correct split
   is **at chance within-family** (0.5090, CI [0.4984, 0.5199]); best representation 0.5470

@@ -21,7 +21,9 @@ reproduces that number. Evaluating the same model correctly does not.
 | …of which is actual motor-imagery decoding | **none** — within-family 0.5090 [0.4984, 0.5199], chance 0.5 |
 | Best representation (within-family) | 0.5470 [0.5291, 0.5667] |
 | **CSP+LDA on identical splits** | **0.6217** |
-| Learnable adjacency vs fixed graph | no effect: −0.0033, p=0.62 |
+| **Temporal attention (confirmatory, H2)** | **0.6038** [0.5805, 0.6278] — +0.0600 over baseline, p<0.001 |
+| Learnable adjacency (confirmatory, H1) | no effect: +0.0031, p=0.39 |
+| **LOSO, subject-independent (H5)** | **0.6040** [0.5823, 0.6268], 88/103 above chance |
 
 All rows except the last two are 103 subjects x 3 seeds. The paired gap between the
 published and correct protocols is **+0.6096, 95 % CI [+0.5767, +0.6411]**.
@@ -108,6 +110,12 @@ These cost real time to find. They are documented in full in `project_documentat
 - **Never quote a partial run.** One arm read 0.5774 at 35 folds and 0.5418 completed.
 
 ## Status
+
+**All five pre-registered hypotheses are resolved** (§9.9). Temporal attention works
+(+0.0600, Holm-corrected p<0.001); the learnable adjacency does not (+0.0031); combining
+them adds nothing over attention alone; CSP+LDA remains significantly ahead by 0.0263;
+and LOSO reaches 0.6040 with 88/103 subjects above chance — *higher* than the
+subject-dependent figure, because a LOSO fold trains on ~100x more data.
 
 The audit is complete and reproducible. The remaining work — a learnable adjacency and
 temporal attention — is **pre-registered** in `project_documentation.md` §10: five
