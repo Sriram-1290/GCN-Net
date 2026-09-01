@@ -34,17 +34,20 @@ from evaluation.metrics import (  # noqa: E402
 CONFIRMATION_MIN_SUBJECTS = 100  # 103 minus the excluded; anything less is development
 
 # (id, description, tag_a, tag_b, alternative). tag_b None means "versus chance".
+# Confirmatory runs use a dedicated `C-` tag namespace on all 103 subjects. The
+# `F-`/`P2-` tags hold 20-subject development data (10.1) and must never be mixed
+# into a confirmatory comparison.
 HYPOTHESES = [
     ("H1", "learnable adjacency > fixed PCC graph",
-     "F-learngraph-binary", "P2-gcn-binary", "greater"),
+     "C-learngraph-binary", "C-fixed-binary", "greater"),
     ("H2", "temporal attention > no attention",
-     "G-attention-binary", "P2-gcn-binary", "greater"),
+     "C-attention-binary", "C-fixed-binary", "greater"),
     ("H3", "attention + learnable graph > better of either alone",
-     "H-both-binary", "F-learngraph-binary", "greater"),
-    ("H4", "best configuration vs CSP+LDA",
-     "BEST", "P2-csp", "two-sided"),
+     "C-both-binary", "C-BEST-SINGLE", "greater"),
+    ("H4", "full contribution vs CSP+LDA",
+     "C-both-binary", "C-csp", "two-sided"),
     ("H5", "LOSO within-family > chance",
-     "loso-binary", None, "greater"),
+     "C-loso-binary", None, "greater"),
 ]
 
 
@@ -68,10 +71,10 @@ def binary_within_family(rows: list[dict], prefix: str) -> dict[str, float]:
                               np.mean(per_problem["2-3"][s])])) for s in shared}
 
 
-def csp_within_family(rows: list[dict]) -> dict[str, float]:
+def csp_within_family(rows: list[dict], prefix: str = "C-csp") -> dict[str, float]:
     per: dict[str, list[float]] = defaultdict(list)
     for r in rows:
-        if str(r.get("tag", "")).startswith("P2-csp") and "accuracy" in r:
+        if str(r.get("tag", "")).startswith(prefix) and "accuracy" in r:
             per[r["subject"]].append(r["accuracy"])
     return {s: float(np.mean(v)) for s, v in per.items() if len(v) == 2}
 
@@ -94,14 +97,25 @@ def main() -> int:
     measured: dict[str, dict] = {}
     p_values: dict[str, float] = {}
 
+    def resolve(tag):
+        if tag == "C-csp":
+            return csp_within_family(rows, "C-csp")
+        if tag == "C-BEST-SINGLE":
+            # H3 asks whether the combination beats the better single component.
+            # Which single arm that is depends on measured data, so it is resolved
+            # here rather than guessed in advance; the *rule* was fixed in 10.3.
+            g = binary_within_family(rows, "C-learngraph-binary")
+            t = binary_within_family(rows, "C-attention-binary")
+            if not g and not t:
+                return {}
+            gm = np.mean(list(g.values())) if g else -1
+            tm = np.mean(list(t.values())) if t else -1
+            return g if gm >= tm else t
+        return binary_within_family(rows, tag)
+
     for hid, label, tag_a, tag_b, alt in HYPOTHESES:
-        a = csp_within_family(rows) if tag_a == "P2-csp" else binary_within_family(rows, tag_a)
-        if tag_b is None:
-            b = {s: 0.5 for s in a}          # H5 compares against chance
-        elif tag_b == "P2-csp":
-            b = csp_within_family(rows)
-        else:
-            b = binary_within_family(rows, tag_b)
+        a = resolve(tag_a)
+        b = {s: 0.5 for s in a} if tag_b is None else resolve(tag_b)
 
         shared = sorted(set(a) & set(b))
         if len(shared) < 2:

@@ -1385,6 +1385,27 @@ method wins would be motivated reasoning.
   and never re-tested with different hyperparameters.
 - All five outcomes are reported whichever way they fall, including in the writeup.
 
+### 10.4.1 Two clarifications, made before the confirmatory runs started
+
+Recorded 2026-09-01, before any `C-` tag existed, because both change how a result
+would be read and neither should be settled after seeing one.
+
+**Tag namespace.** Confirmatory runs use a dedicated `C-` prefix on all 103 subjects.
+The existing `F-`, `P2-` and `E-` tags hold 20-subject development data and are never
+mixed into a confirmatory comparison. The analysis script enforces this by pointing
+only at `C-` tags.
+
+**H4's "best configuration" was ambiguous.** As written it invites choosing the best
+arm after seeing the results, which inflates the comparison. It is fixed here as the
+**combined arm** (`C-both-binary`) — attention plus learnable graph, the full stated
+contribution — regardless of whether some other arm scores higher. If a single
+component happens to beat the combination, that is reported as an H3 outcome, not
+promoted into H4.
+
+**H3's baseline is resolved from data, but by a rule fixed in advance:** the better of
+the two single-component arms by mean within-family accuracy. Which one that is cannot
+be known in advance; the rule for choosing it can be, and is.
+
 ### 10.5 Stopping rules
 
 - **One configuration per hypothesis.** Each arm gets the hyperparameters already fixed by
