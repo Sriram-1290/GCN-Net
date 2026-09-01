@@ -1406,6 +1406,23 @@ promoted into H4.
 the two single-component arms by mean within-family accuracy. Which one that is cannot
 be known in advance; the rule for choosing it can be, and is.
 
+### 10.4.2 H5's configuration, fixed before the LOSO run
+
+10.5 fixed the arm configuration from the development phase, but LOSO was never given
+one. Recorded now, before the run starts.
+
+LOSO trains on ~4,600 trials per fold against ~45 for the subject-dependent protocol —
+about 100x the data. **Window 64 at stride 16 is kept identical to the other arms**, so
+the representation does not change between hypotheses. **Epochs drop from 50 to 30**,
+because with 100x the samples per epoch, 30 epochs is already ~60x the gradient steps
+the subject-dependent arms receive; holding epochs at 50 would compare a far more
+heavily trained model rather than the same one on more data. Learning rate, batch size,
+optimiser and the 5 disjoint validation subjects are unchanged.
+
+This is a deviation from a literal reading of 10.5 and is flagged as such rather than
+folded in silently. The alternative — matching epochs and letting training length differ
+by 60x — would be the larger deviation.
+
 ### 10.5 Stopping rules
 
 - **One configuration per hypothesis.** Each arm gets the hyperparameters already fixed by
