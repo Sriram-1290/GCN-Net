@@ -36,7 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from data.cache import assert_cache_matches, load_subject  # noqa: E402
 from data.config import all_subjects, load_config  # noqa: E402
 from data.splits import loso_folds  # noqa: E402
-from evaluation.experiment_log import log_experiment, set_seed  # noqa: E402
+from evaluation.experiment_log import (  # noqa: E402
+    completed_keys, describe_resume, log_experiment, set_seed)
 from evaluation.pipeline import Trials, concat_trials, prepare_fold  # noqa: E402
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
 from models.gcns_net import GCNsNet, GCNsNetConfig  # noqa: E402
@@ -61,6 +62,10 @@ def main() -> int:
                     help="restrict the subject pool; folds are one per subject in it")
     ap.add_argument("--max-folds", type=int, default=None,
                     help="run only the first N folds, for a quick read")
+    ap.add_argument("--fold-range", nargs=2, type=int, default=None, metavar=("LO", "HI"),
+                    help="run folds [LO, HI) only. Folds are independent, so splitting "
+                         "a run across processes changes nothing about the result -- it "
+                         "is purely a scheduling device for a machine with spare GPU.")
     ap.add_argument("--val-subjects", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -75,6 +80,10 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="loso")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip subjects already logged under this tag. LOSO folds\n"
+                         "cost minutes each, so an interrupted run must not restart\n"
+                         "from fold 0 -- that would duplicate every completed fold.")
     ap.add_argument("--force", action="store_true",
                     help="run even if the estimated cost exceeds the budget")
     args = ap.parse_args()
@@ -111,6 +120,9 @@ def main() -> int:
         n_features = args.window
 
     folds = loso_folds(subjects, n_val_subjects=args.val_subjects, seed=seed)
+    if args.fold_range:
+        lo, hi = args.fold_range
+        folds = [f for f in folds if lo <= f.fold < hi]
     if args.max_folds:
         folds = folds[:args.max_folds]
 
@@ -133,11 +145,18 @@ def main() -> int:
     model_cfg = GCNsNetConfig(n_classes=n_classes, in_features=n_features,
                               learnable_graph=args.learnable_graph)
 
+    done = completed_keys(args.log, args.tag) if args.resume else set()
+    if args.resume:
+        print(describe_resume(done, len(folds), args.tag))
+    done_subjects = {s for s, _ in done}
+
     accs, trial_accs = [], []
     t0 = time.time()
 
     for fold in folds:
         subject = fold.test[0]
+        if subject in done_subjects:
+            continue
         train = concat_trials([trials[s] for s in fold.train])
         val = concat_trials([trials[s] for s in fold.val])
         test = trials[subject]
@@ -189,6 +208,10 @@ def main() -> int:
               f"sample {result['timepoint'].accuracy:.4f}  "
               f"trial {result['trial'].accuracy:.4f}   "
               f"eta {eta/60:.0f} min", flush=True)
+
+    if not trial_accs:
+        print("nothing to do: every fold for this tag was already logged")
+        return 0
 
     a = np.array(trial_accs)
     rng = np.random.default_rng(0)
