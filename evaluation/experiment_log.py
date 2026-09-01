@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import os
 import random
+import time
 import subprocess
+from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,11 +78,61 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+@contextmanager
+def _exclusive(fh):
+    """Hold an exclusive lock on an open file for the duration of the block.
+
+    Several experiment runners append to one log concurrently. Rows are ~3 KB,
+    well past any platform's atomic-write guarantee, so unsynchronised appends
+    can interleave and split a record across lines. That happened once for real:
+    two processes wrote in the same second and left a 16-byte orphan fragment,
+    losing one fold's row.
+
+    stdlib only -- msvcrt on Windows, fcntl elsewhere. If neither is available the
+    lock degrades to a no-op rather than crashing, since a missing lock is worse
+    than a failed run only in the rare concurrent case.
+    """
+    try:
+        import msvcrt
+        fh.seek(0, os.SEEK_END)
+        while True:
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                break
+            except OSError:
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            try:
+                fh.seek(0, os.SEEK_END)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+        return
+    except ImportError:
+        pass
+    try:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return
+    except ImportError:
+        pass
+    yield
+
+
 def log_experiment(record: dict[str, Any], path: Path | str = DEFAULT_LOG) -> Path:
     """Append one run to the JSONL log, stamped with time and git provenance.
 
     JSONL rather than CSV because runs carry nested structures (confusion
     matrices, per-class accuracies, config trees) that a flat CSV would mangle.
+
+    The append is written as **one locked, unbuffered syscall**. Concurrent
+    runners are the normal case here, and a torn row is silent data loss.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,8 +141,10 @@ def log_experiment(record: dict[str, Any], path: Path | str = DEFAULT_LOG) -> Pa
         **git_provenance(),
         **_jsonable(record),
     }
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row) + "\n")
+    payload = (json.dumps(row) + "\n").encode("utf-8")
+    with open(path, "ab", buffering=0) as fh:
+        with _exclusive(fh):
+            fh.write(payload)
     return path
 
 

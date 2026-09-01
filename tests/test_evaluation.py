@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -414,3 +416,33 @@ def test_a_sweep_over_learning_rates_is_not_duplicated(tmp_path):
         log_experiment({"tag": "sweep", "subject": "S001", "fold": 0,
                         "train_config": {"learning_rate": lr}}, path=p)
     assert find_duplicates(p) == {}
+
+
+def test_concurrent_appends_never_tear_a_row(tmp_path):
+    """Several runners append to one log at once; rows are ~3 KB, past any
+    platform's atomic-write guarantee. This happened for real: two processes wrote
+    in the same second and left a 16-byte orphan, losing a fold's row."""
+    import json
+    import subprocess
+    import sys
+    import textwrap
+
+    log = tmp_path / "concurrent.jsonl"
+    script = tmp_path / "writer.py"
+    script.write_text(textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, r"{Path(__file__).resolve().parent.parent}")
+        from evaluation.experiment_log import log_experiment
+        for i in range(25):
+            log_experiment({{"tag": sys.argv[1], "subject": f"S{{i:03d}}", "fold": i,
+                            "payload": list(range(200))}}, path=r"{log}")
+    """), encoding="utf-8")
+
+    procs = [subprocess.Popen([sys.executable, str(script), f"w{i}"]) for i in range(4)]
+    for p in procs:
+        assert p.wait() == 0
+
+    lines = [l for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 100, f"expected 100 rows, got {len(lines)}"
+    for l in lines:
+        json.loads(l)          # raises if any row was torn
