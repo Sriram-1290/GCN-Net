@@ -1929,6 +1929,24 @@ picks up exactly where it stopped and cannot duplicate a row.
 
 ### 2026-09-02
 
+- Wrote the complete research paper as `PAPER.md` (5,244 words) and published a rendering.
+  Adds what `RESULTS.md` lacks for an academic submission: an abstract, an enumerated
+  contributions list, a related-work section placing the work against the GCNs-Net lineage,
+  adaptive-graph successors [4,5], classical CSP [10-12] and the ML-leakage literature [8],
+  formal method definitions (Laplacian, Chebyshev recurrence, the within-family
+  decomposition), a discussion engaging with why the finding generalises beyond one paper,
+  and thirteen references.
+- **Every reference was verified against Crossref or arXiv before citation**, continuing the
+  practice that caught the wrong author list on [1]. Crossref returned the wrong record for
+  Defferrard (NeurIPS proceedings index poorly there); confirmed via the arXiv API instead.
+  A citation-integrity check confirms all 13 are both cited and defined, with no orphans.
+- The paper adds one framing not in `RESULTS.md`: a **dataset-level recommendation** that
+  four-class accuracies on EEGMMIDB be reported with the within-family decomposition, since
+  the run-family confound is structural and affects any result on this dataset, not only
+  ours.
+- `markdown` was installed to render the artifact and deliberately **not** added to
+  `requirements.txt` — it is a build tool, not a project dependency.
+
 - Wrote the results up as `RESULTS.md` and as a published artifact. Seven numbered findings
   in publication order, because the argument is cumulative and each step only stands if the
   previous one did: the protocol reproduces (R1), collapses under a correct split (R2), the

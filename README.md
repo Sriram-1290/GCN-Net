@@ -4,8 +4,9 @@ A PyTorch reimplementation and audit of **GCNs-Net** (Hou et al., *IEEE TNNLS* 3
 on the PhysioNet EEG Motor Movement/Imagery dataset, plus an attempt to build a version
 that decodes motor imagery when evaluated correctly.
 
-**Start here:** [`RESULTS.md`](RESULTS.md) is the writeup — the findings in publication
-order with figures. [`project_documentation.md`](project_documentation.md) is the living
+**Start here:** [`PAPER.md`](PAPER.md) is the full research paper — abstract, related
+work, methods, results, discussion and references. [`RESULTS.md`](RESULTS.md) is the
+shorter writeup: the findings in publication order with figures. [`project_documentation.md`](project_documentation.md) is the living
 record: every measurement, decision and correction, plus full methods and a reproduction
 recipe. [`CLAUDE.md`](CLAUDE.md) holds the project rules.
 
