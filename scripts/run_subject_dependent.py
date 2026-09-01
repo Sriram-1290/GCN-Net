@@ -60,6 +60,8 @@ def main() -> int:
     ap.add_argument("--temporal-attention", action="store_true",
                     help="attend over time before the convs; needs --window > 1")
     ap.add_argument("--attention-heads", type=int, default=4)
+    ap.add_argument("--temporal-pool", choices=["segments"], default=None,
+                    help="fixed mean pool instead of attention: the H2 control")
     ap.add_argument("--attention-per-node", action="store_true")
     ap.add_argument("--learnable-graph", action="store_true",
                     help="learn the adjacency, initialised at the PCC graph so the "
@@ -103,6 +105,8 @@ def main() -> int:
         verbose=not args.quiet,
     )
     n_classes = 2 if args.classes else len(cfg.class_names)
+    if args.temporal_pool or args.temporal_attention:
+        pass  # in_features stays the window; the pool reduces it inside the model
     if args.features == "bandpower":
         from data.features import resolve_bands
         n_features = len(resolve_bands(args.bands))
@@ -117,6 +121,7 @@ def main() -> int:
     model_cfg = GCNsNetConfig(n_classes=n_classes,
                               in_features=n_features,
                               temporal_attention=args.temporal_attention,
+                              temporal_pool=args.temporal_pool,
                               attention_heads=args.attention_heads,
                               attention_per_node=args.attention_per_node,
                               learnable_graph=args.learnable_graph,

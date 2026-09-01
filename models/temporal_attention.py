@@ -112,3 +112,43 @@ class TemporalAttention(nn.Module):
     def extra_repr(self) -> str:
         return (f"n_nodes={self.n_nodes}, n_heads={self.n_heads}, "
                 f"per_node={self.per_node}")
+
+
+class SegmentMeanPool(nn.Module):
+    """Fixed uniform average over ``n_segments`` equal slices of the time axis.
+
+    The control for :class:`TemporalAttention`. It produces the **same output
+    shape** and leaves the downstream network identical, but has **no learned
+    temporal parameters** at all -- the weights are uniform within each segment by
+    construction and cannot adapt.
+
+    It exists because the measured attention weights came out essentially uniform
+    (max 2.1 % deviation), which means the H2 gain may be averaging and reduced
+    first-layer width rather than selective attention. If this module matches
+    attention's accuracy, that is the answer.
+    """
+
+    def __init__(self, n_nodes: int, n_segments: int = 4) -> None:
+        super().__init__()
+        if n_segments < 1:
+            raise ValueError(f"n_segments must be >= 1, got {n_segments}")
+        self.n_nodes = n_nodes
+        self.n_segments = n_segments
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """``(N, M, T) -> (N, M, n_segments)``."""
+        if x.dim() != 3:
+            raise ValueError(f"expected (batch, nodes, time), got {tuple(x.shape)}")
+        n_batch, n_nodes, n_time = x.shape
+        if n_nodes != self.n_nodes:
+            raise ValueError(f"expected {self.n_nodes} nodes, got {n_nodes}")
+        if n_time < self.n_segments:
+            raise ValueError(f"{n_time} timepoints cannot form {self.n_segments} segments")
+        # Trailing timepoints that do not divide evenly are dropped, so every
+        # segment averages the same number of samples.
+        usable = (n_time // self.n_segments) * self.n_segments
+        return x[:, :, :usable].reshape(
+            n_batch, n_nodes, self.n_segments, usable // self.n_segments).mean(-1)
+
+    def extra_repr(self) -> str:
+        return f"n_nodes={self.n_nodes}, n_segments={self.n_segments}"

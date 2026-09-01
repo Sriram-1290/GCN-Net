@@ -55,6 +55,7 @@ class GCNsNetConfig:
     learn_graph_scale: bool = False
     adjacency_l1: float = 0.0       # sparsity on the learned correction
     temporal_attention: bool = False  # H2: attend over time before the convs
+    temporal_pool: str | None = None   # "segments": fixed mean pool, the H2 control
     attention_heads: int = 4
     attention_hidden: int = 32
     attention_per_node: bool = False
@@ -89,7 +90,13 @@ class GCNsNet(nn.Module):
 
         # Attention pools the time axis before the first convolution, so the convs
         # see n_heads features rather than the raw window length.
-        if self.cfg.temporal_attention:
+        if self.cfg.temporal_pool == "segments":
+            if self.cfg.in_features < 2:
+                raise ValueError("temporal_pool needs a time axis")
+            from .temporal_attention import SegmentMeanPool
+            self.attention = SegmentMeanPool(n_nodes, self.cfg.attention_heads)
+            n_in = self.cfg.attention_heads
+        elif self.cfg.temporal_attention:
             if self.cfg.in_features < 2:
                 raise ValueError(
                     "temporal_attention needs a time axis; in_features is "
@@ -106,6 +113,8 @@ class GCNsNet(nn.Module):
         else:
             self.attention = None
             n_in = self.cfg.in_features
+        if self.cfg.temporal_pool not in (None, "segments"):
+            raise ValueError(f"unknown temporal_pool {self.cfg.temporal_pool!r}")
 
         for i, (n_out, K, p) in enumerate(
             zip(self.cfg.filters, self.cfg.orders, self.cfg.pools)

@@ -1390,6 +1390,71 @@ is well short of the 0.93 the paper reports and still behind CSP+LDA.
 
 ---
 
+### 9.10 What temporal attention actually learned (EXPLORATORY)
+
+H2 is the project's only positive component result, so it is worth knowing *what*
+attention learned rather than only that it helped. `scripts/analyse_attention.py`,
+12 development subjects, confirmatory configuration.
+
+**A hypothesis, tested and refuted.** The first reading of the attention profile was
+that the weights are uniform — the population-mean profile deviates from uniform by
+only 2.1 %. That suggested the H2 gain was not attention at all but two side effects:
+temporal averaging (denoising) and a 16x narrower first conv layer (2,048 -> 128
+parameters), i.e. regularisation.
+
+`SegmentMeanPool` tests this directly. It produces the **same output shape** and leaves
+the rest of the network identical, but has **no learned temporal parameters** — uniform
+weights within each of 4 fixed segments.
+
+| | within-family |
+|---|---|
+| fixed graph, no pooling | 0.5472 |
+| **temporal attention** | **0.5939** |
+| fixed mean pool (control) | 0.5367 |
+
+```
+mean pool  - baseline    -0.0106 [-0.0272, +0.0061]  p=0.885   no difference
+attention  - baseline    +0.0467 [+0.0183, +0.0728]  p=0.0001  differs
+attention  - mean pool   +0.0572 [+0.0233, +0.0900]  p=0.0009  differs
+```
+
+**Averaging gains nothing.** The hypothesis is refuted: attention beats an identical
+architecture with fixed uniform weights by +0.0572. Neither denoising nor reduced width
+explains H2.
+
+**The figure was misleading, and so was our reading of it.** Plotting the
+population-mean profile hides the effect entirely:
+
+```
+population-mean deviation from uniform        2.1 %
+per-sample deviation from uniform (median)  104.5 %
+per-sample deviation (90th percentile)      171.7 %
+max/min weight within one sample (median)     4.9x
+argmax timepoint across samples: std 18.8 of 64, spanning 0-63
+```
+
+Individual trials are **strongly peaked** — a ~5x ratio between the most and least
+weighted timepoint — but they peak at *different* moments, so averaging across samples
+flattens the profile to near-uniform. The figure now plots individual sample profiles
+against the population mean, because the mean alone supports exactly the wrong
+conclusion.
+
+This is what the module was designed for and what the docstring predicted: ERD onset
+varies by trial, so a per-trial weighting is the point. It is worth noting we reached
+the correct interpretation only after a control refuted the incorrect one.
+
+**Independent corroboration from the second panel.** Decodability across the trial
+peaks at **0.60 s** after cue onset (range 0.519-0.667 across window positions). A rise
+shortly after the cue is the neurophysiologically expected ERD shape, and it is
+measured here without any of it being built into the model — evidence the network is
+tracking real motor-imagery dynamics rather than an artefact.
+
+**Caveat.** All of 9.10 is exploratory (10.6) and was not pre-registered. It explains
+a confirmatory result; it does not add one. The mean-pool control in particular is a
+new comparison and is reported as exploratory no matter how large its effect.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -1647,6 +1712,14 @@ sets lr 1e-6 and regularisation 1e-3.
   raised utilisation to 84 % and cut the estimate from ~11 h to ~4 h with no change to any
   result. The original driver had to be killed to avoid duplicate (subject, fold, seed)
   rows, which would have silently double-counted in every summary.
+- **Analysed what attention learned (9.10, exploratory).** Proposed that H2's gain was
+  averaging plus regularisation rather than attention, and **refuted it** with a fixed
+  mean-pool control: mean pooling gains nothing (-0.0106, p=0.885) while attention beats
+  it by +0.0572 (p=0.0009). The population-mean attention profile looks uniform (2.1 %
+  deviation) only because individual trials peak at *different* moments — per-sample
+  deviation is 104.5 % with a ~5x max/min ratio. The figure was corrected to plot
+  individual profiles, since the mean alone supports the wrong conclusion. Decodability
+  peaks 0.60 s after cue onset, the expected ERD shape, measured rather than assumed.
 - **All five confirmatory hypotheses resolved (9.9), 103 subjects, Holm-corrected.**
   H2 (temporal attention) **supported**, +0.0600 [+0.0463, +0.0745]. H1 (learnable
   adjacency) **not supported**, +0.0031, reproducing the exploratory null on 83 unseen
