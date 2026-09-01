@@ -16,11 +16,15 @@ reproduces that number. Evaluating the same model correctly does not.
 
 | | |
 |---|---|
-| Published protocol, reproduced (103 subjects, 3 seeds) | **0.8975** |
-| Correct trial-level split, 4-class | 0.3000 |
-| …of which is actual motor-imagery decoding | **none** — within-family 0.4859 vs 0.5 chance |
-| Best representation found so far (within-family) | 0.5445 |
+| Published protocol, reproduced (103 subjects, 3 seeds) | **0.8975** [0.8794, 0.9147] |
+| Correct trial-level split, 4-class | 0.3097 |
+| …of which is actual motor-imagery decoding | **none** — within-family 0.5090 [0.4984, 0.5199], chance 0.5 |
+| Best representation (within-family) | 0.5470 [0.5291, 0.5667] |
 | **CSP+LDA on identical splits** | **0.6217** |
+| Learnable adjacency vs fixed graph | no effect: −0.0033, p=0.62 |
+
+All rows except the last two are 103 subjects x 3 seeds. The paired gap between the
+published and correct protocols is **+0.6096, 95 % CI [+0.5767, +0.6411]**.
 
 Three findings, in order of how much they matter:
 
@@ -35,7 +39,10 @@ Three findings, in order of how much they matter:
    Under a correct split the model identifies the *run family* 12 points above chance and
    discriminates *within* a family at chance.
 3. **A 25-year-old linear method beats it.** CSP+LDA on the same subjects, folds and
-   metrics wins on both binary problems and on 16 of 20 subjects.
+   metrics wins on both binary problems and on 16 of 20 subjects. Neither giving the
+   network explicit band power nor letting it learn the electrode graph closes that gap,
+   which points at the graph-convolutional inductive bias itself rather than at any
+   particular graph.
 
 ## Reproducing it
 

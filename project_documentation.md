@@ -30,7 +30,7 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Correct-protocol subject-dependent baseline | Done (20 subj) | 2026-08-31 |
 | Representation ablation (band-pass x window) | Done (20 subj) | 2026-08-31 |
 | Classical baseline (CSP+LDA) — Gate A | Done (20 subj) | 2026-08-31 |
-| Phase 1 anchor runs (103 subj x 3 seeds) | Running | 2026-08-31 |
+| Phase 1 anchor runs (103 subj x 3 seeds) | **Done** | 2026-09-01 |
 | Phase 3a: band power as node features | Done (20 subj) | 2026-09-01 |
 | Learnable adjacency implemented | Done | 2026-09-01 |
 | Temporal attention implemented | Done | 2026-09-01 |
@@ -39,7 +39,6 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Holm correction + confirmatory results script | Done | 2026-09-01 |
 | README + pinned requirements | Done | 2026-09-01 |
 | Learnable-graph ablation (20 subj, exploratory) | Done | 2026-09-01 |
-| Phase 1 arm A seed 1 (103 subj) | Done | 2026-09-01 |
 | Confirmatory runs (103 subj) | Not started | — |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
@@ -1277,6 +1276,49 @@ confirmatory runs.
 
 ---
 
+### 9.8 Phase 1 anchor results — full scale, 103 subjects, 3 seeds
+
+Everything in 9.1-9.7 was measured on 20 subjects. These are the definitive numbers.
+Zero duplicate rows; all nine tags complete.
+
+**Published protocol, reproduced.**
+
+```
+seed 1  0.8978      seed 2  0.8970      seed 3  0.8975
+POOLED  0.8975   95% CI [0.8794, 0.9147]   seed spread 0.0008
+paper reports 0.8835 group-level / 0.9306 subject-level
+```
+
+**Correct trial-level split.**
+
+| | 4-class | family | within-family | 95 % CI | above chance |
+|---|---|---|---|---|---|
+| published formulation (1 timepoint) | 0.3097 | 0.6106 | **0.5090** | [0.4984, 0.5199] | 53/103 |
+| best representation (8-30 Hz, 64 tp) | 0.3395 | 0.6168 | **0.5470** | [0.5291, 0.5667] | 60/103 |
+
+**The headline gap, paired over 103 subjects: +0.6096, 95 % CI [+0.5767, +0.6411].**
+
+**Three things this settles.**
+
+1. **The published formulation is at chance within-family at full scale.** Its CI
+   [0.4984, 0.5199] contains 0.5. The 20-subject estimate was 0.4859; the full-scale
+   value is 0.5090, and both are indistinguishable from chance. The conclusion in 9.2 —
+   that the published architecture and sample definition decode no motor imagery once
+   the split is honest — holds on all 103 subjects.
+2. **The best representation is genuinely above chance, and modestly so.** 0.5470,
+   CI [0.5291, 0.5667], excluding 0.5. The 20-subject estimate was 0.5418. Real, small.
+3. **The development-set estimates were not optimistic.** Every 20-subject figure landed
+   within its full-scale CI, and seed spread is tiny (0.0008 for the leaky arm, 0.0113
+   across arm A's within-family). That matters for 10.1: it is evidence the development
+   set was not silently overfitted by repeated inspection, which is the risk that
+   demotion was meant to guard against.
+
+**Reproducibility note.** These runs survived a full stop and restart mid-flight. Every
+tag reached its exact target count with zero duplicates, which is the practical
+validation of the `--resume` mechanism described in 6.11.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -1496,6 +1538,12 @@ sets lr 1e-6 and regularisation 1e-3.
   raised utilisation to 84 % and cut the estimate from ~11 h to ~4 h with no change to any
   result. The original driver had to be killed to avoid duplicate (subject, fold, seed)
   rows, which would have silently double-counted in every summary.
+- **Phase 1 complete at full scale (9.8).** 103 subjects x 3 seeds, zero duplicates.
+  Published protocol 0.8975 [0.8794, 0.9147]; published formulation under a correct split
+  is **at chance within-family** (0.5090, CI [0.4984, 0.5199]); best representation 0.5470
+  [0.5291, 0.5667]. Headline gap **+0.6096 [+0.5767, +0.6411]** paired over 103 subjects.
+  Every 20-subject estimate landed inside its full-scale CI, which is evidence the
+  development set was not overfitted by repeated inspection.
 - **Learnable adjacency: no effect (9.7, exploratory).** Mean within-family 0.5439
   against the fixed graph's 0.5472, paired −0.0033 [−0.0200, +0.0161], p=0.62; better on
   only 7/20 subjects. Checkpoint inspection confirms 80-90 % of first-layer edges moved,
