@@ -40,6 +40,11 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | README + pinned requirements | Done | 2026-09-01 |
 | Learnable-graph ablation (20 subj, exploratory) | Done | 2026-09-01 |
 | Confirmatory runs (103 subj) | **Done — all five** | 2026-09-02 |
+| Attention mechanism analysis | Done | 2026-09-02 |
+| `CLAUDE.md` Expected Results rewritten | Done | 2026-09-02 |
+| **Experimental work** | **COMPLETE** | 2026-09-02 |
+| Writeup | Not started | — |
+| Figures regenerated on confirmatory data | Partial | — |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
 
@@ -766,11 +771,11 @@ section listing every trap this project actually hit.
 
 | # | Question | Status |
 |---|---|---|
-| 1 | **4-class definition.** (a) left/right fist + both fists + both feet, all MI. (b) a rest class substituted for one MI class. | **REOPENED 2026-08-31.** The paper *names* L/R/B/F, but the shipped code discards both-fists and substitutes resting-state windows from the baseline run (4.5). Paper and code disagree. Current position: keep (a) for the main pipeline, use the code's scheme only in the leaky replication arm. Needs a call — see 7.1 |
+| 1 | **4-class definition.** (a) left/right fist + both fists + both feet, all MI. (b) a rest class substituted for one MI class. | **CLOSED 2026-09-02.** Scheme (a) was used throughout and every reported number rests on it. The paper *names* L/R/B/F while the shipped code substitutes resting-state windows (4.5); we follow the paper's stated task, which is also the harder and more honest one. The discrepancy is reported as a finding rather than resolved in the code's favour. Full comparison in 7.1 |
 | 2 | Whether to apply the S089/S090 correction or keep `CLAUDE.md` literal | Correction applied 2026-08-31; revertible |
 | 3 | Delete the 4.4 GB of redundant zip + dead mirror | Awaiting user |
 | 5 | **`CLAUDE.md`'s Expected Results section** stated ~90-93 % subject-dependent and 60-70 % LOSO as targets, both from the leaky literature. | **RESOLVED 2026-09-02**, on the user's instruction. Rewritten to carry measured values with CIs instead of targets, to record that LOSO came out *above* subject-dependent, to note 4-class LOSO is unmeasured, and to add the two reporting rules learned the hard way (always decompose; never quote a partial run) |
-| 4 | **What "reproduce the baseline" means**, given the reference headline rests on four stacked leakage paths. (i) Re-implement the leaky protocol to confirm ~93 %, then show it collapses under a correct split. (ii) Only ever run the correct protocol. | **RESOLVED 2026-08-31 to (i)**, user decision. We reproduce the leaky protocol as a documented artefact, then quantify how much each leakage path contributes. See 7.2 |
+| 4 | **What "reproduce the baseline" means.** (i) Re-implement the leaky protocol, then show it collapses under a correct split. (ii) Only ever run the correct protocol. | **RESOLVED to (i) and now EXECUTED.** The leaky arm reproduces 0.8975 against the published 0.8835; the correct arm gives within-family 0.5090, at chance. The paired gap is +0.6096 [+0.5767, +0.6411] over 103 subjects (9.8). Note the leakage-path count was later corrected from four to three (4.4) |
 
 ---
 
@@ -1590,7 +1595,356 @@ is the likely one.
 
 ---
 
-## 11. Changelog
+## 11. Methods — complete specification
+
+Everything needed to reproduce or defend any number in section 9, in one place. Where a
+choice deviates from the reference it is marked **[deviation]** with the reason.
+
+### 11.1 Data pipeline
+
+```
+PhysioNet EEGMMIDB, 109 subjects x 14 runs, 3,052 files, SHA256-verified
+  |
+  exclude S088, S089, S092, S100, S104, S106            -> 103 subjects
+  keep imagery runs 4, 6, 8, 10, 12, 14 only            -> 6 runs/subject
+  |
+  read EDF (MNE), drop the 65th 'EDF Annotations' signal -> 64 channels
+  eegbci.standardize()  'Fc5.' -> 'FC5'                  -> 10-05 names
+  assert sfreq == 160.0, n_channels == 64, 30 annotations/run
+  |
+  Common Average Reference                               [matches make_dataset.m]
+  band-pass 8-30 Hz (4th-order Butterworth, MNE default) [deviation: reference filters nothing]
+  |
+  epoch by annotation onset, tmin=0.0, 4.0 s = 640 samples
+  label = f(run_number, T-code); T0 discarded
+  |
+  cache: one .npz per subject, (90, 64, 640) float32, microvolts, NO normalisation
+```
+
+**Why no normalisation in the cache.** Mean/std are fit on the training split at training
+time. The cache is built before any split exists, so normalising here would leak test
+statistics into every experiment that reads it.
+
+**Two caches exist.** `data/cache` (unfiltered, CAR only) and `data/cache_bp830`
+(8-30 Hz). Band power must be computed from the unfiltered one — a band-passed signal has
+no power outside its passband — and the runner refuses the wrong combination.
+
+**Cache fingerprint.** `manifest.json` records a hash of every preprocessing field.
+`assert_cache_matches()` refuses to run against a cache built under a different config,
+which is the mechanism enforcing "don't silently change preprocessing between experiments".
+
+### 11.2 Architecture
+
+Reproduces `main-GCN.py` exactly unless marked.
+
+```
+input     (N, 64, Fin)        Fin = 1 (reference), 64 (window), or n_bands (band power)
+  [optional] TemporalAttention: (N, 64, T) -> (N, 64, n_heads)   [our addition, H2]
+conv1     ChebConv  Fin -> 16    K=2, 64 nodes    b2relu[1,64,16]  maxpool/2 -> 32
+conv2     ChebConv   16 -> 32    K=2, 32 nodes    b2relu[1,32,32]  maxpool/2 -> 16
+conv3     ChebConv   32 -> 64    K=2, 16 nodes    b2relu[1,16,64]  maxpool/2 ->  8
+conv4     ChebConv   64 ->128    K=2,  8 nodes    b2relu[1, 8,128] maxpool/2 ->  4
+conv5     ChebConv  128 ->256    K=2,  4 nodes    b2relu[1, 4,256] maxpool/2 ->  2
+conv6     ChebConv  256 ->512    K=2,  2 nodes    b2relu[1, 2,512] maxpool/2 ->  1
+flatten   512
+logits    Linear 512 -> n_classes        (plain linear; the reference's relu=False path)
+```
+
+**359,428 parameters** at `Fin=1`. `conv6` alone is 264,192 of them (73 %), operating on a
+two-node graph.
+
+- `b2relu` = per-vertex-per-filter bias `[1, M, F]` init 0.1, then BatchNorm, then
+  **softplus** (not ReLU, despite the reference's name). `main-GCN.py` selects `b2relu`,
+  not `b1relu`.
+- Weights: truncated normal, sigma 0.1, matching `_weight_variable`.
+- **[deviation]** BatchNorm respects `.eval()`. The reference hardcodes `training=True`;
+  `always_train_bn=True` restores that for the replication arm.
+- Chebyshev basis is dense and precomputed per split — 64 nodes make sparse scatter
+  slower, and the basis is constant unless the graph is learnable.
+- Graph: `A = |PCC| - I` from the **training split only** **[deviation]**; the reference
+  computes it over all data including test.
+- Coarsening: Graclus heavy-edge matching, `levels=5`, giving 64/32/16/8/4/2 nodes, with
+  `compute_perm` reordering so nodes 2i and 2i+1 are siblings. **[deviation]** an
+  off-by-one in the reference's row-length scan is fixed (6.6).
+- `rescale_laplacian(lmax=2.0)` matches the reference. True lambda_max is 1.03 at layer 0
+  rising to 2.00 at layer 5, so the fixed bound wastes Chebyshev range in early layers
+  (6.6) — logged as an untested exploratory ablation.
+
+### 11.3 Training
+
+| | leaky replication | correct protocol | LOSO |
+|---|---|---|---|
+| optimiser | Adam | Adam | Adam |
+| learning rate | 1e-2 | 1e-3 | 1e-3 |
+| batch size | 1024 | 256 | 256 |
+| epochs | 25 | 50 | 30 |
+| L2 (FC params only) | 1e-3 | 1e-3 | 1e-3 |
+| model selection | final epoch | best validation | best validation |
+| validation | none | 20 % of training trials | 5 disjoint subjects |
+
+The reference's own learning rate of 1e-6 does not train at all within 25 epochs; the
+paper states 0.01, and the two disagree (4.5). A sweep over 1e-6, 1e-4, 1e-3, 1e-2 left
+held-out accuracy at chance under a correct split regardless, so the choice is not what
+produces the audit result.
+
+LOSO's 30 epochs is a deviation recorded in 10.4.2: a LOSO fold sees ~100x the data, so
+30 epochs is already ~60x the gradient steps a subject-dependent fold receives.
+
+### 11.4 Splits — four protocols, and what each is for
+
+| protocol | unit | leaks? | used for |
+|---|---|---|---|
+| `leaky_timepoint_holdout` | timepoint, shuffled 90/10 | **yes, by design** | reproducing the published number |
+| `stratified_trial_kfold` | trial, stratified 5-fold | no | subject-dependent results |
+| `loso_folds` | subject | no | subject-independent results |
+| inner split of training trials | trial | no | validation / checkpoint selection |
+
+The leaky protocol is asserted **to leak** in the test suite: at 640 timepoints per trial
+and a 10 % cut, all 90 trials contribute rows to both sides. That makes the replication a
+measurement rather than a claim.
+
+### 11.5 Metrics and statistics
+
+- **Primary outcome: within-family accuracy.** Mean over the two binary problems (left vs
+  right fist; both fists vs both feet). Both classes in each problem come from the same
+  run family, so the run-family artefact cannot contribute. Chance 0.5.
+- **Always reported alongside:** 4-class accuracy, run-family accuracy, per-class
+  accuracy, confusion matrix, Cohen's kappa, macro-F1.
+- **Trial-level aggregation:** a trial's prediction is the argmax of its mean logit across
+  its windows/timepoints. Timepoint accuracy is also logged because that is what the
+  reference reports.
+- **Pairing:** all comparisons are paired on subject. Between-subject variance in EEG
+  dwarfs every effect measured here.
+- **Intervals:** 95 % bootstrap, 10,000 resamples, seed 0.
+- **p-values:** bootstrap under a re-centred null; directional where pre-registered;
+  never reported as 0 (floor 1/n_boot).
+- **Multiplicity:** Holm-Bonferroni across the five confirmatory hypotheses, family-wise
+  alpha 0.05.
+
+---
+
+## 12. Consolidated results
+
+Every headline number, in one place. Within-family accuracy unless stated; chance 0.5 for
+within-family and binary problems, 0.25 for 4-class.
+
+### 12.1 The audit — 103 subjects, 3 seeds
+
+| | 4-class | run-family | within-family | 95 % CI |
+|---|---|---|---|---|
+| published protocol (leaky), timepoint acc | — | — | **0.8975** | [0.8794, 0.9147] |
+| correct split, published formulation | 0.3097 | 0.6106 | **0.5090** | [0.4984, 0.5199] |
+| correct split, 8-30 Hz + 64-tp window | 0.3395 | 0.6168 | **0.5470** | [0.5291, 0.5667] |
+
+Paired gap, published vs correct protocol: **+0.6096, [+0.5767, +0.6411]**, n=103.
+Seed spread on the leaky arm: 0.0008.
+
+### 12.2 Representation ablation — 20 development subjects, exploratory
+
+| arm | band-pass | sample | 4-class | family | within-family |
+|---|---|---|---|---|---|
+| A | none | 1 tp | 0.3000 | 0.6239 | 0.4859 |
+| B | 8-30 Hz | 1 tp | 0.3472 | 0.6778 | 0.5110 |
+| C | none | 64 tp | 0.3311 | 0.6544 | 0.5051 |
+| D | 8-30 Hz | 64 tp | 0.3300 | 0.6100 | **0.5418** |
+| E | band power (fbcsp) | 1 s | 0.4222 | 0.7378 | 0.5716 |
+
+Only D's within-family CI excluded chance. E's large 4-class gain is ~4/5 run-family
+identification, not decoding (9.6).
+
+### 12.3 Confirmatory results — 103 subjects, Holm-corrected
+
+| configuration | within-family | 95 % CI | above chance |
+|---|---|---|---|
+| fixed graph, no attention | 0.5438 | [0.5288, 0.5598] | 64/103 |
+| + learnable adjacency | 0.5469 | [0.5317, 0.5632] | 70/103 |
+| **+ temporal attention** | **0.6038** | [0.5805, 0.6278] | 83/103 |
+| + both | 0.5976 | [0.5745, 0.6220] | 79/103 |
+| CSP+LDA | **0.6239** | [0.5977, 0.6521] | 81/103 |
+| LOSO (attention config) | **0.6040** | [0.5823, 0.6268] | 88/103 |
+
+| | hypothesis | diff | 95 % CI | p (Holm) | verdict |
+|---|---|---|---|---|---|
+| H1 | learnable adjacency > fixed | +0.0031 | [−0.0038, +0.0102] | 0.392 | not supported |
+| H2 | attention > none | +0.0600 | [+0.0463, +0.0745] | 0.0005 | **SUPPORTED** |
+| H3 | both > better single | −0.0061 | [−0.0154, +0.0031] | 0.899 | not supported |
+| H4 | contribution vs CSP+LDA | −0.0263 | [−0.0413, −0.0112] | 0.0012 | **SUPPORTED (negative)** |
+| H5 | LOSO > chance | +0.1040 | [+0.0826, +0.1269] | 0.0005 | **SUPPORTED** |
+
+### 12.4 Classical baseline, per problem
+
+| | CSP+LDA | best network |
+|---|---|---|
+| left vs right fist | 0.5711 | 0.5178 (fixed) |
+| both fists vs both feet | 0.6722 | 0.5767 (fixed) |
+
+Both methods find fists-vs-feet easier than left-vs-right, which is what the homunculus
+predicts and is mild evidence both pipelines track real signal.
+
+---
+
+## 13. Limitations and threats to validity
+
+Stated plainly because a viva will ask, and because several of these bound the
+conclusions more tightly than the confidence intervals do.
+
+**One dataset, one architecture.** Every conclusion is about GCNs-Net on PhysioNet
+EEGMMIDB. "The graph inductive bias costs more than it contributes" (9.7.1) is supported
+*here*; it is not a claim about graph networks for EEG in general. BCI IV-2a was scoped
+and never run (decision 6).
+
+**The 4-class problem is structurally confounded and cannot be de-confounded.** Classes
+0/1 occur only in runs 4/8/12 and 2/3 only in 6/10/14. No analysis can separate
+run-family signal from neural signal in a 4-class number; only the within-family
+decomposition avoids it, at the cost of answering a binary question instead of the
+4-class one the paper poses.
+
+**Within-family accuracy is not what the paper reports.** Our primary outcome is a
+binary problem; the paper's is 4-class. The comparison to 0.9306 is therefore a
+comparison of protocols, not of directly commensurable numbers. This is stated wherever
+the two appear together.
+
+**The development set was inspected repeatedly.** Sections 9.1-9.7 used the same 20
+subjects while choosing what to try next. 10.1 demoted them and moved all confirmatory
+tests to 103 subjects, and 9.8 showed every 20-subject estimate fell inside its
+full-scale CI — but exploratory results remain exploratory.
+
+**Single seed for the confirmatory arms.** Phase 1 used three seeds and showed a spread
+of 0.0008, so seed variance is small for this architecture. The confirmatory arms used
+one seed each, which 10.5 permits but which leaves seed variance unmeasured for those
+specific numbers.
+
+**Post-hoc analyses are not confirmatory.** 9.10's mean-pool control was devised after
+seeing H2 and is labelled exploratory throughout. It is strong evidence about mechanism;
+it is not a pre-registered test.
+
+**CSP was given the band-passed cache.** CSP requires band-limited input, so it ran on
+8-30 Hz data — the same cache as the network arms it is compared against. It was not
+tuned: 4 components, Ledoit-Wolf, shrinkage LDA, no search. A tuned CSP would likely be
+stronger, which makes H4's negative result conservative rather than optimistic.
+
+**LOSO used one configuration.** The attention config only. Whether a learnable graph or
+band power behaves differently under LOSO is unmeasured.
+
+**Trial counts are small.** ~22-23 trials per class per subject, ~45 per binary problem.
+Subject-dependent folds train on ~36 trials. 9.9 argues this is why LOSO outperforms
+subject-dependent, which also means subject-dependent numbers here are noisier than the
+CIs alone suggest.
+
+**We did not read [4] or [5].** Both are paywalled. The novelty claim rests on their
+abstracts and on the observation that neither GCNs-Net headline is subject-independent.
+
+---
+
+## 14. Errors made and corrected
+
+Every substantive error in this project and how it was caught. Recorded because the
+pattern is instructive: **most were caught by an independent check disagreeing with a
+process that reported success.**
+
+| # | Error | How it was caught | Fix |
+|---|---|---|---|
+| 1 | Exclusion list named S090; S090 is clean and S089 is defective | audited all 1,526 EDF headers instead of trusting the list | 3.5, `CLAUDE.md` corrected |
+| 2 | Claimed `make_dataset.m` mean-centres over the dataset (leakage) | read the local source; `mean(X,1)` on a channels x time matrix is CAR | 4.4, leakage count 4 -> 3, config set to CAR |
+| 3 | Claimed the PCC adjacency construction was absent from the repo | it is in `make_dataset.m`; only `main-GCN.py` lacks it | 4.3 |
+| 4 | Used `b1relu` in the analysis; `main-GCN.py` configures `b2relu` | read `main-GCN.py` directly | 4.3, parameter count now matches |
+| 5 | Said the paper's four classes are L/R/B/F | the shipped code discards both-fists and substitutes rest | 4.5, decision 1 |
+| 6 | Predicted band-passing would lower run-family accuracy | it rose (0.6239 -> 0.6778) | 9.4, prediction recorded as failed |
+| 7 | Over-stated the family diagnostic as pure confound | bilateral vs unilateral imagery genuinely differ topographically | 9.4 |
+| 8 | Hypothesised H2's gain was averaging plus regularisation | built a fixed mean-pool control; it gained nothing | 9.10 |
+| 9 | Read the attention figure as showing uniform weights | per-sample deviation is 104 %; the population mean hides it | 9.10, figure corrected |
+| 10 | Quoted 0.5774 from a partial run; completed value 0.5418 | fold count checked against target | rule added to `CLAUDE.md` |
+| 11 | Left an orphaned driver running for hours after "stopping" it | user observed the machine was not idle | kill the process **tree** |
+| 12 | Polluted a tag with 431 rows from a verification run without `--subjects` | row count 531 vs expected 100 | rows removed; runners now take `--subjects` explicitly |
+| 13 | Concurrent writers tore two log rows | JSON parse failure, then a fold-count check | locked single-syscall append |
+| 14 | Documentation drifted for two commits | user asked whether it was being maintained | caught up; drift recorded rather than hidden |
+
+**The recurring lesson.** A process exiting with code 0 and printing a plausible mean is
+not evidence it did what it claimed. Job Q reported COMPLETE having silently lost a fold;
+the orphaned driver kept working after being "stopped"; a torn write loses a row without
+raising. Every one of these was found by comparing an *independent count* against an
+expected target. That check is now part of how any run is verified.
+
+---
+
+## 15. Reproduction recipe
+
+Exact commands for every reported number. Assumes the caches are built (README).
+
+```bash
+# 12.1 the audit, 103 subjects x 3 seeds
+for s in 1 2 3; do
+  python scripts/run_leaky_replication.py --epochs 25 --lr 1e-2 --seed $s \
+      --resume --tag "P1-leaky-103-s$s"
+  python scripts/run_subject_dependent.py --folds 5 --epochs 25 --lr 1e-2 \
+      --batch-size 1024 --window 1 --seed $s --resume --tag "P1-A-103-s$s"
+  python scripts/run_subject_dependent.py --config configs/bandpass_8_30.yaml \
+      --folds 5 --epochs 50 --lr 1e-3 --batch-size 256 --window 64 --stride 16 \
+      --seed $s --resume --tag "P1-D-103-s$s"
+done
+
+# 12.3 confirmatory arms (add --classes 0 1 and --classes 2 3 for each)
+python scripts/run_csp_baseline.py --tag C-csp
+python scripts/run_subject_dependent.py --config configs/bandpass_8_30.yaml \
+    --folds 5 --epochs 50 --lr 1e-3 --batch-size 256 --window 64 --stride 16 \
+    --classes 0 1 --resume --tag C-fixed-binary-0-1            # + --learnable-graph
+                                                               # + --temporal-attention
+                                                               # + both, for H3/H4
+python scripts/run_loso.py --config configs/bandpass_8_30.yaml --classes 0 1 \
+    --window 64 --stride 16 --epochs 30 --lr 1e-3 --batch-size 256 --resume \
+    --tag C-loso-binary-0-1
+
+# analysis
+python scripts/confirmatory_results.py      # 12.3 verdict table, Holm-corrected
+python scripts/run_family_analysis.py --tag <tag>   # 4-class -> family / within-family
+python scripts/ablation_summary.py          # 12.2
+python scripts/analyse_attention.py         # 9.10
+python scripts/make_figures.py              # montage, CAR, confusion
+```
+
+Every run appends one row per fold to `runs/experiments.jsonl` with the git commit, seed
+and full config. All runners take `--resume`; re-running a command after an interruption
+picks up exactly where it stopped and cannot duplicate a row.
+
+---
+
+## 16. Glossary
+
+| term | meaning |
+|---|---|
+| **run family** | which pair of runs a trial came from: 4/8/12 (left/right fist) or 6/10/14 (both fists/both feet) |
+| **run-family accuracy** | whether the model identified the family, ignoring which class within it. Chance 0.5. Contaminated by run-level drift *and* by a genuine bilateral-vs-unilateral difference |
+| **within-family accuracy** | given the family, whether the exact class was right. Chance 0.5. **The confound-free measure and the project's primary outcome** |
+| **leaky protocol** | the published one: timepoint samples, `randperm` split, adjacency and statistics over all data, BatchNorm in train mode at test |
+| **correct protocol** | trial-level split, train-split-only adjacency and statistics, BatchNorm respecting `.eval()` |
+| **timepoint accuracy** | accuracy over individual 6.25 ms samples — what the reference reports |
+| **trial accuracy** | one decision per imagined movement, from the mean logit across a trial's samples |
+| **development set** | the 20 subjects inspected repeatedly while choosing what to try. Results on them are exploratory (10.1) |
+| **confirmatory** | pre-registered, run on all 103 subjects, Holm-corrected (10) |
+| **ERD/ERS** | event-related de/synchronisation — the mu/beta power change that motor imagery produces |
+
+---
+
+## 17. Changelog
+
+### 2026-09-02
+
+- Rewrote `CLAUDE.md`'s Expected Results with measured values and CIs, closing open
+  decision 5. Recorded that LOSO came out *above* subject-dependent, that 4-class LOSO has
+  never been measured, and added the two reporting rules learned the hard way.
+- Closed decisions 1 (scheme (a) used throughout; the paper/code discrepancy is reported
+  as a finding) and 4 (option (i) executed).
+- **Expanded this document substantially at the user's request.** Added section 11
+  (complete methods specification — pipeline, architecture, training, splits, statistics,
+  with every deviation from the reference marked and justified), section 12 (all results
+  consolidated in one place), section 13 (limitations and threats to validity), section 14
+  (every error made and how it was caught), section 15 (exact reproduction commands per
+  result), and section 16 (glossary). The changelog moved to section 17.
+- Section 14 is the one worth reading twice: the recurring failure mode in this project was
+  a process exiting successfully while silently losing work, and every instance was caught
+  by an independent count disagreeing with an expected target — never by the process
+  reporting an error.
+
 
 ### 2026-08-31
 
