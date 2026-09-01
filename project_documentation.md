@@ -1929,6 +1929,16 @@ picks up exactly where it stopped and cannot duplicate a row.
 
 ### 2026-09-02
 
+- Wrote the results up as `RESULTS.md` and as a published artifact. Seven numbered findings
+  in publication order, because the argument is cumulative and each step only stands if the
+  previous one did: the protocol reproduces (R1), collapses under a correct split (R2), the
+  residual is a run-family artefact (R3), CSP+LDA beats it (R4), one repair of three works
+  (R5), attention weights each trial differently (R6), subject-independent is not worse (R7).
+  Three things were deliberate: H4's negative sign is called out in its own box, because a
+  two-sided "supported" verdict read without direction says the opposite of the truth; the
+  refuted mean-pool hypothesis is reported rather than omitted; and the inductive-bias claim
+  is explicitly bounded to this dataset, protocol and formulation.
+
 - Regenerated `confusion_decomposition.png` on the **full-scale** Phase 1 runs (103
   subjects) rather than 20 development subjects, with the family / within-family
   decomposition printed on each panel. The published formulation's panel now shows the
