@@ -44,11 +44,47 @@ These are the highest-risk failure modes in this project. Violating any of them 
 
 ## Expected Results — Do Not "Fix" These
 
-- **Subject-dependent accuracy ~90-93%** is the expected reproduction target for the baseline.
-  - *Measured 2026-08-31 — under review.* Reproducing the **published protocol** gives 88.24% (matching the paper's 88.35%). Under a **correct trial-level split** the same model gives 30.0%, and `project_documentation.md` §9.2 shows that number is entirely the run-family artefact — within-family decoding is at chance. These targets derive from the leaky literature; see open decision 5. Not yet revised.
-- **LOSO / subject-independent 4-class accuracy of 60-70% is NORMAL and expected**, not a bug. The gap between these two numbers is the entire point of the project.
-- Do not tune hyperparameters, change splits, or alter the protocol to make LOSO numbers look closer to subject-dependent numbers. Report what is measured.
-- A well-analyzed negative result (improvement doesn't beat baseline) is an acceptable outcome. Do not manufacture gains.
+*Rewritten 2026-09-02, replacing predicted targets with measured values. The previous
+version predicted ~90-93% subject-dependent and 60-70% LOSO; both came from the published
+literature and both are contradicted by measurement. Full detail and CIs in
+`project_documentation.md` §9.8-9.10.*
+
+**These are measurements, not targets.** The old numbers were goals to hit, which is
+precisely the wrong framing — it invites tuning until the number appears. What follows is
+what the pipeline produces. If a run disagrees, the first hypothesis is a bug in the run,
+not a result worth reporting.
+
+**Reference points — 103 subjects, 3 seeds, within-family accuracy unless stated:**
+
+| | value | note |
+|---|---|---|
+| Published protocol (leaky), timepoint accuracy | **0.8975** [0.8794, 0.9147] | reproduces the paper's 0.8835 |
+| Correct split, published formulation | **0.5090** [0.4984, 0.5199] | **at chance** — CI contains 0.5 |
+| Correct split, 8-30 Hz + 64-tp window | 0.5470 [0.5291, 0.5667] | |
+| + temporal attention | **0.6038** [0.5805, 0.6278] | the best model we have |
+| CSP+LDA on identical splits | **0.6239** [0.5977, 0.6521] | still ahead by 0.0263 |
+| LOSO, subject-independent | **0.6040** [0.5823, 0.6268] | 88/103 subjects above chance |
+
+- **The published formulation decodes nothing under a correct split.** 0.5090 against a
+  chance level of 0.5. Its 4-class accuracy of 0.3097 looks above chance only because of
+  the run-family artefact (§9.2). This is the project's central finding — do not treat it
+  as a failure to reproduce and do not tune to move it.
+- **LOSO is not worse than subject-dependent here — it is marginally better** (0.6040 vs
+  0.6038). That reverses the old expectation. A LOSO fold trains on ~100x more data, which
+  outweighs never having seen the test subject, and implies the subject-dependent protocol
+  is data-starved. **4-class LOSO has not been measured**; the 0.6040 figure is binary
+  within-family. Do not quote a 4-class LOSO number until one exists.
+- **A linear method from 2000 still wins.** CSP+LDA beats our best model by 0.0263
+  [0.0112, 0.0413]. Neither band power nor a learnable graph closed that gap. Report it.
+- **Never quote a 4-class accuracy without the family decomposition.** It has twice risen
+  while the rise was entirely better run-family identification (§9.4, §9.6). Report
+  within-family accuracy — the confound-free measure — alongside any 4-class figure.
+- **Never quote a partial run.** One arm read 0.5774 at 35 of 100 folds and 0.5418
+  completed. Check the fold count against its target before reporting anything.
+- Do not tune hyperparameters, change splits, or alter the protocol to move any of these
+  numbers. Report what is measured.
+- A well-analyzed negative result is an acceptable outcome. It is also, here, the actual
+  outcome for two of the three components tried — say so plainly rather than burying it.
 
 ---
 
