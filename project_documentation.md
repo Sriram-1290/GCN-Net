@@ -1929,6 +1929,23 @@ picks up exactly where it stopped and cannot duplicate a row.
 
 ### 2026-09-02
 
+- Regenerated `confusion_decomposition.png` on the **full-scale** Phase 1 runs (103
+  subjects) rather than 20 development subjects, with the family / within-family
+  decomposition printed on each panel. The published formulation's panel now shows the
+  argument visually: strong block structure across the run-family divide, but near-equal
+  cells *within* each block (0.37/0.32, 0.34/0.33) — family identification with no
+  decoding. The 8-30 Hz panel shows `both_feet` at 0.35 against 0.20, i.e. real
+  within-family signal.
+- **Cleanup: 8.2 GB -> 5.6 GB.** Removed the project-root copy of the source zip (1.9 GB;
+  an identical copy in `~/Downloads` was verified present first), `checkpoints/` (763 MB),
+  a stray nohup log and `__pycache__`. Kept `data/raw`, both caches, `figures/` and
+  `runs/experiments.jsonl`.
+- **Fixed the cause of the checkpoint waste.** `run_subject_dependent.py` wrote to
+  `checkpoints/{subject}_fold{n}.pt` with no tag, so 42 distinct runs overwrote one set of
+  515 files — 763 MB that identified nothing, was referenced by no result, and could not
+  be attributed to a run. Checkpoints are now scoped under `checkpoints/<tag>/` and are
+  **opt-in** via `--checkpoints`, since no reported result ever loaded one.
+
 - Rewrote `CLAUDE.md`'s Expected Results with measured values and CIs, closing open
   decision 5. Recorded that LOSO came out *above* subject-dependent, that 4-class LOSO has
   never been measured, and added the two reporting rules learned the hard way.

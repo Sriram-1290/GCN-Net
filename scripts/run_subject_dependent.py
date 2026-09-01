@@ -88,6 +88,10 @@ def main() -> int:
     ap.add_argument("--resume", action="store_true",
                     help="skip (subject, fold) pairs already logged under this tag, "
                          "so an interrupted run can be restarted with the same command")
+    ap.add_argument("--checkpoints", action="store_true",
+                    help="save best-by-validation weights under checkpoints/<tag>/. "
+                         "Off by default: 42 runs previously overwrote one set of 515 "
+                         "untagged files, 763 MB that identified nothing.")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -175,7 +179,9 @@ def main() -> int:
             trainer = Trainer(model, train_cfg, n_classes=n_classes)
 
             history = trainer.fit(
-                fold, checkpoint_path=f"checkpoints/{subject}_fold{split.fold}.pt")
+                fold, checkpoint_path=(
+                    f"checkpoints/{args.tag or 'untagged'}/"
+                    f"{subject}_fold{split.fold}.pt" if args.checkpoints else None))
             result = trainer.evaluate_samples(fold.test)
 
             fold_trial_acc.append(result["trial"].accuracy)

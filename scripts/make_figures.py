@@ -102,7 +102,16 @@ def figure_confusion(out: Path, cfg, log: Path, tags: list[str]) -> None:
         cm = np.sum([np.array(r["trial_confusion"]) for r in rows
                      if r.get("tag") == tag and "trial_confusion" in r], axis=0)
         acc = np.trace(cm) / cm.sum()
-        plot_confusion(cm, list(cfg.class_names), ax, title=f"{tag}\n4-class {acc:.3f}")
+        # Same-family cells: true and predicted both in {0,1} or both in {2,3}.
+        same = sum(cm[t, p] for t in range(4) for p in range(4)
+                   if (t < 2) == (p < 2))
+        fam = same / cm.sum()
+        within = np.trace(cm) / max(same, 1)
+        nice = {"P1-A-103-s1": "published formulation (1 timepoint)",
+                "P1-D-103-s1": "8-30 Hz, 64-timepoint window"}.get(tag, tag)
+        plot_confusion(cm, list(cfg.class_names), ax,
+                       title=f"{nice}\n4-class {acc:.3f}    family {fam:.3f}    "
+                             f"within-family {within:.3f}")
     fig.suptitle("Red lines divide the run families. Mass inside the blocks but "
                  "spread within them is family identification, not decoding.",
                  fontsize=10)
@@ -118,8 +127,11 @@ def main() -> int:
     ap.add_argument("--subject", default="S001")
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--out", default="figures")
+    # Full-scale 4-class tags. The confirmatory arms are all binary, so the
+    # 4-class confusion structure -- which is what this figure exists to show --
+    # lives in the Phase 1 anchor runs (103 subjects), not in the C- tags.
     ap.add_argument("--tags", nargs="*",
-                    default=["honest-20subj", "E-bandpower-fbcsp"])
+                    default=["P1-A-103-s1", "P1-D-103-s1"])
     args = ap.parse_args()
 
     cfg = load_config(args.config)
