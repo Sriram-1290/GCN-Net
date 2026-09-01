@@ -166,6 +166,15 @@ defective only in execution runs we never load; S104 loses 4 trials from one run
 — but it is a *convention*, not a data-driven necessity, and should be described as
 such when defending the work.
 
+**External corroboration, found 2026-09-02.** The published curation of this dataset
+— **[14]** Z. Shuqfa, A. Lakas and A. N. Belkacem, *Data in Brief* 54:110181, 2024
+(verified against Crossref) — independently excludes **exactly S088, S089, S092, S100, S104 and S106**, citing
+zero-length trials and short runs, and reports N = 103. That is a peer-reviewed,
+independent confirmation of the S089-not-S090 correction made here from the EDF
+header audit, arrived at by a different route. It converts the exclusion list from
+our judgement call into the field's convention, which is a materially stronger
+position in a viva. **Cite it in the paper's dataset section.**
+
 ### 3.6 Trial census
 
 - **105 of 109 subjects have exactly 30 annotations in all 6 imagery runs**
@@ -1929,10 +1938,263 @@ picks up exactly where it stopped and cannot duplicate a row.
 
 ---
 
-## 17. Changelog
+## 17. Future directions
+
+*Written 2026-09-02, after the confirmatory results were complete and the paper was
+written. Compiled from nine literature searches; provenance and reading depth are
+recorded in 17.7. Published as an artifact alongside this section.*
+
+Ranked by **what each direction would establish**, not by how much accuracy it might add.
+That ordering is deliberate: the project's value now rests on a negative result, and a
+negative result is strengthened by controls and weakened by tuning.
+
+### 17.0 The diagnosis this rests on
+
+9.7.1 concluded that the bottleneck is **the graph-convolutional inductive bias itself**
+— order-2 Chebyshev filters mix each node only with its one-hop neighbourhood using
+weights shared across nodes, whereas CSP fits an unconstrained discriminative projection
+over all 64 channels. Three candidate explanations have been eliminated by measurement:
+spectral features (9.6), the choice of graph (9.7), and — for the H2 gain — temporal
+averaging (9.10).
+
+**That conclusion is currently an inference from two null results, not a measurement.**
+A1 below is the experiment that would make it one.
+
+The external literature converges on the same place independently. In the largest BCI
+reproducibility study to date [15] — 30 pipelines over 36 datasets — covariance
+tangent-space projection and CSP were the only families consistently in the leading
+positions, and a companion benchmark [16] found no significant difference between CNNs
+and Riemannian methods in 26 of 30 comparisons. Covariance-based spatial modelling is
+what works on this problem; a sparse, node-shared graph convolution is a constrained
+approximation to it.
+
+### 17.1 Tier A — controls that must exist first
+
+Not improvements. These are the measurements that decide whether any improvement is
+attributable, and two of them could overturn 9.7.1. **Nothing in tiers B-E is worth
+starting before A1 has run.**
+
+| # | Direction | Effort | What it settles |
+|---|---|---|---|
+| **A1** | **Replace the Chebyshev stack with an unconstrained `64 -> F` spatial mixing layer**, holding cache, folds, seeds, attention and training loop constant | Small | Whether the locality-and-weight-sharing constraint *specifically* costs the 0.0263. Converts 9.7.1 from inference to measurement — or falsifies it |
+| **A2** | **EEGNet and ShallowConvNet on identical splits** | Small-medium | Whether the finding is about graphs or about ~45 trials per binary problem. Currently ambiguous, and it is the first control a reviewer will ask for |
+| **A3** | **Tangent-space LR and FBCSP**, tuned | Small | How large the real gap is. 13 records that CSP was untuned; "we lost to an untuned 2000-era method" is weaker than "we lost to the two strongest classical pipelines, both tuned" |
+
+A3 will not change the direction of H4, and that is the point.
+
+### 17.2 Tier B — cheap levers with strong priors
+
+| # | Direction | Effort | Note |
+|---|---|---|---|
+| **B1** | **Euclidean Alignment on the LOSO arm** [17,18] — whiten each subject's trials by their mean covariance `R̄^(-1/2)`; unsupervised, no target labels | Very small | The LOSO runs apply *no* cross-subject alignment at all. **Apply it to CSP too** — EA helps covariance methods at least as much, and using it on one arm only would manufacture a win |
+| **B2** | **Per-run alignment as a de-confounding probe** | Small | See below — novel, and the highest-value idea on this list after A1 |
+| **B3** | **Surface Laplacian / CSD preprocessing** (`mne.preprocessing.compute_current_source_density`) | Small | `A = \|P\| - I` is near-dense because scalp channels are correlated by volume conduction, not connectivity. CSD is a spatial high-pass that suppresses exactly that. The one change that would make the graph *mean something* — worth doing precisely because the conclusion is negative |
+| **B4** | **Measure Dirichlet energy per layer on existing checkpoints; sweep graph sparsity and depth** | Very small | Six conv layers over a near-complete 64-node graph is a textbook over-smoothing configuration. [22] derives Graph Dirichlet Energy bounds showing GCNs act as low-pass filters and that volume conduction *accelerates* the decay. Needs forward hooks only — **no retraining** |
+
+**B2 in detail.** 13 states that the 4-class problem "cannot be de-confounded." That is
+true of the *labels* — classes 0/1 occur only in runs 4/8/12 — but may not be true of the
+*signal*. The confound is hypothesised to be run-level non-neural drift (impedance,
+electrode settling, alertness). Whitening each run by its own covariance would remove
+exactly that kind of stationary run-level structure. Clean prediction:
+
+- **If run-family accuracy (0.6100) falls toward 0.5 while within-family is unchanged,
+  the family signal was an artefact.**
+- **If both fall, the family separation was partly genuine** — which error #7 already
+  warns is likely, since bilateral and unilateral imagery genuinely differ.
+
+Either outcome is reportable and neither can be spun. **Pre-register it before running**,
+given how much of the argument rests on the decomposition.
+
+### 17.3 Tier C — architectural redirection
+
+Only if tier A confirms the diagnosis. Both preserve the project's framing — a
+structured, geometry-aware spatial prior — rather than abandoning it for a generic CNN.
+
+- **C1. Move from the graph to the SPD manifold.** The spatial covariance matrix *is* the
+  electrode relationship structure, and it lives on a Riemannian manifold. Tensor-CSPNet
+  [19] extends SPDNet to time-frequency blocks and reports state-of-the-art MI
+  performance. The viva argument is clean: *we kept the geometric prior and fixed the
+  geometry* — a Chebyshev filter on a thresholded correlation graph is a lossy,
+  sparsified, Euclidean approximation to the covariance structure Riemannian methods use
+  exactly. **Caveat stated plainly: this is closer to "different project" than "next
+  ablation."** Scope it honestly against the time remaining.
+- **C2. Build on attention, the one component that worked.** H2 is the only supported
+  hypothesis (+0.0600, p = 0.0005), and 9.10 established the mechanism: per-sample
+  deviation from uniform has median 104.5 %, max/min 4.9x, but at different moments per
+  trial. **Does the learned peak track a measurable ERD onset?** Correlating per-trial
+  argmax against per-trial mu-band desynchronisation latency would convert a mechanism
+  story into evidence, using checkpoints that already exist. Attention composed with A1's
+  spatial filter rather than the graph is then the natural best-model candidate.
+
+### 17.4 Tier D — attack the sample-size constraint
+
+9.9 already measured the motivating fact: **LOSO (0.6040) marginally beats
+subject-dependent (0.6038) despite never seeing the test subject**, because a LOSO fold
+trains on ~100x more data. Subject-dependent folds train on ~36 trials. Data volume, not
+architecture, may be the binding constraint.
+
+- **D1. MI foundation-model pretraining.** MIRepNet [20] pretrains on ~50,000 trials from
+  seven datasets and reports +19.4 points over EEGNet on BNCI2014001 while fine-tuning on
+  fewer than 30 trials per class.
+  > **Leakage warning, and a serious one.** Several MI pretraining corpora include
+  > EEGMMIDB. Fine-tuning a checkpoint that saw our test subjects during pretraining is
+  > subject-level leakage — the exact failure this project exists to document. Any public
+  > checkpoint requires auditing its pretraining manifest, and pretraining from scratch
+  > with the 103 subjects held out if EEGMMIDB is in it.
+- **D2. Augmentation.** Cheaper, much lower ceiling — reported MI gains cluster around
+  14 % of unaugmented accuracy. Time shifting, channel dropout, noise, within-class
+  within-subject recombination. **Must be generated from training trials only, inside the
+  fold, asserted in code.**
+- **D3. A second dataset — BCI IV-2a.** Scoped at the start (decision 6) and never run.
+  Now the strongest single addition to the *paper*: 13's first stated limitation is "one
+  dataset, one architecture." It also disambiguates a real alternative explanation —
+  EEGMMIDB subjects performed a screening protocol with no feedback training, whereas
+  IV-2a subjects were trained with feedback and the ceiling there is known. If the GCN
+  also loses to CSP on IV-2a the conclusion generalises; if not, the finding was partly
+  about EEGMMIDB, which is better discovered by us than by an examiner.
+
+### 17.5 Tier E — reframe what gets reported
+
+No accuracy added. These change what the existing 9,300 fold rows are able to say.
+
+- **E1. Report subject-level heterogeneity, not just the mean.** A 2026 large-scale MOABB
+  benchmark including PhysionetMI [23] found **93 distinct winning pipelines across 109
+  subjects**, fragmenting across feature families, classifiers, preprocessing and
+  frequency bands alike; a 12-pipeline portfolio retained 90 % of oracle performance.
+  Against that, "our mean is 0.6038 and CSP's is 0.6239" may not be a well-posed
+  comparison. The per-subject win/loss distribution against CSP is a stronger and more
+  honest headline, and the data already exists. **Nearly free.**
+- **E2. Screen for BCI illiteracy.** 15-30 % of people do not produce classifiable
+  sensorimotor rhythms even after training; our 15 of 103 at or below chance sits inside
+  that range. Resting mu-band power and its spatial focality, computed from the baseline
+  runs we already have and never use, is the standard predictor. It would partition
+  variance into *what the model failed to decode* and *what was never there*.
+- **E3. Contribute the pipeline to MOABB.** The searches found **no published critique,
+  failed replication, or reproduction study of GCNs-Net** — the audit is genuinely first,
+  which is worth stating in the paper. Packaging it as a MOABB entry would make it
+  evaluable across all 14 MI datasets in that framework and turn a single-paper rebuttal
+  into reusable infrastructure.
+
+### 17.6 If only three things happen
+
+| # | Direction | Cost | Why this one |
+|---|---|---|---|
+| **A1** | Unconstrained spatial filter | Small | Converts the paper's central mechanistic claim into a measurement — or falsifies it |
+| **B4** | Dirichlet energy on existing checkpoints | Near zero | A second independent mechanism, from checkpoints already on disk, no retraining |
+| **A3 + B1** | Tangent space; EA on LOSO | Small | Makes the baseline unimpeachable and closes the most obvious gap in the LOSO arm |
+
+If a fourth fits, make it **D3 (BCI IV-2a)** — it addresses 13's first limitation and is
+the objection most likely to be raised in a viva.
+
+**What not to do.**
+
+- **Do not tune to close the 0.0263 gap.** It is a measured difference with a CI, and
+  `CLAUDE.md` forbids moving numbers by protocol change. Converting a well-analysed
+  negative result into a marginal win by search would destroy the only thing that makes
+  this work worth reading.
+- **Do not add architectural components before A1.** Two of three repairs did nothing and
+  the reason is now a specific testable hypothesis. Adding a fourth before testing it
+  repeats the mistake at greater cost.
+- **Do not quote a 4-class number without the family decomposition**, including for
+  anything above. B2 exists precisely to probe how much of that number is artefact.
+- **Do not fine-tune a public EEG foundation model without auditing its pretraining
+  manifest.** See D1.
+- **Do not add a third dataset.** OpenBMI and High Gamma stay out of scope; IV-2a answers
+  the generalisation question and a third adds cost without adding an argument.
+
+### 17.7 Provenance and reading depth
+
+Nine searches, sixteen sources. **All ten new references below were verified against
+Crossref or the arXiv API before being written down**, continuing the practice that caught
+the wrong author list on [1] and that caught a fabricated DOI in the first draft of the
+3.5 note added today.
+
+**Read in full (abstract plus results summary):** [15], [16], [23], [20], [14].
+**Read at abstract level only:** [19], [21], [22], [18] — paywalled, or returned
+unparseable PDFs to the fetch tool. Claims sourced from those are stated directionally
+rather than quantitatively here, and **any of them that becomes load-bearing for a design
+decision should be read properly first.** This follows the practice already recorded in 13
+for references [4] and [5].
+
+The claim that no published critique of GCNs-Net exists is an **absence-of-evidence result
+from four targeted searches, not a systematic review**, and is stated as such.
+
+### 17.8 References added 2026-09-02
+
+All verified against Crossref or the arXiv API on 2026-09-02.
+
+**[14]** Z. Shuqfa, A. Lakas, and A. N. Belkacem, "Increasing accessibility to a large
+brain-computer interface dataset: Curation of PhysioNet EEG Motor Movement/Imagery dataset
+for decoding and classification," *Data in Brief*, vol. 54, art. 110181, 2024.
+DOI: 10.1016/j.dib.2024.110181. — **independently excludes exactly our six subjects; see
+3.5.**
+
+**[15]** S. Chevallier, I. Carrara, B. Aristimunha, P. Guetschel, S. Sedlar, B. Lopes,
+S. Velut, S. Khazem, and T. Moreau, "The largest EEG-based BCI reproducibility study for
+open science: the MOABB benchmark," arXiv:2404.15319, 2024.
+
+**[16]** M. Eder, J. Xu, and M. Grosse-Wentrup, "Benchmarking brain-computer interface
+algorithms: Riemannian approaches vs convolutional neural networks," *Journal of Neural
+Engineering*, vol. 21, art. 044002, 2024. DOI: 10.1088/1741-2552/ad6793.
+
+**[17]** H. He and D. Wu, "Transfer Learning for Brain-Computer Interfaces: A Euclidean
+Space Data Alignment Approach," *IEEE Transactions on Biomedical Engineering*, vol. 67,
+no. 2, pp. 399-410, 2020. DOI: 10.1109/TBME.2019.2913914.
+
+**[18]** D. Wu, "Revisiting Euclidean alignment for transfer learning in EEG-based
+brain-computer interfaces," *Journal of Neural Engineering*, vol. 22, art. 031005, 2025.
+DOI: 10.1088/1741-2552/addd49.
+
+**[19]** C. Ju and C. Guan, "Tensor-CSPNet: A Novel Geometric Deep Learning Framework for
+Motor Imagery Classification," *IEEE Transactions on Neural Networks and Learning
+Systems*, 2023. DOI: 10.1109/TNNLS.2022.3172108.
+
+**[20]** D. Liu, Z. Chen, J. Luo, S. Lian, and D. Wu, "MIRepNet: A Pipeline and Foundation
+Model for EEG-Based Motor Imagery Classification," *Knowledge-Based Systems*, vol. 343,
+art. 115966, 2026. DOI: 10.1016/j.knosys.2026.115966.
+
+**[21]** D. Klepl, M. Wu, and F. He, "Graph Neural Network-Based EEG Classification: A
+Survey," *IEEE Transactions on Neural Systems and Rehabilitation Engineering*, vol. 32,
+pp. 493-503, 2024. DOI: 10.1109/TNSRE.2024.3355750.
+
+**[22]** A. El Badaoui, H. Ben Alla, M. Hilali, S. Ben Alla, and A. Ezzati,
+"Representation and Geometric Collapse in Spatiotemporal EEG Classifiers: A Mathematical
+Diagnostic Framework," *Signals*, vol. 7, art. 76, 2026. DOI: 10.3390/signals7040076.
+
+**[23]** X. Vasques, P. Barbaste, and O. Oullier, "Subject-Level Heterogeneity in EEG
+Motor Imagery Decoding: A Large-Scale Benchmark and Portfolio-Based Reduction of the
+Search Space," arXiv:2607.22778, 2026.
+
+---
+
+## 18. Changelog
 
 ### 2026-09-02
 
+- Added **17. Future directions** — a ranked roadmap compiled from nine literature
+  searches, published as an artifact alongside it. Ordered by *what each direction
+  would establish*, not by expected accuracy gain, because the project's value now
+  rests on a negative result and a negative result is strengthened by controls and
+  weakened by tuning. The changelog moved from section 17 to section 18.
+- The roadmap's central point: **9.7.1's conclusion is an inference from two null
+  results, not a measurement.** A1 (swap the Chebyshev stack for an unconstrained
+  spatial mixing layer, holding everything else fixed) is the experiment that would
+  make it one, or falsify it. It is small, and nothing else on the list should start
+  before it runs.
+- Ten references added ([14]-[23]), **all verified against Crossref or the arXiv API**.
+  The first draft of the 3.5 note carried a *fabricated* DOI and the wrong author
+  list, caught by running the verification rather than by reading it back. Recorded
+  here because it is the same failure mode as error #10 and #12: a plausible-looking
+  output is not evidence of a correct one.
+- **External corroboration of the exclusion list (3.5).** The published curation of
+  EEGMMIDB [14] independently excludes exactly S088, S089, S092, S100, S104 and S106
+  and reports N = 103 — a peer-reviewed confirmation, by a different route, of the
+  S089-not-S090 correction made on 2026-08-31 from the EDF header audit. The
+  exclusion list stops being our judgement call and becomes the field's convention.
+  Cite it in the paper's dataset section.
+- Four targeted searches found **no published critique, failed replication, or
+  reproduction study of GCNs-Net**. The audit is genuinely first. Stated in 17.7 as
+  an absence-of-evidence result from four searches, not a systematic review.
 - Wrote the complete research paper as `PAPER.md` (5,244 words) and published a rendering.
   Adds what `RESULTS.md` lacks for an academic submission: an abstract, an enumerated
   contributions list, a related-work section placing the work against the GCNs-Net lineage,

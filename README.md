@@ -9,8 +9,8 @@ work, methods, results, discussion and references; the typeset version is
 [`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (12 pages, rebuilt with
 `scripts/build_paper_pdf.py`). [`RESULTS.md`](RESULTS.md) is the
 shorter writeup: the findings in publication order with figures. [`project_documentation.md`](project_documentation.md) is the living
-record: every measurement, decision and correction, plus full methods and a reproduction
-recipe. [`CLAUDE.md`](CLAUDE.md) holds the project rules.
+record: every measurement, decision and correction, plus full methods, a reproduction
+recipe, and the ranked roadmap of what to do next (§17). [`CLAUDE.md`](CLAUDE.md) holds the project rules.
 
 ---
 
