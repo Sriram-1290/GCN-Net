@@ -38,7 +38,8 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Interpretability figures | Done | 2026-09-01 |
 | Holm correction + confirmatory results script | Done | 2026-09-01 |
 | README + pinned requirements | Done | 2026-09-01 |
-| Learnable-graph ablation (20 subj, exploratory) | Running | 2026-09-01 |
+| Learnable-graph ablation (20 subj, exploratory) | Done | 2026-09-01 |
+| Phase 1 arm A seed 1 (103 subj) | Done | 2026-09-01 |
 | Confirmatory runs (103 subj) | Not started | — |
 | LOSO evaluation | Not started | — |
 | Contribution (dynamic adj + temporal attention) | Not started | — |
@@ -1204,6 +1205,78 @@ bottleneck. The learnable adjacency (Phase 5) should be brought forward.
 
 ---
 
+### 9.7 Learnable adjacency — no effect (EXPLORATORY, development set)
+
+**This is a development-set result on 20 subjects and is therefore exploratory
+(10.1). The confirmatory H1 test requires all 103 subjects.**
+
+Identical to the fixed-graph runs in every respect except `--learnable-graph`.
+Because `delta` initialises to zero, the two models are bit-for-bit identical at
+step 0, so any difference is attributable to learning the graph and nothing else.
+
+| problem | fixed PCC | learned | CSP+LDA | learned − fixed |
+|---|---|---|---|---|
+| left vs right fist | 0.5178 | 0.5189 | **0.5711** | +0.0011 [−0.0167, +0.0200] p=0.46 |
+| both fists vs both feet | 0.5767 | 0.5689 | **0.6722** | −0.0078 [−0.0344, +0.0211] p=0.69 |
+| **mean within-family** | **0.5472** | **0.5439** | **0.6217** | **−0.0033 [−0.0200, +0.0161] p=0.62** |
+
+The learned graph beats the fixed one on **7 of 20 subjects** — worse than a coin
+flip. The 4-class arm is likewise unchanged: 0.3294 against 0.3300, within-family
+0.5368 against 0.5418.
+
+**The mechanism did engage.** A null result because nothing trained is a different
+finding from a null result because training does not help, so the checkpoints were
+inspected directly:
+
+```
+checkpoint      layer   ||delta||   max|d|   edges changed >1%
+S001_fold0      conv0      0.9997   0.0485        81.3 %
+S001_fold1      conv0      1.4237   0.0704        85.6 %
+S001_fold2      conv0      1.9733   0.1078        90.4 %
+```
+
+80-90 % of first-layer edges moved. The graph was learned; it simply did not
+matter.
+
+### 9.7.1 What this means, taken with 9.6
+
+Two mechanisms have now been ruled out on the development set:
+
+- **Spectral (9.6).** Giving the network explicit band power changed nothing on the
+  confound-free comparisons.
+- **Spatial graph (here).** Letting the network reshape the electrode graph
+  discriminatively changed nothing either.
+
+Yet CSP+LDA remains ahead by ~0.075. The remaining explanation is not *which* graph
+the network convolves over, but **the graph-convolutional inductive bias itself**.
+
+CSP fits an unconstrained discriminative spatial projection: any linear combination
+of all 64 channels, chosen to maximise the between-class variance ratio. A Chebyshev
+graph convolution cannot express that. Its spatial mixing is restricted to
+graph-local neighbourhoods with weights *shared across nodes* — order-2 Chebyshev
+means each node mixes only with its one-hop neighbourhood, using the same filter
+everywhere. Learning the adjacency changes *which* nodes are neighbours; it does not
+lift the locality or the weight sharing.
+
+For motor imagery, where the discriminative signal is a specific weighted contrast
+across the whole scalp (C3 against C4 for lateralisation, central against
+peripheral for hand-versus-foot), that restriction appears to be a handicap rather
+than a useful prior. **This is a defensible and interesting conclusion**: the graph
+prior that motivates the entire architecture is, on this task, worse than no prior
+at all.
+
+It should be stated carefully. It is not "GCNs do not work on EEG" — it is that on
+*this* dataset, under a correct protocol, with this Chebyshev formulation, the
+graph constraint costs more than it contributes relative to an unconstrained
+spatial filter.
+
+**Consequence for H2/H3.** Temporal attention addresses *when*, not *where*, so it
+is not ruled out by this. But if the spatial bottleneck is the inductive bias, the
+honest expectation for H3 is modest. That expectation is recorded here, before the
+confirmatory runs.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -1423,6 +1496,17 @@ sets lr 1e-6 and regularisation 1e-3.
   raised utilisation to 84 % and cut the estimate from ~11 h to ~4 h with no change to any
   result. The original driver had to be killed to avoid duplicate (subject, fold, seed)
   rows, which would have silently double-counted in every summary.
+- **Learnable adjacency: no effect (9.7, exploratory).** Mean within-family 0.5439
+  against the fixed graph's 0.5472, paired −0.0033 [−0.0200, +0.0161], p=0.62; better on
+  only 7/20 subjects. Checkpoint inspection confirms 80-90 % of first-layer edges moved,
+  so the mechanism engaged and simply did not help. With 9.6 this rules out both the
+  spectral and the spatial-graph explanations for the CSP gap, leaving the
+  graph-convolutional inductive bias itself (9.7.1).
+- Stopped an orphaned `phase1.sh` that survived TaskStop for hours, deduplicated the 238
+  rows it caused, and added `warn_if_duplicated` to the analysis path. Rewrote the drivers
+  with `--resume` on every command and explicit `--subjects` on every ablation. Full
+  integrity audit passed: raw data 3,052/3,052 verified, both caches clean, log free of
+  duplicates and config-heterogeneous tags, no payload tracked in git.
 - **Documentation drift, and its correction.** Sections 6.8-6.10 and the entries below
   were written in one catch-up pass after the user asked whether the documentation was
   still being maintained. It was not: two commits (`8372c11`, `2e17ddb`) landed with no
