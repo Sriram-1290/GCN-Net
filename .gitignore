@@ -6,6 +6,10 @@ data/cache*/
 physionet.org/
 *.zip
 
+# Paper build intermediates -- the PDF itself is tracked, the 1 MB
+# base64-inlined HTML it is rendered from is not
+build/
+
 # Experiment outputs
 checkpoints/
 runs/

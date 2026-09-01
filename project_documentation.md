@@ -1900,6 +1900,10 @@ python scripts/run_family_analysis.py --tag <tag>   # 4-class -> family / within
 python scripts/ablation_summary.py          # 12.2
 python scripts/analyse_attention.py         # 9.10
 python scripts/make_figures.py              # montage, CAR, confusion
+
+# the typeset paper (PAPER.md -> GCNs-Net-Reassessed.pdf)
+python scripts/build_paper_pdf.py           # -> build/paper_print.html
+msedge --headless=new --disable-gpu --no-pdf-header-footer \n    --virtual-time-budget=25000 \n    --print-to-pdf=GCNs-Net-Reassessed.pdf build/paper_print.html
 ```
 
 Every run appends one row per fold to `runs/experiments.jsonl` with the git commit, seed
@@ -1944,8 +1948,25 @@ picks up exactly where it stopped and cannot duplicate a row.
   four-class accuracies on EEGMMIDB be reported with the within-family decomposition, since
   the run-family confound is structural and affects any result on this dataset, not only
   ours.
-- `markdown` was installed to render the artifact and deliberately **not** added to
-  `requirements.txt` — it is a build tool, not a project dependency.
+- Produced the typeset paper as `GCNs-Net-Reassessed.pdf` (12 pages, 1.3 MB, tracked in
+  the repository) and made it reproducible: `scripts/build_paper_pdf.py` renders
+  `PAPER.md` to `build/paper_print.html` with A4 geometry, a fixed light palette, and
+  `break-inside: avoid` on tables and figures so neither straddles a page boundary; a
+  headless Chromium then prints it. Figures are inlined as base64 data URIs, so the
+  intermediate HTML is 1 MB and is git-ignored while the PDF is not. `PAPER.md` stays
+  the single source of truth — the PDF and the artifact are two renderings of it.
+- Two bugs in that build, both silent: the print CSS selected captions with
+  `p em:only-child`, which also matched inline emphasis because `:only-child` ignores
+  text-node siblings, so single emphasised words inside body paragraphs were restyled
+  and broken onto their own lines; and the first repair of it dropped the ``
+  backreference to shell escaping and emptied all three captions. Both were caught by
+  reading the rendered pages, not by the build, which exited 0 in every case —
+  the same lesson recorded in §14.
+- `markdown` **is** now pinned in `requirements.txt` (`Markdown==3.10.3`), reversing the
+  earlier decision to leave it out: once the PDF became a tracked deliverable with a
+  build script in `scripts/`, the renderer stopped being an ad-hoc tool and became part
+  of what has to be reproducible. It is commented as build-only and is not imported
+  anywhere in the pipeline.
 
 - Wrote the results up as `RESULTS.md` and as a published artifact. Seven numbered findings
   in publication order, because the argument is cumulative and each step only stands if the
