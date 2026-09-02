@@ -13,21 +13,26 @@ Two explanations for the gap to CSP+LDA are live, and they are distinguishable:
   do well below 50. We have ~45 per binary problem. **A2** tests it with two
   graph-free CNNs on identical folds.
 
-The interpretation grid this script prints:
+The interpretation grid this script prints. **The test is the fraction of the
+fixed-graph-to-CSP gap an arm recovers, not whether it is significant.** With 103
+subjects the design detects ~0.020 (17.2), so an arm can beat the fixed graph
+significantly while recovering almost none of the gap — an earlier version of this
+script called that "9.7.1 supported", which was wrong.
 
-===================  ====================  =======================================
-A1 vs fixed graph    A2 vs CSP             reading
-===================  ====================  =======================================
-better               closes the gap        graph prior was the binding constraint;
-                                           9.7.1 supported
-no better            still loses           sample size; 9.7.1 unidentified, and the
-                                           gap is not about graphs at all
-better               still loses           the constraint costs something, but
-                                           something else also binds
-no better            closes the gap        the graph is not the issue but the
-                                           *architecture* is -- 9.7.1 is wrong in
-                                           its stated form
-===================  ====================  =======================================
+=====================  ====================  ====================================
+A1 recovers            a CNN recovers        reading
+=====================  ====================  ====================================
+most of the gap        most of the gap       graph prior was binding; 9.7.1
+                                             supported as written
+a little (significant  most of the gap       SPLIT: sample size refuted, the
+but < half)                                  limitation is architectural, but the
+                                             mechanism 9.7.1 names is minor and
+                                             most of the gap is elsewhere
+nothing                most of the gap       the constraint 9.7.1 names is not the
+                                             cause; 9.7.1 wrong as stated
+nothing                nothing               sample size (17.1); 9.7.1
+                                             unidentified
+=====================  ====================  ====================================
 
 **Nothing here is confirmatory.** 10.3 fixed the hypothesis list in advance and
 neither A1 nor A2 is on it; A1 additionally tests a claim (9.7.1) written *after*
@@ -187,10 +192,11 @@ def main() -> int:
     print(f"\nHolm-Bonferroni over the {len(p_values)} post-hoc comparisons{partial}")
     print("-" * 78)
     corrected = holm_bonferroni(p_values)
-    for cid, info in sorted(corrected.items(), key=lambda kv: kv[1]["p_value"]):
+    for cid, info in sorted(corrected.items(), key=lambda kv: kv[1]["p"]):
         r = results[cid]
         verdict = "DIFFERENT" if info["reject"] else "not distinguishable"
-        print(f"  {cid:<18} p={info['p_value']:.4f}  vs {info['threshold']:.4f}  "
+        print(f"  {cid:<18} p={info['p']:.4f}  vs {info['threshold']:.4f}  "
+              f"(adj {info['p_adjusted']:.4f})  "
               f"{verdict}")
 
     # ------------------------------------------------------------ the verdict
@@ -200,28 +206,59 @@ def main() -> int:
     def sig(cid: str) -> bool:
         return cid in corrected and bool(corrected[cid]["reject"])
 
-    a1_helps = sig("A1-vs-fixed") and results["A1-vs-fixed"]["mean"] > 0
-    a1_closes = "A1-vs-csp" in results and not sig("A1-vs-csp")
-    cnn_closes = any(not sig(c) for c in ("EEGNet-vs-csp", "Shallow-vs-csp")
-                     if c in results)
-    cnn_loses = all(sig(c) and results[c]["mean"] < 0
-                    for c in ("EEGNet-vs-csp", "Shallow-vs-csp") if c in results)
+    # Significance alone is the wrong test here, and an earlier version of this
+    # script got it wrong: with 103 subjects the design detects ~0.020 (17.2), so
+    # an arm can beat the fixed graph significantly while recovering almost none
+    # of the gap to CSP. What matters is the FRACTION OF THE GAP CLOSED.
+    common = sorted(set(arms["fixed graph"]) & set(arms["CSP+LDA"]))
+    gap = float(np.mean([arms["CSP+LDA"][s] for s in common])
+                - np.mean([arms["fixed graph"][s] for s in common]))
 
-    if a1_helps and (a1_closes or cnn_closes):
-        print("  The graph prior was a binding constraint: lifting it helps, and an")
-        print("  unconstrained spatial filter reaches CSP. 9.7.1 is SUPPORTED.")
-    elif not a1_helps and cnn_loses:
-        print("  Freeing the spatial operator changes nothing AND graph-free CNNs lose")
-        print("  to CSP by a similar margin. The limitation is not the graph.")
-        print("  9.7.1 is UNIDENTIFIED -- sample size (17.1) explains the gap at least")
-        print("  as well, and 9.7.1 should be rewritten to say so.")
-    elif not a1_helps and cnn_closes:
-        print("  The graph is not the issue, but the wider architecture is: a CNN closes")
-        print("  the gap while freeing our spatial operator does not. 9.7.1 is WRONG in")
-        print("  its stated form -- the constraint it names is not what costs the gap.")
-    elif a1_helps and cnn_loses:
-        print("  Lifting the constraint helps but does not close the gap, and CNNs lose")
-        print("  too. The graph prior costs something real; something else also binds.")
+    def closed(cid: str) -> float | None:
+        """Fraction of the fixed-graph-to-CSP gap this arm recovers."""
+        if cid not in results or gap <= 0:
+            return None
+        return results[cid]["mean"] / gap
+
+    print(f"  gap to close (CSP - fixed graph): {gap:+.4f}")
+    for cid in ("A1-vs-fixed", "EEGNet-vs-fixed", "Shallow-vs-fixed"):
+        frac = closed(cid)
+        if frac is not None:
+            print(f"    {results[cid]['arm']:<18} recovers {frac:6.1%} of it"
+                  f"  ({'significant' if sig(cid) else 'not significant'})")
+
+    MATERIAL = 0.5   # an arm must recover at least half the gap to count as "closes it"
+    a1 = closed("A1-vs-fixed")
+    cnn = max([c for c in (closed("EEGNet-vs-fixed"), closed("Shallow-vs-fixed"))
+               if c is not None], default=None)
+    a1_material = a1 is not None and sig("A1-vs-fixed") and a1 >= MATERIAL
+    a1_minor = a1 is not None and sig("A1-vs-fixed") and a1 < MATERIAL
+    cnn_material = cnn is not None and cnn >= MATERIAL
+
+    print()
+    if a1_material and cnn_material:
+        print("  The graph prior was the binding constraint: lifting it recovers most of")
+        print("  the gap, and a graph-free CNN does too. 9.7.1 SUPPORTED as written.")
+    elif a1_minor and cnn_material:
+        print("  SPLIT VERDICT. Deep learning is NOT below its data threshold here -- a")
+        print("  graph-free CNN on the same ~45 trials closes the gap -- so the sample-size")
+        print("  explanation (17.1) is REFUTED and the limitation is architectural.")
+        print("  But freeing the spatial operator inside the GCN recovers only a small")
+        print("  fraction of the gap, so **the specific mechanism 9.7.1 names -- graph")
+        print("  locality and node-shared weights -- is real but minor**. Most of the gap")
+        print("  lies elsewhere in the architecture. 9.7.1 must be rewritten: right about")
+        print("  where the problem is, wrong about what it is.")
+    elif not sig("A1-vs-fixed") and cnn_material:
+        print("  Freeing the spatial operator changes nothing, yet a graph-free CNN closes")
+        print("  the gap. The constraint 9.7.1 names is NOT the cause; something else in")
+        print("  the architecture is. 9.7.1 is WRONG in its stated form.")
+    elif not sig("A1-vs-fixed") and not cnn_material:
+        print("  Neither freeing the operator nor a graph-free CNN helps. The limitation is")
+        print("  not architectural at all -- sample size (17.1) is the better explanation")
+        print("  and 9.7.1 is UNIDENTIFIED.")
+    elif a1_material and not cnn_material:
+        print("  Lifting the constraint recovers much of the gap but CNNs do not, which is")
+        print("  an odd combination -- check the arms before interpreting.")
     else:
         print("  Mixed. Read the table above rather than taking a one-line verdict.")
 
