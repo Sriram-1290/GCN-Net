@@ -115,7 +115,7 @@ the protocol does not measure what it is taken to measure.
    80 % of subjects against the fixed graph but on only a third against the classical
    baseline, from comparable p-values.
 
-All code, the full experiment log covering 12,590 folds, and a record of the twenty-two errors
+All code, the full experiment log covering 12,590 folds, and a record of the twenty-three errors
 made and corrected during this work are released with the paper.
 
 ---
@@ -901,7 +901,7 @@ arXiv:2607.22778, 2026
 All code, configuration files and the complete experiment log — one row per fold for 12,590
 folds, each recording the git commit, random seed and full configuration — are released
 with this paper. `project_documentation.md` contains the full methods specification, the
-pre-registration, per-experiment results, and a record of the twenty-two errors made and
+pre-registration, per-experiment results, and a record of the twenty-three errors made and
 corrected during the work, including two that would have altered a reported conclusion had
 they not been caught. Reproduction commands are given in §15 of that document.
 

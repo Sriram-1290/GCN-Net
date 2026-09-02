@@ -2173,6 +2173,7 @@ process that reported success.**
 | 19 | 9.7.1 inferred a *mechanism* from two null results; it was ~84 % wrong about magnitude | A1 measured it directly at 16 % of the gap | 9.7.1 superseded in part, original kept verbatim |
 | 20 | `PAPER.md` 5.4 mixed a **20-subject** per-problem breakdown with the **103-subject** mean in one table | its own two rows did not average to its own mean (0.6217 vs 0.6239) | recomputed on 103 subjects: −0.0802 [−0.0985, −0.0621] |
 | 21 | The 5.9 edit **deleted the `## 6. Discussion` heading**; the prose survived, so the paper read correctly but ran 5 -> 7 for three commits, including in a released PDF | listing headings during an audit, not reading the prose | restored; now covered by `test_section_numbering_is_contiguous` |
+| 23 | `--stop-at` rolled a past time forward to **tomorrow**. Each process honoured 03:00 correctly, but the shell loop then started the next binary problem at 03:00:0x, which read its own deadline as past and scheduled itself for the *following day* — a 24-hour run from a flag meant to bound one to 50 minutes | the user asked for status at 03:02 and the processes were still alive with `-2-3` tags gaining rows | a past time now stops immediately, which is the only reading that composes under repetition |
 | 22 | The log's exclusive lock seeked to **EOF** before locking one byte, but `msvcrt.locking` locks relative to the *current position* — so once two processes saw different EOFs they locked different bytes and the mutual exclusion lapsed | its own regression test (for error 13) went intermittently flaky under full-suite load | lock byte fixed at offset 0, a rendezvous every process agrees on; 10/10 clean afterwards |
 
 **The recurring lesson.** A process exiting with code 0 and printing a plausible mean is
@@ -2704,6 +2705,24 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-03
+
+- **Error 23, mine, found 2 minutes after it mattered.** `--stop-at` — added 50 minutes
+  earlier — treated a time already past as *tomorrow*. Each of the three processes honoured
+  03:00 exactly and stopped cleanly at a fold boundary, which is the feature working. But
+  the runs are driven by a shell loop over the two binary problems, so when the
+  `--classes 0 1` invocation exited at 03:00 the `--classes 2 3` invocation started at
+  03:00:0x, read its own deadline as past, and scheduled itself for **2026-09-04 03:00**.
+  A flag meant to bound a run to fifty minutes had just started three 24-hour runs.
+  - Caught because the user asked for status at 03:02 and the process count was still 3,
+    with `-2-3` tags gaining rows. Killed with `taskkill //T //F`; the log came through
+    intact again (14,017 lines, zero malformed, no duplicates), and the 26 `-2-3` folds
+    written are valid and will be reused by `--resume`. Net cost: about two minutes.
+  - **Fixed so a past time stops immediately.** That is the only reading that composes
+    correctly under repetition, and the rollover was a convenience I added without
+    considering the one usage I then chose. The help text now says so explicitly.
+  - The general lesson, and it is the same one as errors 11 and 12: a control that behaves
+    correctly *per invocation* can still be wrong *in composition*. The unit worked; the
+    loop was the bug.
 
 - **A power cut at ~00:30 killed the three G arms mid-run. Nothing was lost or corrupted.**
   Verified rather than assumed, because this is exactly the scenario error 13 came from:

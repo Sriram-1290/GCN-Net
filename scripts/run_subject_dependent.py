@@ -113,10 +113,12 @@ def main() -> int:
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="", help="free-text note stored with each row")
     ap.add_argument("--stop-at", default=None, metavar="HH:MM",
-                    help="exit cleanly at this local time, at a FOLD BOUNDARY. Use "
-                         "this rather than killing the process: a kill can orphan the "
-                         "python child (error #11) and can interrupt a fold mid-write. "
-                         "Combine with --resume to continue later with nothing lost")
+                    help="exit cleanly at this local time TODAY, at a FOLD BOUNDARY. "
+                         "Use this rather than killing the process: a kill can orphan "
+                         "the python child (error #11) and can interrupt a fold "
+                         "mid-write. A time already past stops immediately rather than "
+                         "rolling to tomorrow, so the flag is safe to repeat inside a "
+                         "loop. Combine with --resume to continue later, losing nothing")
     ap.add_argument("--resume", action="store_true",
                     help="skip (subject, fold) pairs already logged under this tag, "
                          "so an interrupted run can be restarted with the same command")
@@ -230,8 +232,17 @@ def main() -> int:
         now = dt.datetime.now()
         hh, mm = (int(v) for v in args.stop_at.split(":"))
         deadline = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-        if deadline <= now:            # a time already past means tomorrow
-            deadline += dt.timedelta(days=1)
+        # A time already past means stop NOW, never "tomorrow". The rollover was the
+        # obvious convenience and it is actively wrong here (error 23): these runs are
+        # driven by a shell loop over the two binary problems, so when the first
+        # invocation stops at 03:00 the second starts at 03:00:0x, reads its own
+        # deadline as already past, and schedules itself for the *following* day --
+        # a 24-hour run from a flag meant to bound one to fifty minutes. Stopping
+        # immediately is the only reading that composes correctly under repetition.
+        if deadline <= now:
+            print(f"--stop-at {args.stop_at} is already past; stopping immediately. "
+                  "Nothing was run. Use --resume with a later time to continue.")
+            return 0
         print(f"stopping at {deadline:%Y-%m-%d %H:%M} "
               f"({(deadline - now).total_seconds() / 60:.0f} min from now), "
               "at a fold boundary")
