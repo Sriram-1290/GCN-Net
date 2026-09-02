@@ -62,8 +62,11 @@ not a result worth reporting.
 | Correct split, published formulation | **0.5090** [0.4984, 0.5199] | **at chance** — CI contains 0.5 |
 | Correct split, 8-30 Hz + 64-tp window | 0.5470 [0.5291, 0.5667] | |
 | + temporal attention | **0.6038** [0.5805, 0.6278] | the best model we have |
-| CSP+LDA on identical splits | **0.6239** [0.5977, 0.6521] | still ahead by 0.0263 |
+| CSP+LDA on identical splits | **0.6239** [0.5977, 0.6521] | ahead of every *graph* arm |
 | LOSO, subject-independent | **0.6040** [0.5823, 0.6268] | 88/103 subjects above chance |
+| A1: free spatial operator (no graph constraint) | **0.5566** | +0.0128 over fixed; only 16 % of the gap |
+| A2: EEGNet, no graph at all | **0.6296** | indistinguishable from CSP (p = 0.49) |
+| **A2: ShallowConvNet** | **0.6725** | **beats CSP by 0.0485; the project's best result** |
 
 - **The published formulation decodes nothing under a correct split.** 0.5090 against a
   chance level of 0.5. Its 4-class accuracy of 0.3097 looks above chance only because of
@@ -74,8 +77,21 @@ not a result worth reporting.
   outweighs never having seen the test subject, and implies the subject-dependent protocol
   is data-starved. **4-class LOSO has not been measured**; the 0.6040 figure is binary
   within-family. Do not quote a 4-class LOSO number until one exists.
-- **A linear method from 2000 still wins.** CSP+LDA beats our best model by 0.0263
-  [0.0112, 0.0413]. Neither band power nor a learnable graph closed that gap. Report it.
+- **CORRECTED 2026-09-02 (A1/A2, §9.11). The previous claim here — "a linear method from
+  2000 still wins" — is FALSE and must not be repeated.** It was true of every *graph* arm
+  and was generalised too far. ShallowConvNet beats CSP+LDA by **+0.0485** [+0.0318,
+  +0.0650] on identical folds, winning on 67/103 subjects, and EEGNet matches it. Deep
+  learning works on this data; graph-convolutional deep learning does not.
+- **The limitation is architectural, not sample size.** MOABB's ">150 trials per class"
+  threshold suggested our ~45 might be the cause. A2 refutes that directly: graph-free CNNs
+  on the *same ~45 trials and the same folds* reach and pass CSP.
+- **But the mechanism named in §9.7.1 is minor.** A1 lifted graph locality and node-shared
+  weights and recovered only **16 %** of the fixed-graph-to-CSP gap (+0.0128, p = 0.0046).
+  Real but small; ~84 % of the gap is elsewhere in the architecture. §9.7.1 was right about
+  *where* and wrong about *what*, and has been rewritten.
+- **A1 and A2 are post-hoc, not confirmatory.** Neither is on the pre-registered list
+  (§10.3), and A1 tests a claim written after the confirmatory runs. Label them exploratory
+  wherever they appear.
 - **Never quote a 4-class accuracy without the family decomposition.** It has twice risen
   while the rise was entirely better run-family identification (§9.4, §9.6). Report
   within-family accuracy — the confound-free measure — alongside any 4-class figure.

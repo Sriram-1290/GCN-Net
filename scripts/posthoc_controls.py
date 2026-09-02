@@ -113,6 +113,52 @@ def win_rate(a: np.ndarray, b: np.ndarray) -> tuple[int, int, float]:
     return int((d > 0).sum()), int(np.isclose(d, 0).sum()), float((d > 0).mean())
 
 
+def make_figure(arms: dict[str, dict[str, float]], out: Path) -> None:
+    """Ladder of arms with per-subject spread, against the published ceiling.
+
+    The ordering is the argument: every arm left of CSP is a graph model, every
+    arm right of it is not, and the published ceiling line shows that the two
+    graph-free CNNs are not merely beating our baseline but reaching the range a
+    216,714-configuration search reports for this dataset (17.0).
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    order = ["fixed graph", "A1 free spatial", "+ both", "+ attention",
+             "CSP+LDA", "A2 EEGNet", "A2 ShallowNet"]
+    order = [k for k in order if k in arms]
+    vals = [np.array(list(arms[k].values())) for k in order]
+    means = [v.mean() for v in vals]
+    graph_arm = {"fixed graph", "A1 free spatial", "+ both", "+ attention"}
+    colors = ["#8A2F2A" if k in graph_arm else "#1B6B4A" if k != "CSP+LDA" else "#4B4F5A"
+              for k in order]
+
+    fig, ax = plt.subplots(figsize=(10, 5.2))
+    for i, (v, c) in enumerate(zip(vals, colors)):
+        ax.scatter(np.random.default_rng(i).normal(i, .07, len(v)), v,
+                   s=9, alpha=.28, color=c, edgecolor="none")
+    ax.bar(range(len(order)), means, width=.55, color=colors, alpha=.85, zorder=3)
+    for i, m in enumerate(means):
+        ax.text(i, m + .012, f"{m:.4f}", ha="center", fontsize=9, zorder=4)
+
+    ax.axhline(.5, color="#333", lw=.9, ls=":", label="chance")
+    ax.axhline(.650, color="#1F4D8F", lw=1.2, ls="--",
+               label="best of 216,714 pipelines on PhysionetMI [23]")
+    ax.set_xticks(range(len(order)))
+    ax.set_xticklabels([k.replace("A2 ", "").replace("A1 ", "A1 ") for k in order],
+                       fontsize=9)
+    ax.set_ylabel("within-family accuracy")
+    ax.set_ylim(.30, 1.0)
+    ax.set_title("Graph arms (red) plateau; graph-free CNNs (green) pass CSP\n"
+                 "103 subjects, identical folds, dots are subjects", fontsize=11)
+    ax.legend(fontsize=8, loc="upper left")
+    fig.tight_layout()
+    out.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out / "posthoc_controls.png", dpi=200, bbox_inches="tight")
+    print(f"\nwrote {out / 'posthoc_controls.png'}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -121,6 +167,8 @@ def main() -> int:
                     help="report arms that have not finished. Error #10 was quoting "
                          "0.5774 from a run that read 0.5418 when complete, so this is "
                          "off by default and the output is marked PARTIAL when used")
+    ap.add_argument("--figures", type=Path, default=None,
+                    help="write posthoc_controls.png into this directory")
     args = ap.parse_args()
 
     rows = load(args.log)
@@ -265,6 +313,9 @@ def main() -> int:
     print("\n  Report this alongside the per-subject win rates, not instead of them:")
     print("  E1 (17.6) showed a mean difference of -0.0263 sitting inside a")
     print("  distribution running from -0.267 to +0.200.")
+
+    if args.figures:
+        make_figure(arms, args.figures)
     return 0
 
 

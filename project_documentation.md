@@ -1253,6 +1253,23 @@ matter.
 
 ### 9.7.1 What this means, taken with 9.6
 
+> **SUPERSEDED IN PART, 2026-09-02, by the A1/A2 controls in 9.11.** The reasoning below
+> was written before either control existed and it reaches the right *conclusion* by
+> partly wrong *reasoning*. Kept verbatim because the project appends rather than
+> rewrites, and because the gap between what was inferred here and what was later
+> measured is itself the finding.
+>
+> * **What survived.** The limitation is architectural, and it is not sample size —
+>   A2 shows graph-free CNNs reaching and passing CSP on the same ~45 trials.
+> * **What did not.** This section names the mechanism as graph-locality plus
+>   node-shared weights. A1 lifted exactly those constraints and recovered only
+>   **16 %** of the gap (+0.0128 of +0.0802). The mechanism is real but minor; roughly
+>   84 % of the gap lies elsewhere in the architecture.
+> * **The lesson.** Two null results were read as identifying a cause. They bounded it
+>   instead. An inference from absences is not a measurement, and this one was 84 %
+>   wrong about magnitude while pointing the right way.
+
+
 Two mechanisms have now been ruled out on the development set:
 
 - **Spectral (9.6).** Giving the network explicit band power changed nothing on the
@@ -1466,6 +1483,117 @@ tracking real motor-imagery dynamics rather than an artefact.
 **Caveat.** All of 9.10 is exploratory (10.6) and was not pre-registered. It explains
 a confirmatory result; it does not add one. The mean-pool control in particular is a
 new comparison and is reported as exploratory no matter how large its effect.
+
+---
+
+### 9.11 A1 and A2 — the controls that identified the limitation (EXPLORATORY)
+
+**Run 2026-09-02. 103 subjects, 5 folds, both binary problems, identical cache, splits,
+seeds, standardiser, windowing, trial aggregation and metric as the confirmatory arms —
+`--model` and `--free-spatial` select the architecture inside the same runner, so the
+comparison is matched by construction rather than by careful duplication.**
+
+**Neither arm is on the pre-registered list (10.3), and A1 tests a claim (9.7.1) written
+after the confirmatory runs. Both are exploratory. Holm correction is applied across the
+six comparisons anyway, but a corrected post-hoc test is still post-hoc.**
+
+#### 9.11.1 Results
+
+| arm | within-family | vs fixed graph | % of gap recovered |
+|---|---|---|---|
+| fixed PCC graph | 0.5438 | — | — |
+| learnable adjacency (9.7) | 0.5469 | +0.0031, p = 0.39 | 3.9 % |
+| **A1 free spatial operator** | **0.5566** | **+0.0128** [+0.0042, +0.0221], p = 0.0046 | **16.0 %** |
+| + both (H4 arm) | 0.5976 | +0.0538 | 67.1 % |
+| + temporal attention | 0.6038 | +0.0600 | 74.8 % |
+| **CSP+LDA** | **0.6239** | +0.0802 | 100 % (definitionally) |
+| **A2 EEGNet** | **0.6296** | **+0.0858** [+0.0697, +0.1024] | **107.0 %** |
+| **A2 ShallowConvNet** | **0.6725** | **+0.1287** [+0.1118, +0.1454] | **160.6 %** |
+
+Against CSP+LDA, two-sided, paired on subject:
+
+| comparison | difference | p (Holm) | wins |
+|---|---|---|---|
+| A1 free spatial vs CSP | −0.0673 [−0.0843, −0.0506] | 0.0006 | 24/103 (23 %) |
+| **EEGNet vs CSP** | **+0.0056** [−0.0107, +0.0220] | **0.49 — not distinguishable** | 56/103 (54 %) |
+| **ShallowConvNet vs CSP** | **+0.0485** [+0.0318, +0.0650] | **0.0006** | 67/103 (65 %) |
+
+Per problem, and against the external ceiling:
+
+| arm | left vs right fist | both fists vs feet | above chance |
+|---|---|---|---|
+| fixed graph | 0.5148 | 0.5728 | 64/103 |
+| A1 free spatial | 0.5288 | 0.5845 | — |
+| GCN + attention | 0.5877 | 0.6198 | 83/103 |
+| CSP+LDA | 0.5942 | 0.6537 | 81/103 |
+| EEGNet | 0.6058 | 0.6533 | 83/103 |
+| **ShallowConvNet** | **0.6608** | **0.6841** | **94/103** |
+| *[23] best of 216,714 configurations* | *0.650* | *n/a* | |
+| *[23] cov-tgsp family / CSP family* | *0.605 / 0.604* | *n/a* | |
+
+**ShallowConvNet's 0.6608 on left-vs-right exceeds the best single configuration [23]
+reports from a 216,714-pipeline search on this dataset.** That is the strongest result the
+project has produced, and it lands above the ceiling 17.0 established.
+
+#### 9.11.2 What the two controls settle
+
+**Sample size is refuted as the explanation.** 17.1 raised it on the strength of MOABB's
+finding [15] that deep learning "typically requires more than 150 trials per class". We
+have ~45 per binary problem and ~36 per training fold, so the concern was reasonable. It is
+simply wrong here: two graph-free CNNs trained on *exactly those trials, those folds and
+that cache* reach and pass CSP. Deep learning is not below its data threshold on this
+dataset — graph-convolutional deep learning is below something else.
+
+**The limitation is architectural, and 9.7.1 pointed the right way.** Every graph arm
+plateaus between 0.5438 and 0.6038; both graph-free CNNs clear 0.6296. The separation is
+not subtle: ShallowConvNet beats the fixed graph on 95/103 subjects.
+
+**But the mechanism 9.7.1 named is minor.** A1 lifted graph locality, symmetry and
+non-negativity — the exact constraints 9.7.1 identifies — while holding everything else
+fixed and starting bit-identical to the baseline. It recovered **16 %** of the gap. Real
+(p = 0.0046, and four times the learnable adjacency's effect, so the extra freedom does
+buy something the learned graph could not) but small. **~84 % of the gap is elsewhere.**
+
+Candidates, in rough order of how much they differ from what the CNNs do, none tested:
+
+* **No temporal convolution.** Both CNNs convolve over time *first*; the GCN's first
+  operation is spatial, and temporal structure only enters through attention. Note that
+  attention is worth +0.0600 — by far the largest single gain any graph arm achieved —
+  which is consistent with temporal modelling being the missing ingredient.
+* **Depth and pooling.** Six conv layers with six Graclus poolings against EEGNet's two
+  stages. This is B4's over-smoothing hypothesis, still unmeasured.
+* **The band-power nonlinearity.** ShallowConvNet's square → average → log is a
+  differentiable band-power estimate, and it is the best arm. 9.6 gave the *graph* explicit
+  band power and it changed nothing — but that was band power as node features, not as a
+  learned spectral filter after a learned spatial one.
+
+#### 9.11.3 A correction this forced, and one it forced in the analysis code
+
+**`CLAUDE.md`'s "a linear method from 2000 still wins" is false and has been corrected.**
+It was true of every graph arm and was generalised too far. The honest statement is that
+CSP+LDA beats every *graph* formulation tried, and loses to both graph-free CNNs.
+
+**The first version of `scripts/posthoc_controls.py` would have reported the wrong
+verdict.** Its decision rule tested whether A1 significantly beat the fixed graph. With 103
+subjects the design detects ~0.020 (17.2), so an arm can clear significance while
+recovering almost none of the gap — which is exactly what A1 does. It would have printed
+"9.7.1 supported". The rule now tests the **fraction of the gap recovered**, with
+significance as a precondition rather than the criterion. Caught by running the tool on
+real results, not by re-reading it — the same lesson as 14's recurring theme.
+
+#### 9.11.4 Consequences for the paper
+
+`PAPER.md` and `RESULTS.md` predate these runs and **both now contain claims contradicted
+by 9.11**, principally the framing that a classical linear method remains unbeaten. The
+central finding is untouched and arguably strengthened — the published protocol still
+collapses to chance, and the graph formulation still fails — but the surrounding argument
+needs revision:
+
+* the "a linear method from 2000 still wins" framing must go;
+* the paper gains a positive result it did not have (ShallowConvNet above the published
+  ceiling for this dataset), which changes it from a purely negative paper to a negative
+  finding plus a constructive one;
+* 9.7.1's mechanistic claim, quoted in the discussion, must be softened to the 16 % figure.
 
 ---
 
@@ -1953,9 +2081,9 @@ controls strengthen and tuning destroys.
 
 | item | state |
 |---|---|
-| **A1** unconstrained spatial operator | **IMPLEMENTED, not yet run.** `models/free_spatial.py`, `--free-spatial` on `run_subject_dependent.py`, 8 tests in `tests/test_free_spatial.py`. Bit-identical to the fixed baseline at init, +10,920 params (3 %), mutually exclusive with `--learnable-graph` |
+| **A1** unconstrained spatial operator | **RUN. Results in 9.11.** 0.5566 — significant (+0.0128, p = 0.0046) but recovers only **16 %** of the gap. 9.7.1 superseded in part |
 | **E1** per-subject distribution | **DONE.** `scripts/subject_heterogeneity.py` + `figures/subject_heterogeneity.png`. Results in 17.6 |
-| **A2** graph-free CNN baselines | **IMPLEMENTED, not yet run.** `models/eegnet.py` (EEGNet-8,2 and ShallowConvNet), `--model {gcn,eegnet,shallow}` on the *same* runner, 21 tests. Smoke-run end to end on S001/S002 |
+| **A2** graph-free CNN baselines | **RUN. Results in 9.11.** EEGNet 0.6296 (indistinguishable from CSP), ShallowConvNet **0.6725** (beats CSP by +0.0485) |
 
 The command for A1, matching the confirmatory arms exactly so it is comparable to
 `C-fixed-binary` fold for fold:
@@ -2376,6 +2504,39 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-02
+
+- **A1 and A2 RUN on all 103 subjects; results and full analysis in 9.11.** 3,090 folds.
+  They resolve 17.1 and they change what the project claims.
+  - **Sample size refuted.** Graph-free CNNs on the *same ~45 trials and the same folds*
+    reach and pass CSP: EEGNet 0.6296 (vs CSP 0.6239, p = 0.49 — indistinguishable),
+    **ShallowConvNet 0.6725 (+0.0485 over CSP, p = 0.0006, wins 67/103)**. Deep learning is
+    not below its data threshold here.
+  - **9.7.1's mechanism is minor.** A1 lifted graph locality, symmetry and non-negativity
+    and recovered **16 %** of the gap (+0.0128, p = 0.0046). Real, four times the learnable
+    adjacency's effect, but small — ~84 % of the gap is elsewhere. 9.7.1 now carries a
+    superseding banner; the original text is kept verbatim because the gap between what was
+    inferred there and what was later measured is itself the finding.
+  - **ShallowConvNet's 0.6608 on left-vs-right exceeds the best single configuration [23]
+    reports from a 216,714-pipeline search on this dataset**, and it puts 94/103 subjects
+    above chance against CSP's 81. It is the project's best result.
+- **`CLAUDE.md` corrected: "a linear method from 2000 still wins" is FALSE.** It held for
+  every *graph* arm and was generalised too far. The Expected Results table now carries the
+  A1/A2 rows and the bullet is replaced with the corrected statement plus the note that both
+  arms are post-hoc, not confirmatory.
+- **A bug in the analysis code that would have produced the wrong conclusion.**
+  `posthoc_controls.py`'s first verdict rule tested whether A1 *significantly* beat the
+  fixed graph. With 103 subjects the design detects ~0.020, so an arm can clear significance
+  while recovering almost none of the gap — exactly what A1 does. It would have printed
+  "9.7.1 supported". The rule now tests the **fraction of the gap recovered**, with
+  significance as a precondition. Caught by running the tool on real results, not by
+  re-reading it. Also fixed: a `KeyError` on `holm_bonferroni`'s return schema.
+- Added `figures/posthoc_controls.png` — the arm ladder with per-subject spread against the
+  published ceiling. The ordering is the argument: every arm left of CSP is a graph model,
+  every arm right of it is not.
+- **`PAPER.md` and `RESULTS.md` now contain claims contradicted by 9.11** and need revision
+  before submission. The central finding is untouched and arguably strengthened, but the
+  "a linear method still wins" framing must go, and the paper gains a constructive result it
+  did not previously have. Flagged in 9.11.4; not yet done.
 
 - **A2 implemented** (`models/eegnet.py`: EEGNet-8,2 and ShallowConvNet; `--model
   {gcn,eegnet,shallow}`; 21 tests, 205 passing). Smoke-run end to end on real subjects for
