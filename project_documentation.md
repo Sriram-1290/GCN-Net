@@ -2692,6 +2692,15 @@ Space," arXiv:2607.22778, 2026.
 Optimality: A Friedman-Nemenyi Benchmark of EEG Motor-Imagery BCI Decoders,"
 arXiv:2606.24394, 2026.
 
+**[27]** Y. Xie, K. Wang, J. Meng, J. Yue, L. Meng, W. Yi, T.-P. Jung, M. Xu, and
+D. Ming, "Cross-dataset transfer learning for motor imagery signal classification via
+multi-task learning and pre-training," *Journal of Neural Engineering*, vol. 20,
+art. 056037, 2023. DOI: 10.1088/1741-2552/acfe9c.
+
+**[28]** R. Mane, E. Chew, K. Chua, K. K. Ang, N. Robinson, A. P. Vinod, S.-W. Lee, and
+C. Guan, "FBCNet: A Multi-view Convolutional Neural Network for Brain-Computer Interface,"
+arXiv:2104.01233, 2021.
+
 **[26]** B. Blankertz, C. Sannelli, S. Halder, E. M. Hammer, A. Kübler, K.-R. Müller,
 G. Curio, and T. Dickhaus, "Neurophysiological predictor of SMR-based BCI performance,"
 *NeuroImage*, vol. 51, no. 4, pp. 1303-1309, 2010. DOI: 10.1016/j.neuroimage.2010.03.022.
@@ -2702,9 +2711,152 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 
 ---
 
+### 17.11 Reaching 0.70 — what the target actually requires
+
+*Written 2026-09-03 in response to a target of >0.70 mean within-family, i.e. surpassing
+ShallowConvNet's 0.6725. Eight searches; every reference verified against Crossref or the
+arXiv API. The three G arms were mid-run and no G number is used here.*
+
+#### 17.11.1 The target is +0.0275, and the arithmetic says where it must come from
+
+ShallowConvNet over 103 subjects: **mean 0.6725, SD 0.1348, median 0.644**, quartiles
+[0.433, 0.567, 0.644, 0.772, 0.989]. **41 of 103 subjects are already at or above 0.70**;
+**7 are below chance.**
+
+Reaching a *mean* of 0.700 needs **+0.0275**. Three routes, and only one is possible:
+
+| route | what it requires |
+|---|---|
+| **A. lift every subject** | +0.0275 each — a broad, uniform improvement |
+| **B. lift the bottom quartile only** | those 26 subjects from 0.518 to **0.627** (+0.109 each) |
+| **C. lift the 7 sub-chance subjects only** | to **0.871** each — impossible |
+
+**The deficit lives in the lower tail, not at the top.** The median (0.644) sits well below
+the mean target, and the distribution is left-skewed by subjects the model barely decodes.
+That is the same tail 12.7 showed is partly physiological: the resting SMR predictor
+explains ~30 % of between-subject variance, and subjects who fail under *both* CSP and the
+network have 1.70 dB less mu prominence. **Some of route B is not model-addressable at all.**
+
+This immediately ranks the candidate levers: the ones that help *weak* subjects are worth
+more here than the ones that sharpen already-good ones.
+
+#### 17.11.2 The strongest lever, and it needs no new data
+
+**Cross-subject pre-training followed by per-subject fine-tuning.** Pre-train on the other
+102 subjects, then fine-tune on the target subject's *training folds only*. The target's
+test trials are never seen, so this is leakage-free by construction and needs no external
+dataset.
+
+**This is the direct synthesis of two results we already have and have never combined.**
+9.9 measured LOSO at 0.6040 and subject-dependent at 0.6038 — statistically the same
+number, reached from opposite directions. LOSO has ~100x the training data and no
+subject-specific calibration; subject-dependent has calibration and almost no data.
+**Neither uses the other's information.** Pre-train-then-fine-tune uses both, and 9.9's own
+conclusion — that the subject-dependent protocol is data-starved — is the argument that it
+should work.
+
+[27] reports a maximum accuracy increase of **7.76 %** from pre-training in general, and
+**27.34 % where training data is limited**, along with faster convergence and a **75.22 %
+reduction in the variance of accuracy across subjects**. That last figure matters more than
+the first: variance reduction is precisely route B, lifting the weak tail.
+
+Our fine-tuning stage would have ~36 training trials per fold — squarely in the
+"limited training data" regime those numbers describe.
+
+#### 17.11.3 The strongest architectural lever
+
+**A filter bank, not a single learned temporal filter.** FBCNet [28] band-passes into
+several fixed frequency bands, learns a spatial filter *per band*, and aggregates time with
+a variance layer. It reports 76.20 % 4-class on BCI IV-2a and **up to 8 % higher binary
+accuracy** on other datasets, and is explicitly motivated by *"lack of adequate training
+samples"* — our exact constraint.
+
+`GraphBandPowerNet` currently has **one** temporal convolution bank feeding one spatial
+stage. FBCNet's insight is that band and spatial filter should be chosen *jointly per band*,
+which is what makes FBCSP stronger than plain CSP — and our CSP baseline is plain CSP, not
+FBCSP (13). Extending `graphbp` to multiple bands is a contained change: the temporal conv
+becomes a fixed filter bank, and the spatial stage runs per band.
+
+#### 17.11.4 The rest, ranked and costed honestly
+
+| lever | reported gain | our expectation | cost |
+|---|---|---|---|
+| **Pre-train + fine-tune** [27] | up to +7.76 %, +27.34 % on limited data, −75 % accuracy variance | **largest single lever; targets the weak tail** | medium — a pre-training stage per fold |
+| **Filter bank (FBCNet-style)** [28] | up to +8 % binary | moderate; compounds with the above | small — contained change to `graphbp` |
+| **Window length sweep** (B5) | untested anywhere here | unknown; ShallowConvNet is handicapped at 0.40 s so this may raise the *bar* rather than help us | ~6 h measured |
+| **Data augmentation** | 8-36 % *relative* in the literature, wide spread | small in absolute terms; the reported figures are relative and mostly from weaker baselines | small |
+| **Ensembling existing arms** | — | **ruled out**: the per-subject *oracle* over all five arms is 0.6946, so even perfect selection lands under 0.70 | none |
+
+#### 17.11.5 The honest assessment
+
+**0.70 is reachable but not by a safe margin, and only if pre-training delivers near its
+reported range.** The arithmetic is unforgiving: +0.0275 on a mean whose median is 0.644,
+concentrated in a tail that 12.7 shows is ~30 % physiological.
+
+Three statements to keep in view:
+
+1. **The design detects ~0.020** (17.2). A result of 0.69 or 0.71 is one draw from a
+   distribution, not a rank ordering. Any claim of "we beat ShallowConvNet" needs the
+   paired CI and the per-subject win rate, not the mean.
+2. **0.6725 already exceeds the best of a 216,714-configuration published search** (17.0).
+   We are not chasing a number someone else has hit; we would be setting one.
+3. **CLAUDE.md forbids tuning to move a number.** The correct framing is *"does
+   pre-training plus a filter bank help, and by how much"* — pre-registered, with the
+   direction fixed in advance — not *"reach 0.70"*. If the answer is 0.68, that is the
+   result. **Deciding in advance that 0.70 is the deliverable is how a project ends up
+   reporting the best of many attempts.**
+
+#### 17.11.6 Recommended order
+
+1. **Finish the G arms.** They are 46 % complete and answer a pre-registered question
+   (9.12). Interpreting a new architecture before the current one is scored is exactly the
+   stacking CLAUDE.md forbids.
+2. **Pre-train + fine-tune on the best existing architecture**, whichever the G arms name.
+   Largest expected gain, no new data, leakage-free, and it targets the weak tail.
+3. **Add the filter bank** to that architecture. Contained, compounds, well-motivated.
+4. **Then** the window sweep, which also removes the A2 caveat (13).
+
+Steps 2 and 3 should be pre-registered together before either is run, with the primary
+outcome fixed as mean within-family accuracy and the comparison paired against
+ShallowConvNet.
+
+---
+
 ## 18. Changelog
 
 ### 2026-09-03
+
+- **17.11 added: what a >0.70 target actually requires.** Eight searches, two new verified
+  references, plus an arithmetic analysis of our own ShallowConvNet distribution.
+  - **The target is +0.0275 and the deficit is in the lower tail, not the top.** 41 of 103
+    subjects are *already* at or above 0.70; the median is 0.644 and 7 subjects are below
+    chance. Lifting only the bottom quartile would need +0.109 each; lifting only the
+    sub-chance subjects is arithmetically impossible. **This ranks the levers: what helps
+    weak subjects is worth more here than what sharpens strong ones** — and 12.7 already
+    showed part of that tail is physiological, not model-addressable.
+  - **The strongest lever is cross-subject pre-training then per-subject fine-tuning, and
+    it needs no new data.** It is the direct synthesis of 9.9's two numbers, which we have
+    never combined: LOSO 0.6040 has ~100x the data and no calibration, subject-dependent
+    0.6038 has calibration and almost no data, and neither uses the other's information.
+    [27] reports up to +7.76 % generally, +27.34 % on limited data, and a **75 % reduction
+    in accuracy variance across subjects** — that last figure is exactly the weak tail.
+    Leakage-free by construction: pre-train on the other 102, fine-tune on the target's
+    training folds only.
+  - **The strongest architectural lever is a filter bank** [28]. `GraphBandPowerNet` has
+    one temporal bank feeding one spatial stage; FBCNet learns a spatial filter *per
+    frequency band*, reports up to +8 % binary, and is explicitly motivated by small
+    training sets. It is also the difference between CSP and FBCSP, and our baseline is
+    plain CSP.
+  - **Ensembling the existing arms is ruled out by our own data**: the per-subject oracle
+    over all five is 0.6946, so even perfect selection lands under 0.70.
+  - **Stated plainly in 17.11.5: 0.70 is reachable but not by a safe margin.** The design
+    detects ~0.020, so 0.69 versus 0.71 is one draw rather than a ranking; 0.6725 already
+    exceeds the best of a published 216,714-configuration search; and `CLAUDE.md` forbids
+    tuning to move a number. **The correct framing is "does pre-training plus a filter bank
+    help, and by how much", pre-registered — not "reach 0.70".** Deciding in advance that
+    0.70 is the deliverable is how a project ends up reporting the best of many attempts.
+  - Recommended order: finish the G arms first (46 % done, pre-registered in 9.12), then
+    pre-train + fine-tune, then the filter bank, then the window sweep.
 
 - **Error 23, mine, found 2 minutes after it mattered.** `--stop-at` — added 50 minutes
   earlier — treated a time already past as *tomorrow*. Each of the three processes honoured
