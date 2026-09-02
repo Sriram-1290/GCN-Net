@@ -67,6 +67,12 @@ def main() -> int:
                     help="learn the adjacency, initialised at the PCC graph so the "
                          "model starts identical to the fixed baseline")
     ap.add_argument("--learn-graph-scale", action="store_true")
+    ap.add_argument("--free-spatial", action="store_true",
+                    help="A1 (17.2): replace the Chebyshev basis with free dense "
+                         "(K, M, M) operators, initialised at that basis so step 0 is "
+                         "bit-identical. Lifts graph locality and the polynomial "
+                         "constraint -- the direct test of 9.7.1. Not combinable with "
+                         "--learnable-graph")
     ap.add_argument("--adjacency-l1", type=float, default=0.0,
                     help="L1 on the learned graph correction (sparsity)")
     ap.add_argument("--features", choices=["raw", "bandpower"], default="raw",
@@ -129,6 +135,7 @@ def main() -> int:
                               attention_heads=args.attention_heads,
                               attention_per_node=args.attention_per_node,
                               learnable_graph=args.learnable_graph,
+                              free_spatial=args.free_spatial,
                               learn_graph_scale=args.learn_graph_scale,
                               adjacency_l1=args.adjacency_l1,
                               always_train_bn=args.leaky)
@@ -138,7 +145,9 @@ def main() -> int:
     print(f"cache {cfg.dataset.cache_dir}  bandpass {cfg.preprocess.bandpass}  "
           f"window {args.window}  stride {args.stride or args.window}")
     print(f"attention {'ON (' + str(args.attention_heads) + ' heads)' if args.temporal_attention else 'off'}")
-    print(f"graph {'LEARNABLE (init at PCC)' if args.learnable_graph else 'fixed PCC'}"
+    print("graph " + ("FREE SPATIAL (init at Chebyshev basis)" if args.free_spatial
+                     else "LEARNABLE (init at PCC)" if args.learnable_graph
+                     else "fixed PCC")
           + (f"  L1 {args.adjacency_l1}" if args.adjacency_l1 else ""))
     print(f"features {args.features}"
           + (f" ({args.bands}, {n_features} bands)" if args.features == "bandpower" else ""))
@@ -207,6 +216,7 @@ def main() -> int:
                 "temporal_attention": args.temporal_attention,
                 "attention_heads": args.attention_heads if args.temporal_attention else None,
                 "learnable_graph": args.learnable_graph,
+                "free_spatial": args.free_spatial,
                 "features": args.features,
                 "bands": args.bands if args.features == "bandpower" else None,
                 "n_features": n_features,

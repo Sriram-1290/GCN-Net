@@ -53,6 +53,7 @@ class GCNsNetConfig:
     always_train_bn: bool = False
     learnable_graph: bool = False   # Phase 5: learn the adjacency (9.6)
     learn_graph_scale: bool = False
+    free_spatial: bool = False      # A1: unconstrained spatial operator (17.2)
     adjacency_l1: float = 0.0       # sparsity on the learned correction
     temporal_attention: bool = False  # H2: attend over time before the convs
     temporal_pool: str | None = None   # "segments": fixed mean pool, the H2 control
@@ -66,6 +67,12 @@ class GCNsNetConfig:
     def __post_init__(self) -> None:
         if not (len(self.filters) == len(self.orders) == len(self.pools)):
             raise ValueError("filters, orders and pools must be the same length")
+        if self.learnable_graph and self.free_spatial:
+            raise ValueError(
+                "learnable_graph and free_spatial are alternative relaxations of "
+                "the same constraint (9.7 vs 17.2) and answer different questions; "
+                "stacking them makes attribution impossible. Pick one."
+            )
 
 
 class GCNsNet(nn.Module):
@@ -137,6 +144,12 @@ class GCNsNet(nn.Module):
                 convs.append(DynamicChebConv(
                     n_in, n_out, adjacencies[i], K, weight_std=self.cfg.weight_std,
                     learn_scale=self.cfg.learn_graph_scale))
+            elif self.cfg.free_spatial:
+                # A1: same algebra, same init, but the (K, M, M) operators are
+                # free rather than polynomials in the Laplacian.
+                from .free_spatial import FreeSpatialConv
+                convs.append(FreeSpatialConv(
+                    n_in, n_out, basis, weight_std=self.cfg.weight_std))
             else:
                 convs.append(ChebConv(n_in, n_out, basis, weight_std=self.cfg.weight_std))
             # Bias is applied before pooling, so it is sized on the pre-pool graph.

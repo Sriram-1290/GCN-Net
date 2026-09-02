@@ -1949,6 +1949,28 @@ Ranked by **what each direction would establish**, not by how much accuracy it m
 That ordering is deliberate: the project's value rests on a negative result, which
 controls strengthen and tuning destroys.
 
+**Status, 2026-09-02 evening.** Two items are no longer proposals:
+
+| item | state |
+|---|---|
+| **A1** unconstrained spatial operator | **IMPLEMENTED, not yet run.** `models/free_spatial.py`, `--free-spatial` on `run_subject_dependent.py`, 8 tests in `tests/test_free_spatial.py`. Bit-identical to the fixed baseline at init, +10,920 params (3 %), mutually exclusive with `--learnable-graph` |
+| **E1** per-subject distribution | **DONE.** `scripts/subject_heterogeneity.py` + `figures/subject_heterogeneity.png`. Results in 17.6 |
+
+The command for A1, matching the confirmatory arms exactly so it is comparable to
+`C-fixed-binary` fold for fold:
+
+```bash
+for c in "0 1" "2 3"; do
+  python scripts/run_subject_dependent.py --config configs/bandpass_8_30.yaml       --folds 5 --epochs 50 --lr 1e-3 --batch-size 256 --window 64 --stride 16       --classes $c --free-spatial --resume --tag "A1-free-binary-${c// /-}"
+done
+python scripts/confirmatory_results.py
+```
+
+**A1 is not on the pre-registered list (10.3) and must not be reported as confirmatory.**
+It tests a claim in 9.7.1 that was itself written after the confirmatory runs, so it is a
+post-hoc mechanistic test. Label it exploratory, and pre-register it separately if it is to
+carry weight.
+
 ### 17.0 What "good" looks like on this dataset
 
 **This section did not exist in the first draft, and it should have.** Every judgement
@@ -2046,7 +2068,7 @@ much smaller, which is a further argument against chasing residual differences.
 | **B1** | **Euclidean Alignment on the LOSO arm** [17,18] — whiten each subject's trials by `R̄^(-1/2)`; unsupervised, no target labels | Very small | The LOSO runs apply *no* cross-subject alignment at all. **Apply it to CSP too** — EA helps covariance methods at least as much, and using it on one arm only would manufacture a win |
 | **B2** | **Per-run alignment as a de-confounding probe** | Small | See below — novel; searches found no published treatment of the run-family confound |
 | **B3** | **Surface Laplacian / CSD preprocessing** | Small | `A = \|P\| - I` is near-dense because scalp channels are correlated by volume conduction, not connectivity. CSD is a spatial high-pass that suppresses exactly that. The one change that would make the graph *mean something* |
-| **B4** | **Measure Dirichlet energy per layer on existing checkpoints; sweep graph sparsity and depth** | Very small | Six conv layers over a near-complete 64-node graph is a textbook over-smoothing configuration. [22] derives Graph Dirichlet Energy bounds showing GCNs act as low-pass filters and that volume conduction *accelerates* the decay. Needs forward hooks only — **no retraining** |
+| **B4** | **Measure Dirichlet energy per layer; sweep graph sparsity and depth** | Small | Six conv layers over a near-complete 64-node graph is a textbook over-smoothing configuration. [22] derives Graph Dirichlet Energy bounds showing GCNs act as low-pass filters and that volume conduction *accelerates* the decay. **Correction: this is not free.** The cleanup removed `checkpoints/` and made checkpointing opt-in (`--checkpoints`), so no weights are on disk; one arm must be re-run with that flag before the forward hooks can be attached |
 | **B5** | **Sweep the raw-voltage window length** | Very small | **Never done.** Every confirmatory raw run uses `window=64` = **0.40 s**; the only `window=160` rows in the log are band-power runs. ERD/ERS develops over 1-2 s, so 0.4 s may be structurally too short — and attention currently operates over 37 such windows, so window length changes what attention is even *for* |
 
 **B2 in detail.** 13 states the 4-class problem "cannot be de-confounded." That is true of
@@ -2087,7 +2109,9 @@ geometry-aware spatial prior — rather than abandoning it for a generic CNN.
   from uniform has median 104.5 %, max/min 4.9x, but at different moments per trial.
   **Does the learned peak track a measurable ERD onset?** Correlating per-trial argmax
   against per-trial mu-band desynchronisation latency would convert a mechanism story into
-  evidence, using checkpoints that already exist. **Do this jointly with B5** — attention
+  evidence. **Same correction as B4:** the checkpoints 9.10 used were removed in the
+  cleanup, so this needs one arm re-run with `--checkpoints` first.
+  **Do this jointly with B5** — attention
   over 37 windows of 0.4 s and attention over 8 windows of 1 s are different mechanisms.
 
 ### 17.5 Tier D — attack the sample-size constraint
@@ -2117,27 +2141,46 @@ live competing explanation, not just a background constraint.
 **Promoted after the second pass. This is no longer a tidy-up tier; on the evidence below
 it may be the most defensible contribution left.**
 
-Four numbers computed from our own log during this review:
+**E1 IS NOW DONE.** `scripts/subject_heterogeneity.py` (added 2026-09-02) produces the
+table below and `figures/subject_heterogeneity.png` from the existing log, with no compute.
+It is labelled EXPLORATORY in its own output: 10.3 fixed the confirmatory list in advance
+and this is not on it — it is a descriptive re-analysis of a pre-registered comparison.
 
-| statistic (103 subjects, attention arm vs CSP+LDA) | value |
-|---|---|
-| subjects where **our network beats CSP** | **37 / 103 (36 %)** |
-| Pearson *r* between per-subject accuracies of the two methods | **0.825** |
-| between-subject SD of accuracy | **0.1247** |
-| per-subject (network − CSP): median / min / max | **−0.011 / −0.256 / +0.167** |
+| 103 subjects, per-subject means | wins | Pearson *r* | mean gap | median gap |
+|---|---|---|---|---|
+| GCN + attention vs **CSP+LDA** | **37/103 (36 %)** [27 %, 46 %] | **+0.825** | −0.0202 | −0.011 |
+| GCN + both (the H4 arm) vs **CSP+LDA** | **34/103 (33 %)** [24 %, 43 %] | +0.831 | **−0.0263** | −0.033 |
+| GCN + attention vs **fixed graph** (H2) | **82/103 (80 %)** [72 %, 87 %] | +0.823 | +0.0600 | +0.056 |
 
-Between-subject SD is roughly five times the method gap, so **subject identity accounts
-for on the order of 38x the variance that the choice of method does**. And *r* = 0.825
-means the two methods largely succeed and fail on the *same people* — what separates
-subjects is not which algorithm they get.
+Between-subject SD is **0.1247** against a method gap of ~0.02-0.026, so **subject identity
+accounts for on the order of 23-38x the variance that the choice of method does**. And
+*r* ≈ 0.83 between two structurally unrelated methods means they largely succeed and fail
+on the *same people*: what separates subjects is not which algorithm they get.
+
+**The third row is the most useful thing this analysis produced, and it was not anticipated.**
+The two findings differ sharply in evidential quality once you look past the means:
+
+- **H2 (attention) is robust per subject** — it wins on **80 %** of them, and the CI excludes
+  a coin flip by a wide margin. This is a consistent effect, not an average of a scattered
+  distribution.
+- **H4 (the CSP gap) is a thin mean difference over an interleaved distribution** — we win on
+  a third of subjects, the median per-subject gap is −0.033, and the per-subject differences
+  run from −0.267 to +0.200. The population-level verdict is correct and pre-registered, but
+  "CSP is better" is a statement about a mean, not about subjects.
+
+Both statements should appear in the paper. Reporting the H4 mean without the 33 % win rate
+overstates it; reporting the 33 % win rate without the pre-registered mean would understate
+it. **11 of 103 subjects (11 %) are at or below chance under *both* methods**, consistent
+with the 15-30 % BCI-illiteracy rate and with a subject-level ceiling no architecture lifts.
 
 The external benchmarks agree, on the same dataset. [24] finds the single best pipeline is
 optimal for **only 35 % of PhysionetMI participants**, that matching pipelines to
-individuals is worth **about seven accuracy points** — versus the 2.6 we are chasing — and
-that cov-tgsp and CSP are statistically indistinguishable on the largest cohort (Nemenyi
-p = 0.27, Kendall's W = 0.11). [23] finds 93 distinct winning pipelines across 109 subjects.
+individuals is worth **about seven accuracy points** — versus the 0.0263 we are chasing —
+and that cov-tgsp and CSP are statistically indistinguishable on the largest cohort
+(Nemenyi p = 0.27, Kendall's W = 0.11). [23] finds 93 distinct winning pipelines across 109
+subjects.
 
-- **E1. Report the per-subject distribution, not the mean.** "Our mean is 0.6038, CSP's is
+- **E1. Report the per-subject distribution, not the mean. DONE — see above.** "Our mean is 0.6038, CSP's is
   0.6239" is answering a question the data does not support. "Our model wins on 36 % of
   subjects, the two methods correlate at 0.825, and subject identity dominates method
   choice by ~38x in variance" is both more honest and more interesting. **The data already
@@ -2188,7 +2231,7 @@ the evidence for it strengthened considerably.
 |---|---|---|---|
 | **A1 + A2** | Unconstrained spatial filter; EEGNet on identical folds | Small | Together they discriminate *graph prior* from *sample size* — the two live explanations for the whole result |
 | **E1** | Per-subject distribution from the existing log | Near zero | 37/103 wins, *r* = 0.825, ~38x variance ratio. Already computed here; needs writing up, not running |
-| **B4 + B5** | Dirichlet energy on existing checkpoints; window-length sweep | Near zero / very small | A second mechanism with no retraining, plus the one untested knob that interacts with the component that works |
+| **B4 + B5** | Dirichlet energy (needs one arm re-run for checkpoints); window-length sweep | Small | A second, independent mechanism for the failure, plus the one untested knob that interacts with the component that works |
 
 If a fourth fits, make it **D3 (BCI IV-2a)** — it addresses 13's first limitation and is the
 objection most likely to be raised in a viva.
@@ -2294,6 +2337,36 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-02
+
+- **Started on the roadmap rather than only writing it.** Two items delivered:
+  - **A1 implemented** (`models/free_spatial.py`, `--free-spatial`, 8 tests; 184 passing).
+    `FreeSpatialConv` replaces the fixed Chebyshev basis with free dense `(K, M, M)`
+    operators **initialised at that basis**, so step 0 is bit-for-bit the fixed baseline —
+    the same design guarantee `dynamic_adjacency` uses, for the same reason. It lifts all
+    three constraints the learnable adjacency kept (locality, symmetry, non-negativity),
+    which is precisely the distinction 9.7.1 draws. +10,920 params (3 %); refuses to
+    combine with `--learnable-graph` because they answer different questions and CLAUDE.md
+    forbids stacking. **Ready to run; not yet run.**
+  - **E1 done** (`scripts/subject_heterogeneity.py`, `figures/subject_heterogeneity.png`).
+    No compute — the rows already existed.
+- **E1's result, and one thing it turned up that was not anticipated.** Against CSP+LDA our
+  attention arm wins on 37/103 subjects (36 %) and the H4 `both` arm on 34/103 (33 %), with
+  *r* ≈ 0.83 between per-subject accuracies of the two methods and a between-subject SD of
+  0.1247 — subject identity carries 23-38x the variance of the method choice. **The
+  unanticipated part: attention beats the fixed graph on 82/103 subjects (80 %).** So H2 is
+  a consistent per-subject effect while H4 is a thin mean difference over an interleaved
+  distribution (median −0.033, range −0.267 to +0.200). Both belong in the paper; reporting
+  either alone misleads. Also: **11/103 subjects are at or below chance under *both*
+  methods**, consistent with the 15-30 % BCI-illiteracy rate.
+- **Correction to 17 as first written.** B4 and C2 were both described as needing "no
+  retraining" because they could run on existing checkpoints. **They cannot** — the
+  2026-09-02 cleanup removed `checkpoints/` and made checkpointing opt-in
+  (`--checkpoints`), so nothing is on disk. Both now require one arm re-run with that flag,
+  and their cost is corrected from "near zero" to "small". Caught by checking the
+  filesystem before recommending the work, not by re-reading the recommendation.
+- **A1 is post-hoc and must be labelled so.** It is not on the pre-registered list (10.3)
+  and it tests a claim (9.7.1) that was itself written after the confirmatory runs.
+  Recorded at the top of 17 so it cannot be quietly promoted to confirmatory later.
 
 - **Second research pass on 17, same day, and it changed the conclusions.** Seven more
   searches, four full-text fetches, and four analyses of our own log and the local
