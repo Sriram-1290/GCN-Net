@@ -42,11 +42,22 @@ Leave-One-Subject-Out (LOSO), plus scalp-topography interpretability.
 | Confirmatory runs (103 subj) | **Done — all five** | 2026-09-02 |
 | Attention mechanism analysis | Done | 2026-09-02 |
 | `CLAUDE.md` Expected Results rewritten | Done | 2026-09-02 |
-| **Experimental work** | **COMPLETE** | 2026-09-02 |
-| Writeup | Not started | — |
-| Figures regenerated on confirmatory data | Partial | — |
-| LOSO evaluation | Not started | — |
-| Contribution (dynamic adj + temporal attention) | Not started | — |
+| Confirmatory experimental work | **COMPLETE** | 2026-09-02 |
+| LOSO evaluation (H5) | Done | 2026-09-02 |
+| Contribution (learnable adjacency + temporal attention) | Done — attention supported, adjacency not | 2026-09-02 |
+| Figures regenerated on confirmatory data | Done | 2026-09-02 |
+| `RESULTS.md` | Done | 2026-09-02 |
+| `PAPER.md` + PDF + artifact | Done — author list outstanding | 2026-09-02 |
+| Literature review, ranked roadmap (17) | Done | 2026-09-02 |
+| **A1** free spatial operator (post-hoc) | **Done — 16 % of the gap** | 2026-09-02 |
+| **A2** EEGNet + ShallowConvNet (post-hoc) | **Done — both pass CSP** | 2026-09-02 |
+| **E1** per-subject decomposition (12.6) | Done | 2026-09-02 |
+| **E2** resting SMR predictor (12.7) | Done — ~30 % of variance | 2026-09-02 |
+| Paper revised for A1/A2/E1/E2 | Done | 2026-09-02 |
+| Documentation-consistency test suite | Done | 2026-09-02 |
+| **Open — needs compute** | B5 window sweep, B1 Euclidean alignment, B3 CSD, B4 Dirichlet energy, D3 BCI IV-2a | — |
+| **Open — needs institutional access** | Read [4] MHD-GCN and [5] SAMGCN; 8.1's novelty claim still rests on abstracts | — |
+| **Open — needs the authors** | Author list and affiliations in `PAPER.md` | — |
 
 ---
 
@@ -2104,6 +2115,8 @@ process that reported success.**
 | 18 | Predicted sample size (17.1) would explain the CSP gap, and said so twice | A2: graph-free CNNs on the *same* ~45 trials reach and pass CSP | 9.11.2, prediction recorded as failed |
 | 19 | 9.7.1 inferred a *mechanism* from two null results; it was ~84 % wrong about magnitude | A1 measured it directly at 16 % of the gap | 9.7.1 superseded in part, original kept verbatim |
 | 20 | `PAPER.md` 5.4 mixed a **20-subject** per-problem breakdown with the **103-subject** mean in one table | its own two rows did not average to its own mean (0.6217 vs 0.6239) | recomputed on 103 subjects: −0.0802 [−0.0985, −0.0621] |
+| 21 | The 5.9 edit **deleted the `## 6. Discussion` heading**; the prose survived, so the paper read correctly but ran 5 -> 7 for three commits, including in a released PDF | listing headings during an audit, not reading the prose | restored; now covered by `test_section_numbering_is_contiguous` |
+| 22 | The log's exclusive lock seeked to **EOF** before locking one byte, but `msvcrt.locking` locks relative to the *current position* — so once two processes saw different EOFs they locked different bytes and the mutual exclusion lapsed | its own regression test (for error 13) went intermittently flaky under full-suite load | lock byte fixed at offset 0, a rendezvous every process agrees on; 10/10 clean afterwards |
 
 **The recurring lesson.** A process exiting with code 0 and printing a plausible mean is
 not evidence it did what it claimed. Job Q reported COMPLETE having silently lost a fold;
@@ -2634,6 +2647,31 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-02
+
+- **Error 22: the experiment log's lock was not actually exclusive.** `_exclusive` seeked
+  to end-of-file and then locked one byte, but `msvcrt.locking` locks relative to the
+  *current position* — so two processes at different EOFs locked **different bytes** and
+  could append simultaneously. This is the guard for error 13, and it was subtly broken.
+  Found because its own regression test failed once under full-suite load and passed in
+  isolation; a flaky guard is worse than no guard, so it was worth chasing rather than
+  re-running. The lock byte is now fixed at offset 0 — a rendezvous every process agrees on,
+  and harmless because append-mode writes ignore the seek. 10/10 clean afterwards.
+  **No existing data is affected**: `find_duplicates` reports the 12,590-row log clean, and
+  the two apparent duplicates found during the audit were a learning-rate sweep that the
+  real identity function distinguishes correctly.
+- **`tests/test_analysis_scripts.py`** — the three scripts producing numbers quoted in the
+  paper had no tests. A bug in a training script shows up as a bad accuracy; a bug in an
+  *analysis* script produces a plausible number that goes straight into a paper, which is
+  exactly what error 17 was. Nine tests. The SMR predictor gets four of them because it was
+  implemented from a published method description rather than a reference implementation and
+  its output is now in the abstract: injecting a 10 Hz sinusoid must move it, monotonically
+  in amplitude, while scaling the whole signal tenfold must **not** move it — that last one
+  is the property distinguishing a fitted-background excess from raw band power.
+- **1 Status brought up to date.** It still read "Writeup: Not started", "LOSO evaluation:
+  Not started" and "Contribution: Not started", all of which were done. Rewritten with the
+  A1/A2/E1/E2 rows and an explicit three-way split of what remains: needs compute, needs
+  institutional access, needs the authors.
+- Suite is 243 tests, from 234.
 
 - **E2 done (12.7): resting SMR explains ~30 % of the between-subject variance.**
   `scripts/smr_predictor.py` computes Blankertz et al.'s predictor [26] from **run R01**,

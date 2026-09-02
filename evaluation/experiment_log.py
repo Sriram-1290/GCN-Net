@@ -91,10 +91,19 @@ def _exclusive(fh):
     stdlib only -- msvcrt on Windows, fcntl elsewhere. If neither is available the
     lock degrades to a no-op rather than crashing, since a missing lock is worse
     than a failed run only in the rare concurrent case.
+
+    **The lock byte is fixed at offset 0, not at end-of-file.** ``msvcrt.locking``
+    locks a byte range starting at the *current file position*, so seeking to EOF
+    first makes each process lock whichever byte its own EOF happens to be —
+    and once two processes see different EOFs they contend on different bytes and
+    the mutual exclusion silently lapses. That was the original implementation and
+    it is why the regression test for this was intermittently flaky. Offset 0 is a
+    fixed rendezvous every process agrees on; the file is opened in append mode, so
+    seeking does not affect where the write lands.
     """
     try:
         import msvcrt
-        fh.seek(0, os.SEEK_END)
+        fh.seek(0)
         while True:
             try:
                 msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
@@ -105,7 +114,7 @@ def _exclusive(fh):
             yield
         finally:
             try:
-                fh.seek(0, os.SEEK_END)
+                fh.seek(0)
                 msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
             except OSError:
                 pass
