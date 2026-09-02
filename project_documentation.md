@@ -2703,6 +2703,28 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 
 ## 18. Changelog
 
+### 2026-09-03
+
+- **A power cut at ~00:30 killed the three G arms mid-run. Nothing was lost or corrupted.**
+  Verified rather than assumed, because this is exactly the scenario error 13 came from:
+  the log is 13,493 lines with **zero malformed rows** and ends on a proper newline, and
+  `find_duplicates` reports it clean. The locked single-syscall append did what it exists
+  for — an interrupted write leaves no partial row, so the fold in flight is simply absent
+  and gets redone. **This was the first real test of the offset-0 lock fix (error 22).**
+  903 folds survived; `completed_keys` reads all three tags correctly. Committed at
+  `7a457dc` so the rows were not exposed to a second interruption.
+- **`--stop-at HH:MM` added to `run_subject_dependent.py`.** Checked at a **fold boundary**,
+  never mid-fold, so the log never gains a partial row and `--resume` continues exactly
+  where it stopped. This is the right way to bound a run: `timeout` or a kill can orphan
+  the python child (error 11) and can interrupt a write. A time already past is read as
+  tomorrow. Verified by running it against a deadline 45 s out — it stopped cleanly before
+  a named fold and printed the resume command.
+  - Two false alarms while testing it, both mine: `--stop-at 00:01` at 02:03 correctly meant
+    *tomorrow* and I had read the non-stop as a bug; and a piped run killed by a tool
+    timeout lost its buffered output, which looked like the deadline never firing. Writing
+    to a file instead showed it working. Neither was a code fault.
+- Resumed all three G arms at 02:10 with `--resume --stop-at 03:00`.
+
 ### 2026-09-02
 
 - **New architecture: `models/graph_bandpower.py` (`GraphBandPowerNet`), implementing the

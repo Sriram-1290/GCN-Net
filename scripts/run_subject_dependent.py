@@ -12,6 +12,7 @@ data, BatchNorm in train mode at test time) for the replication arm.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -111,6 +112,11 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="", help="free-text note stored with each row")
+    ap.add_argument("--stop-at", default=None, metavar="HH:MM",
+                    help="exit cleanly at this local time, at a FOLD BOUNDARY. Use "
+                         "this rather than killing the process: a kill can orphan the "
+                         "python child (error #11) and can interrupt a fold mid-write. "
+                         "Combine with --resume to continue later with nothing lost")
     ap.add_argument("--resume", action="store_true",
                     help="skip (subject, fold) pairs already logged under this tag, "
                          "so an interrupted run can be restarted with the same command")
@@ -219,12 +225,24 @@ def main() -> int:
           + (f" ({args.bands}, {n_features} bands)" if args.features == "bandpower" else ""))
     print(f"device {train_cfg.device}\n")
 
+    deadline = None
+    if args.stop_at:
+        now = dt.datetime.now()
+        hh, mm = (int(v) for v in args.stop_at.split(":"))
+        deadline = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if deadline <= now:            # a time already past means tomorrow
+            deadline += dt.timedelta(days=1)
+        print(f"stopping at {deadline:%Y-%m-%d %H:%M} "
+              f"({(deadline - now).total_seconds() / 60:.0f} min from now), "
+              "at a fold boundary")
+
     done = completed_keys(args.log, args.tag) if args.resume else set()
     if args.resume:
         print(describe_resume(done, len(subjects) * args.folds, args.tag))
 
     per_subject: list[float] = []
     per_subject_tp: list[float] = []
+    stopped_early = False
 
     for subject in subjects:
         ep = load_subject(subject, cfg.dataset.cache_dir)
@@ -241,6 +259,14 @@ def main() -> int:
         for split in stratified_trial_kfold(ep.y, n_splits=args.folds, seed=seed):
             if (subject, split.fold) in done:
                 continue
+            # Checked before starting a fold, never during one, so the log never
+            # gains a partial row and --resume picks up exactly here.
+            if deadline is not None and dt.datetime.now() >= deadline:
+                print(f"\nreached --stop-at {args.stop_at}; stopping cleanly "
+                      f"before {subject} fold {split.fold}. "
+                      "Re-run the same command with --resume to continue.")
+                stopped_early = True
+                break
             tr_idx, val_idx = split_off_validation(ep.y, split.train, args.val_frac, seed)
             train = Trials(X=ep.X[tr_idx], y=ep.y[tr_idx])
             val = Trials(X=ep.X[val_idx], y=ep.y[val_idx]) if len(val_idx) else None
@@ -332,11 +358,13 @@ def main() -> int:
                   f"trial {result['trial'].accuracy:.4f}  "
                   f"(selection: {history.selection})")
 
-        if not fold_trial_acc:      # every fold for this subject was already done
-            continue
-        per_subject.append(float(np.mean(fold_trial_acc)))
-        per_subject_tp.append(float(np.mean(fold_tp_acc)))
-        print(f"{subject}: trial {per_subject[-1]:.4f}  timepoint {per_subject_tp[-1]:.4f}\n")
+        if fold_trial_acc:
+            per_subject.append(float(np.mean(fold_trial_acc)))
+            per_subject_tp.append(float(np.mean(fold_tp_acc)))
+            print(f"{subject}: trial {per_subject[-1]:.4f}  "
+                  f"timepoint {per_subject_tp[-1]:.4f}\n")
+        if stopped_early:
+            break
 
     print("=" * 64)
     if not per_subject:
