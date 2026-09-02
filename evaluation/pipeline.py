@@ -123,7 +123,7 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
                  window: int = 1, stride: int | None = None,
                  features: str = "raw",
                  bands: str | tuple[tuple[float, float], ...] = "mu_beta",
-                 leaky: bool = False) -> Fold:
+                 leaky: bool = False, build_graph: bool = True) -> Fold:
     """Build graph, statistics and tensors for one fold.
 
     Args:
@@ -139,6 +139,12 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
         bands: named band set or explicit ``((lo, hi), ...)``, for band power only.
         leaky: reproduce the reference's protocol — build the adjacency and the
             standardiser from **all** splits pooled. Only for the replication arm.
+        build_graph: ``False`` skips graph construction entirely — no adjacency,
+            no coarsening, no node permutation — for models that do not use one
+            (A2's EEGNet and ShallowConvNet, 17.2). Steps 1, 4 and 5 above are
+            unchanged, which is the point of routing those arms through this
+            function rather than a parallel one: the leakage-sensitive operations
+            stay in a single audited place for every arm.
 
     Returns:
         A :class:`Fold` with everything the trainer needs.
@@ -151,10 +157,23 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
     else:
         fit_source = train.X
 
-    adjacency = pcc_adjacency(fit_source)
-    graphs, perm = coarsen(adjacency, levels=levels, self_connections=False, seed=seed)
-    bases = build_bases(graphs, orders, lmax=lmax)
-    adjacencies = dense_adjacencies(graphs)
+    if build_graph:
+        adjacency = pcc_adjacency(fit_source)
+        graphs, perm = coarsen(adjacency, levels=levels,
+                               self_connections=False, seed=seed)
+        bases = build_bases(graphs, orders, lmax=lmax)
+        adjacencies = dense_adjacencies(graphs)
+    else:
+        if features != "raw":
+            raise ValueError(
+                "build_graph=False supports raw features only; band power is a"
+                " graph-arm ablation (9.6)"
+            )
+        # Identity permutation: channels stay in montage order, which is what a
+        # convolutional spatial filter expects. No fake nodes are added.
+        adjacency = np.empty((0, 0), dtype=np.float32)
+        bases, adjacencies = [], []
+        perm = list(range(fit_source.shape[1]))
     standardizer = fit_standardizer(fit_source)
 
     step = stride if stride is not None else window
@@ -182,7 +201,8 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
     else:
         def convert(split: Trials, offset: int) -> Samples:
             X = standardizer.apply(split.X)
-            X = perm_data(X, perm)
+            if build_graph:
+                X = perm_data(X, perm)
             if window == 1 and step == 1:
                 return to_timepoint_samples(X, split.y, trial_offset=offset)
             return to_window_samples(X, split.y, window, step, trial_offset=offset)

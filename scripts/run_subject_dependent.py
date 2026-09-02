@@ -26,6 +26,7 @@ from evaluation.experiment_log import (  # noqa: E402
     completed_keys, describe_resume, log_experiment, set_seed)
 from evaluation.pipeline import Trials, prepare_fold  # noqa: E402
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
+from models.eegnet import build_baseline  # noqa: E402
 from models.gcns_net import GCNsNet, GCNsNetConfig  # noqa: E402
 
 
@@ -67,6 +68,11 @@ def main() -> int:
                     help="learn the adjacency, initialised at the PCC graph so the "
                          "model starts identical to the fixed baseline")
     ap.add_argument("--learn-graph-scale", action="store_true")
+    ap.add_argument("--model", choices=["gcn", "eegnet", "shallow"], default="gcn",
+                    help="A2 (17.2): run a graph-free CNN baseline on the SAME folds, "
+                         "cache, seeds and metric. eegnet = EEGNet-8,2; shallow = "
+                         "ShallowConvNet. Discriminates the graph-prior explanation "
+                         "from the sample-size one (17.1)")
     ap.add_argument("--free-spatial", action="store_true",
                     help="A1 (17.2): replace the Chebyshev basis with free dense "
                          "(K, M, M) operators, initialised at that basis so step 0 is "
@@ -115,6 +121,33 @@ def main() -> int:
         verbose=not args.quiet,
     )
     n_classes = 2 if args.classes else len(cfg.class_names)
+
+    # A2's baselines have no graph and no attention module. Silently ignoring a
+    # flag would produce a log row claiming a configuration the run did not have,
+    # which is how the tag pollution in error #12 happened. Fail instead.
+    if args.model != "gcn":
+        ignored = [name for name, on in [
+            ("--temporal-attention", args.temporal_attention),
+            ("--temporal-pool", bool(args.temporal_pool)),
+            ("--learnable-graph", args.learnable_graph),
+            ("--free-spatial", args.free_spatial),
+            ("--adjacency-l1", bool(args.adjacency_l1)),
+        ] if on]
+        if ignored:
+            raise SystemExit(
+                f"--model {args.model} has no graph and no attention module, so "
+                f"{', '.join(ignored)} would be ignored. Drop the flag or use "
+                "--model gcn."
+            )
+        if args.window < 32:
+            raise SystemExit(
+                f"--model {args.model} is a windowed CNN and needs --window 32 "
+                f"or more; got {args.window}. The reference's single-timepoint "
+                "sample (--window 1) has no temporal extent for it to convolve."
+            )
+        if args.leaky:
+            raise SystemExit("--leaky reproduces the reference GCN protocol; "
+                             "it has no meaning for --model " + args.model)
     if args.temporal_pool or args.temporal_attention:
         pass  # in_features stays the window; the pool reduces it inside the model
     if args.features == "bandpower":
@@ -145,7 +178,10 @@ def main() -> int:
     print(f"cache {cfg.dataset.cache_dir}  bandpass {cfg.preprocess.bandpass}  "
           f"window {args.window}  stride {args.stride or args.window}")
     print(f"attention {'ON (' + str(args.attention_heads) + ' heads)' if args.temporal_attention else 'off'}")
-    print("graph " + ("FREE SPATIAL (init at Chebyshev basis)" if args.free_spatial
+    print(f"model {args.model}"
+          + ("   (no graph; A2 control for 17.1)" if args.model != "gcn" else ""))
+    print("graph " + ("n/a" if args.model != "gcn"
+                     else "FREE SPATIAL (init at Chebyshev basis)" if args.free_spatial
                      else "LEARNABLE (init at PCC)" if args.learnable_graph
                      else "fixed PCC")
           + (f"  L1 {args.adjacency_l1}" if args.adjacency_l1 else ""))
@@ -183,8 +219,15 @@ def main() -> int:
             fold = prepare_fold(train, test, val, lmax=lmax, seed=seed,
                                 sfreq=ep.sfreq, window=args.window, stride=args.stride,
                                 features=args.features, bands=args.bands,
-                                leaky=args.leaky)
-            model = GCNsNet(fold.bases, model_cfg, adjacencies=fold.adjacencies)
+                                leaky=args.leaky, build_graph=args.model == "gcn")
+            if args.model == "gcn":
+                model = GCNsNet(fold.bases, model_cfg, adjacencies=fold.adjacencies)
+            else:
+                # Shape comes from the fold, not from the config, so a windowing
+                # change cannot silently desynchronise the model from the data.
+                _, n_ch, n_tp = fold.train.X.shape
+                model = build_baseline(args.model, n_ch, n_tp, n_classes,
+                                       sfreq=ep.sfreq)
             trainer = Trainer(model, train_cfg, n_classes=n_classes)
 
             history = trainer.fit(
@@ -215,6 +258,7 @@ def main() -> int:
                 "stride": args.stride or args.window,
                 "temporal_attention": args.temporal_attention,
                 "attention_heads": args.attention_heads if args.temporal_attention else None,
+                "model": args.model,
                 "learnable_graph": args.learnable_graph,
                 "free_spatial": args.free_spatial,
                 "features": args.features,

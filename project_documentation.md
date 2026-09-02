@@ -1955,6 +1955,7 @@ controls strengthen and tuning destroys.
 |---|---|
 | **A1** unconstrained spatial operator | **IMPLEMENTED, not yet run.** `models/free_spatial.py`, `--free-spatial` on `run_subject_dependent.py`, 8 tests in `tests/test_free_spatial.py`. Bit-identical to the fixed baseline at init, +10,920 params (3 %), mutually exclusive with `--learnable-graph` |
 | **E1** per-subject distribution | **DONE.** `scripts/subject_heterogeneity.py` + `figures/subject_heterogeneity.png`. Results in 17.6 |
+| **A2** graph-free CNN baselines | **IMPLEMENTED, not yet run.** `models/eegnet.py` (EEGNet-8,2 and ShallowConvNet), `--model {gcn,eegnet,shallow}` on the *same* runner, 21 tests. Smoke-run end to end on S001/S002 |
 
 The command for A1, matching the confirmatory arms exactly so it is comparable to
 `C-fixed-binary` fold for fold:
@@ -1966,7 +1967,45 @@ done
 python scripts/confirmatory_results.py
 ```
 
-**A1 is not on the pre-registered list (10.3) and must not be reported as confirmatory.**
+And for A2, on the same folds:
+
+```bash
+for m in eegnet shallow; do
+  for c in "0 1" "2 3"; do
+    python scripts/run_subject_dependent.py --config configs/bandpass_8_30.yaml         --folds 5 --epochs 50 --lr 1e-3 --batch-size 256 --window 64 --stride 16         --classes $c --model $m --resume --tag "A2-$m-binary-${c// /-}"
+  done
+done
+```
+
+**Design notes on A2, because two of them are caveats rather than details.**
+
+* **It shares the runner, not just the protocol.** `--model` selects the architecture
+  inside `run_subject_dependent.py`, so the folds, seeds, cache, standardiser, windowing,
+  trial aggregation, resume logic and log schema are identical *by construction* rather
+  than by careful duplication. `prepare_fold(build_graph=False)` skips only the graph —
+  adjacency, coarsening, node permutation — leaving every leakage-sensitive step in the
+  same audited place (11's steps 1, 4, 5 are untouched). Channels reach the convolution in
+  montage order, with no fake-node padding.
+* **Caveat: these architectures are being run far outside their design regime.** EEGNet
+  assumes ~500 samples at 128 Hz and ShallowConvNet ~500+ at 250 Hz; our confirmatory
+  window is 64 samples at 160 Hz, i.e. **0.40 s**. The papers' absolute kernel and pool
+  sizes do not fit at all. Every temporal hyperparameter here is therefore *derived from
+  T*, recovering the published values once T is long enough (EEGNet's `kern_length` is 32
+  at T=64 and the paper's 80 at T=640). **This is a real limitation of A2 and must be
+  reported as one** — and it is independent motivation for B5, since a fair A2 arguably
+  needs a longer window than the one the GCN arms were run at.
+* **Guards rather than silent ignoring.** `--model eegnet` with `--temporal-attention`,
+  `--learnable-graph`, `--free-spatial`, `--adjacency-l1` or `--leaky` exits with an error
+  instead of logging a row that claims a configuration the run did not have. That failure
+  mode is error #12.
+* **Regularisation is matched.** EEGNet's own max-norm constraints are implemented
+  (depthwise 1.0, classifier 0.25) and applied inside `forward` so the shared `Trainer` is
+  untouched — changing it would alter the arms these are compared against. Both baselines
+  also expose `l2_penalty` with `GCNsNet`'s convention, so `--regularization` means the
+  same thing for every arm.
+
+**Neither A1 nor A2 is on the pre-registered list (10.3), and neither may be reported as
+confirmatory.**
 It tests a claim in 9.7.1 that was itself written after the confirmatory runs, so it is a
 post-hoc mechanistic test. Label it exploratory, and pre-register it separately if it is to
 carry weight.
@@ -2337,6 +2376,29 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-02
+
+- **A2 implemented** (`models/eegnet.py`: EEGNet-8,2 and ShallowConvNet; `--model
+  {gcn,eegnet,shallow}`; 21 tests, 205 passing). Smoke-run end to end on real subjects for
+  both baselines, and the GCN path re-checked afterwards since shared code was touched.
+  - **It shares the runner rather than duplicating it.** `--model` selects the architecture
+    inside `run_subject_dependent.py`, so folds, seeds, cache, standardiser, windowing,
+    trial aggregation, resume and log schema are identical *by construction*.
+    `prepare_fold` gained `build_graph: bool = True` — additive, default unchanged — and
+    `False` skips only adjacency, coarsening and the node permutation. 11's steps 1, 4 and
+    5 are untouched, which is the reason to route A2 through the same function instead of a
+    parallel one.
+  - **Caveat that belongs in the paper, not just the code.** EEGNet assumes ~500 samples at
+    128 Hz and ShallowConvNet ~500+ at 250 Hz; our confirmatory window is 64 samples at
+    160 Hz = **0.40 s**, so the published kernel and pool sizes do not fit. Every temporal
+    hyperparameter is derived from T and recovers the published value once T is long enough
+    (EEGNet `kern_length` = 32 at T=64, 80 at T=640). **A2 is being run outside these
+    architectures' design regime**, which is a genuine limitation and independent
+    motivation for B5.
+  - Graph-only flags now **error** rather than being ignored when `--model` is not `gcn`;
+    silently logging a row that claims a configuration the run did not have is error #12.
+  - EEGNet's max-norm constraints are applied inside `forward` so the shared `Trainer` is
+    untouched — modifying it would alter the arms A2 is compared against, which CLAUDE.md
+    forbids.
 
 - **Started on the roadmap rather than only writing it.** Two items delivered:
   - **A1 implemented** (`models/free_spatial.py`, `--free-spatial`, 8 tests; 184 passing).
