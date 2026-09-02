@@ -1995,6 +1995,12 @@ process that reported success.**
 | 12 | Polluted a tag with 431 rows from a verification run without `--subjects` | row count 531 vs expected 100 | rows removed; runners now take `--subjects` explicitly |
 | 13 | Concurrent writers tore two log rows | JSON parse failure, then a fold-count check | locked single-syscall append |
 | 14 | Documentation drifted for two commits | user asked whether it was being maintained | caught up; drift recorded rather than hidden |
+| 15 | Wrote a **fabricated DOI and wrong author list** into 3.5 for the curation paper | ran the Crossref check instead of re-reading the draft | corrected to Shuqfa et al., *Data in Brief* 54:110181 |
+| 16 | Claimed B4/C2 could run on "checkpoints that already exist" | checked the filesystem before recommending the work; the cleanup had removed them | 17.3 corrected, cost changed from near-zero to small |
+| 17 | `posthoc_controls.py`'s verdict rule tested **significance instead of effect size**, and would have printed "9.7.1 supported" for an arm recovering 16 % of the gap | ran the tool on real results rather than re-reading it | rule now tests fraction of gap recovered; 9.11.3 |
+| 18 | Predicted sample size (17.1) would explain the CSP gap, and said so twice | A2: graph-free CNNs on the *same* ~45 trials reach and pass CSP | 9.11.2, prediction recorded as failed |
+| 19 | 9.7.1 inferred a *mechanism* from two null results; it was ~84 % wrong about magnitude | A1 measured it directly at 16 % of the gap | 9.7.1 superseded in part, original kept verbatim |
+| 20 | `PAPER.md` 5.4 mixed a **20-subject** per-problem breakdown with the **103-subject** mean in one table | its own two rows did not average to its own mean (0.6217 vs 0.6239) | recomputed on 103 subjects: −0.0802 [−0.0985, −0.0621] |
 
 **The recurring lesson.** A process exiting with code 0 and printing a plausible mean is
 not evidence it did what it claimed. Job Q reported COMPLETE having silently lost a fold;
@@ -2504,6 +2510,33 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-02
+
+- **`PAPER.md` revised for the A1/A2 results** (5,244 -> ~6,900 words) and the PDF and
+  artifact rebuilt. Targeted revision, not a rewrite: the central finding, the leakage
+  audit, the confound decomposition and the pre-registered results are unchanged.
+  - Abstract, contributions (new #7), conclusion and the discussion's inductive-bias
+    paragraph all rewritten. The framing "CSP outperforms every configuration we construct"
+    is now scoped to "every *graph-based* configuration" in all four places it appeared.
+  - New **5.9**, with `figures/posthoc_controls.png` as Figure 3. It states both competing
+    explanations, tests both, and reports that one is refuted while the other is
+    quantitatively wrong — rather than presenting the outcome as a clean confirmation.
+  - The discussion now says explicitly that our own inference from null results was
+    "directionally right and quantitatively wrong by a factor of six", and that the
+    attribution we tested also motivates the adaptive-graph literature [4, 5].
+  - Limitations gained four entries: 5.9 is exploratory; the CNNs run outside their design
+    regime at a 0.40 s window (which makes their advantage conservative but leaves a
+    matched long-window comparison unrun); 5.9 does not identify the remaining 84 %; and
+    the published benchmark implies a tuned classical baseline would be stronger than ours.
+- **Error 20, found while revising: `PAPER.md` 5.4 mixed cohorts in one table.** Its
+  per-problem rows were 20-subject development values while its mean was the 103-subject
+  figure — the rows did not average to the mean (0.6217 vs 0.6239). Caught by noticing the
+  table was internally inconsistent, not by re-deriving it. Recomputed on 103 subjects:
+  −0.0794, −0.0809, mean **−0.0802** [−0.0985, −0.0621].
+- Errors 15-19 added to 14, which had not been updated since the A1/A2 work began: the
+  fabricated DOI, the checkpoint claim, the significance-versus-effect-size bug, the failed
+  sample-size prediction, and 9.7.1's inference-from-nulls. **Two of the twenty (17 and 20)
+  would have changed a reported number or conclusion had they not been caught**, which is
+  now stated in the paper's data-availability section.
 
 - **A1 and A2 RUN on all 103 subjects; results and full analysis in 9.11.** 3,090 folds.
   They resolve 17.1 and they change what the project claims.

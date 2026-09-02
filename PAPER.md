@@ -19,15 +19,28 @@ model under a trial-level split reduces performance to chance: within-family acc
 the residual above-chance four-class accuracy is attributable to a structural confound in
 the dataset — class pairs occur in disjoint recording runs — rather than to motor imagery.
 A Common Spatial Patterns baseline with shrinkage LDA, run on identical subjects and folds,
-outperforms every configuration we construct. Of three repairs, pre-registered with fixed
-directions and Holm-corrected, only temporal attention succeeds (+0.0600, p = 0.0005);
-explicit band power and a learnable adjacency do not. A post-hoc control establishes that
-attention operates by weighting each trial differently rather than by averaging. Under
-leave-one-subject-out evaluation the repaired model reaches 0.6040 [0.5823, 0.6268] with
-88 of 103 subjects above chance — marginally *higher* than subject-dependent performance,
-which we attribute to a hundredfold increase in training data per fold. We conclude that
-the reported figure measures an evaluation protocol rather than a decoding capability, and
-that on this task the graph-convolutional prior costs more than it contributes.
+outperforms every graph-based configuration we construct. Of three repairs, pre-registered
+with fixed directions and Holm-corrected, only temporal attention succeeds (+0.0600,
+p = 0.0005); explicit band power and a learnable adjacency do not. A post-hoc control
+establishes that attention operates by weighting each trial differently rather than by
+averaging. Under leave-one-subject-out evaluation the repaired model reaches 0.6040
+[0.5823, 0.6268] with 88 of 103 subjects above chance — marginally *higher* than
+subject-dependent performance, which we attribute to a hundredfold increase in training
+data per fold.
+
+Two further controls locate the limitation. Replacing the Chebyshev operators with
+unconstrained dense operators, holding every other factor fixed, recovers only 16 % of the
+gap to the classical baseline (+0.0128, p = 0.0046), so the graph-locality constraint is
+real but minor. Two graph-free convolutional networks trained on the identical folds and
+the same ~45 trials per problem reach and exceed the classical baseline — EEGNet 0.6296
+(indistinguishable from CSP, p = 0.49) and ShallowConvNet 0.6725 (+0.0485 over CSP,
+p = 0.0006), the latter placing 94 of 103 subjects above chance and exceeding the best
+single configuration reported from a 216,714-pipeline search on this dataset. Deep learning
+is therefore not limited by sample size here; the graph-convolutional formulation is
+limited by something other than the constraint usually invoked for it. We conclude that the
+reported figure measures an evaluation protocol rather than a decoding capability, and that
+the graph prior is the binding limitation on this task — but that identifying *which* part
+of the formulation binds requires controls, not inference from null results.
 
 **Keywords:** EEG, motor imagery, brain–computer interface, graph convolutional networks,
 data leakage, reproducibility, common spatial patterns
@@ -75,7 +88,7 @@ the protocol does not measure what it is taken to measure.
    accuracy of the published formulation is attributable to this confound.
 
 4. **A classical baseline under identical conditions.** CSP+LDA outperforms every
-   configuration we build, including the repaired model (§5.4, §5.6).
+   *graph-based* configuration we build, including the repaired model (§5.4, §5.6).
 
 5. **A pre-registered evaluation of three architectural repairs**, of which one succeeds,
    with a post-hoc control identifying the mechanism (§5.6, §5.7).
@@ -83,7 +96,15 @@ the protocol does not measure what it is taken to measure.
 6. **The first correct subject-independent evaluation** of this architecture, which is
    *not* worse than subject-dependent evaluation (§5.8).
 
-All code, the full experiment log covering 9,300 folds, and a record of the fourteen errors
+7. **Two controls that localise the limitation** (§5.9). Freeing the spatial operator from
+   the graph, with every other factor held fixed, recovers only 16 % of the gap to the
+   classical baseline. Two graph-free convolutional networks on identical folds and the
+   same trial counts reach and exceed it, with ShallowConvNet at 0.6725 exceeding the best
+   configuration reported from a large published pipeline search on this dataset. Together
+   these refute a sample-size explanation and show that the constraint conventionally
+   invoked to explain graph-network underperformance accounts for a minority of the gap.
+
+All code, the full experiment log covering 12,590 folds, and a record of the twenty errors
 made and corrected during this work are released with the paper.
 
 ---
@@ -399,13 +420,14 @@ folds, cache and metric, with CSP fit on training trials only:
 
 | Binary problem | GCNs-Net | CSP+LDA | Paired difference |
 |---|---|---|---|
-| Left vs right fist | 0.5178 | 0.5711 | −0.0533 [−0.1000, −0.0044] |
-| Both fists vs feet | 0.5767 | 0.6722 | −0.0956 [−0.1511, −0.0367] |
-| Mean | 0.5472 | **0.6239** | −0.0744 [−0.1111, −0.0367] |
+| Left vs right fist | 0.5148 | 0.5942 | −0.0794 [−0.1068, −0.0535] |
+| Both fists vs feet | 0.5728 | 0.6537 | −0.0809 [−0.1031, −0.0591] |
+| Mean | 0.5438 | **0.6239** | −0.0802 [−0.0985, −0.0621] |
 
-Both methods find fists-versus-feet easier than left-versus-right, consistent with the
-separation of hand and foot representations on the motor homunculus. CSP was not tuned,
-which makes this comparison conservative.
+All figures are over the full 103-subject cohort, paired on subject. Both methods find
+fists-versus-feet easier than left-versus-right, consistent with the separation of hand and
+foot representations on the motor homunculus. CSP was not tuned, which makes this
+comparison conservative.
 
 ### 5.5 Representation ablation (exploratory, 20 subjects)
 
@@ -501,7 +523,80 @@ be the first correct subject-independent evaluation of GCNs-Net.
 
 ---
 
-## 6. Discussion
+### 5.9 Locating the limitation: two controls (exploratory)
+
+Sections 5.5 and 5.6 establish that neither explicit band power nor a learnable adjacency
+closes the gap to CSP, and it is tempting to read those two null results as identifying the
+graph-convolutional inductive bias as the cause. That inference is not sound on its own,
+and two competing explanations remain. The first is the one just named: an order-2
+Chebyshev convolution mixes only within one-hop neighbourhoods with weights shared across
+nodes, and cannot express the unconstrained spatial projection CSP fits. The second is
+sample size: a large benchmark study reports that deep pipelines typically require more
+than 150 trials per class, and reach satisfactory performance on an easy binary problem
+with as few as 50, whereas Riemannian and raw-signal pipelines succeed below 50 [16]. Our
+binary problems supply approximately 45 trials, and a subject-dependent fold trains on
+approximately 36.
+
+The two explanations make different predictions and we tested both, on identical folds,
+seeds, cache, standardiser, windowing and metric. Both arms are **exploratory**: neither is
+on the pre-registered list, and the first tests a claim formed after the confirmatory runs.
+Holm correction is applied across the six comparisons regardless.
+
+**Control A — free the spatial operator.** We replaced each Chebyshev basis `T_k(L̃)` with a
+free dense operator of the same shape, initialised at that basis so the model is
+bit-identical to the fixed-graph baseline at step 0. This lifts graph locality, symmetry
+and non-negativity simultaneously, while changing nothing else, at a cost of 10,920
+parameters (3 %).
+
+**Control B — remove the graph entirely.** We ran EEGNet-8,2 [14] and ShallowConvNet [15]
+through the same fold-preparation path with graph construction disabled, so channels reach
+the network in montage order without coarsening or permutation. Both spatially combine all
+64 channels without any graph.
+
+| Arm | Within-family | vs fixed graph | % of gap to CSP recovered |
+|---|---|---|---|
+| Fixed PCC graph | 0.5438 | — | — |
+| Learnable adjacency (§5.6) | 0.5469 | +0.0031, p = 0.39 | 3.9 % |
+| **A — free spatial operator** | 0.5566 | **+0.0128** [+0.0042, +0.0221], p = 0.0046 | **16.0 %** |
+| + temporal attention (§5.6) | 0.6038 | +0.0600 | 74.8 % |
+| CSP+LDA | 0.6239 | +0.0802 | 100 % |
+| **B — EEGNet** | 0.6296 | +0.0858 [+0.0697, +0.1024] | **107.0 %** |
+| **B — ShallowConvNet** | **0.6725** | +0.1287 [+0.1118, +0.1454] | **160.6 %** |
+
+Against the classical baseline, paired on subject and two-sided:
+
+| Comparison | Difference | p (Holm) | Subjects won |
+|---|---|---|---|
+| Free spatial operator vs CSP | −0.0673 [−0.0843, −0.0506] | 0.0006 | 24/103 |
+| **EEGNet vs CSP** | +0.0056 [−0.0107, +0.0220] | **0.49, not distinguishable** | 56/103 |
+| **ShallowConvNet vs CSP** | **+0.0485** [+0.0318, +0.0650] | 0.0006 | 67/103 |
+
+Per problem, ShallowConvNet reaches 0.6608 on left-versus-right fist and 0.6841 on both
+fists versus both feet, and places 94 of 103 subjects above chance against CSP's 81. For
+external calibration, a benchmark evaluating 216,714 pipeline configurations on this
+dataset under a matched left-versus-right protocol reports 0.650 for its best single
+configuration and 0.605 and 0.604 for the tangent-space and CSP families respectively [17];
+our untuned CSP reaches 0.5942 and ShallowConvNet exceeds the reported best.
+
+![Accuracy by architecture, with per-subject spread](figures/posthoc_controls.png)
+
+*Figure 3. All seven arms over 103 subjects on identical folds; each dot is a subject. Every
+arm left of CSP+LDA is a graph model and every arm right of it is not. The dashed line is
+the best single configuration reported from a 216,714-pipeline search on this dataset [17].
+The graph arms plateau below the classical baseline; both graph-free networks pass it.*
+
+**Sample size does not explain the gap.** Two graph-free networks trained on precisely the
+trials, folds and cache available to the graph arms reach and exceed the classical
+baseline. Whatever limits the graph formulation, it is not the quantity of data.
+
+**The graph-locality constraint is real but minor.** Freeing the spatial operator produces
+a reliable improvement — four times the learnable adjacency's effect, confirming the extra
+freedom buys something a learned graph cannot — yet recovers only a sixth of the gap.
+Approximately 84 % lies elsewhere in the formulation. The most salient remaining
+difference is temporal: both graph-free networks convolve over time before combining
+channels, whereas the architecture under study performs a spatial operation first and
+admits temporal structure only through the attention module of §5.6 — which is, by a wide
+margin, the largest single gain any graph configuration achieved.
 
 **The reported figure measures a protocol.** The gap between 0.8975 under the published
 protocol and chance under a correct one is not a difference in implementation quality; the
@@ -516,19 +611,38 @@ split this is invisible, because neighbouring timepoints of the same trial appea
 sides and the classifier can memorise trial-specific voltage. Under an honest split it is
 fatal. Our repairs work by restoring temporal extent, not by improving the graph.
 
-**The graph prior appears to be a handicap here.** Two independent attempts to close the
-gap to CSP failed: supplying explicit band power, and letting the network reshape the
-electrode graph discriminatively. What distinguishes CSP is that it fits an *unconstrained*
-spatial projection over all 64 channels using the labels. An order-2 Chebyshev convolution
-mixes only within one-hop neighbourhoods with weights shared across nodes; learning the
-adjacency changes which nodes are neighbours without lifting either constraint. For a
-signal that is a specific weighted contrast across the whole scalp, that restriction costs
-more than it contributes.
+**The graph formulation is the limitation, and it is not sample size.** Every
+graph-based configuration we built plateaus between 0.5438 and 0.6038, while two graph-free
+convolutional networks on identical folds and identical trial counts reach 0.6296 and
+0.6725 (§5.9). ShallowConvNet beats the fixed-graph model on 95 of 103 subjects. Since the
+training data is the same by construction, the widely available explanation that deep
+models simply need more trials than this dataset supplies [16] does not apply to this
+comparison.
 
-We state this narrowly. It is not a claim that graph networks fail on EEG. It is that on
-this dataset, under a correct protocol, with this formulation, the graph constraint is
-worse than no prior at all — and that the recent turn toward learnable adjacencies [4, 5]
-may not address the binding constraint, at least as measured here.
+**But the constraint usually invoked accounts for a minority of the gap.** It is natural to
+attribute graph-network underperformance to locality and node-shared weights: an order-2
+Chebyshev convolution mixes only within one-hop neighbourhoods, whereas CSP fits an
+unconstrained spatial projection over all 64 channels using the labels, and learning the
+adjacency changes which nodes are neighbours without lifting either restriction. We tested
+that attribution directly by freeing the operators entirely, and it recovers 16 % of the
+gap. The claim is therefore correct in direction and substantially wrong in magnitude.
+
+This matters beyond the present architecture, because the same attribution motivates the
+recent turn toward adaptive and learnable adjacencies [4, 5]. Our measurements suggest that
+line of work addresses a genuine but secondary constraint. The larger difference between
+the graph models and the networks that outperform them is *temporal*: both graph-free
+networks convolve over time before combining channels, while the architecture studied here
+operates spatially first and admits temporal structure only through the attention module —
+which was in turn the only repair of three that succeeded, and by a wide margin the largest
+single gain any graph configuration achieved. We offer this as the most economical
+hypothesis consistent with our measurements, not as a demonstration; it is directly
+testable and we have not tested it.
+
+We state the scope narrowly. This is not a claim that graph networks fail on EEG generally.
+It is that on this dataset, under a correct protocol, with this formulation, the graph
+construction is worse than no spatial prior at all — and that inferring *why* from null
+results, as we initially did, produced an answer that was directionally right and
+quantitatively wrong by a factor of six.
 
 **A dataset-level caution.** The run-family confound in EEGMMIDB (§3.3) is structural and
 affects any four-class result on this dataset, not only ours. We recommend that four-class
@@ -558,8 +672,24 @@ by training-set size rather than by inter-subject variability.
   evidence about mechanism, not a pre-registered test.
 - **Single seed for the confirmatory arms**, though a three-seed sweep elsewhere showed a
   between-seed spread of 0.0008.
-- **CSP was not tuned**, which makes H4's negative result conservative.
+- **CSP was not tuned**, which makes H4's negative result conservative. The published
+  benchmark figures in §5.9 suggest a tuned tangent-space or CSP pipeline would reach
+  approximately 0.605 where ours reaches 0.5942, so the true classical baseline is
+  modestly stronger than the one we report.
 - **Four-class LOSO was not measured**; the reported LOSO figure is binary within-family.
+- **§5.9 is exploratory.** Neither control is pre-registered, and the first tests a
+  hypothesis formed after the confirmatory runs. They are reported as post-hoc
+  measurements, and the pre-registered conclusions of §5.6 are unaffected by them.
+- **The graph-free networks are run outside their design regime.** EEGNet and
+  ShallowConvNet were specified for windows of roughly 2–4 seconds; our confirmatory
+  window is 0.40 s, so their published kernel and pooling sizes do not fit and every
+  temporal hyperparameter is derived from the window length, recovering the published
+  values only at longer windows. Their advantage in §5.9 is therefore obtained under
+  conditions unfavourable to them, which makes it conservative — but a matched comparison
+  at a longer window has not been run, and window length has never been swept for any arm.
+- **§5.9 does not identify what the remaining 84 % of the gap is.** It bounds the
+  contribution of graph locality and excludes sample size. The temporal-ordering
+  hypothesis offered in §6 is untested.
 
 ---
 
@@ -569,19 +699,30 @@ We reimplemented GCNs-Net, reproduced its published protocol at 0.8975 across 10
 and showed that the identical model under a trial-level split performs at chance. The
 above-chance four-class accuracy that survives is attributable to a structural confound in
 the dataset rather than to motor imagery. A CSP+LDA baseline under matched conditions
-outperforms every configuration we constructed, including a repaired model incorporating
-temporal attention that reaches 0.6038 within-family and 0.6040 under leave-one-subject-out
-evaluation.
+outperforms every graph-based configuration we constructed, including a repaired model
+incorporating temporal attention that reaches 0.6038 within-family and 0.6040 under
+leave-one-subject-out evaluation.
 
 Of three architectural repairs evaluated under pre-registration, only temporal attention
 succeeded, and a control establishes that it operates by weighting each trial adaptively
 rather than by averaging. Neither explicit band power nor a learnable adjacency closed the
-gap to the classical baseline, which locates the limitation in the graph-convolutional
-formulation rather than in the choice of graph.
+gap to the classical baseline.
+
+Two further controls locate the limitation. Graph-free convolutional networks trained on
+identical folds and identical trial counts reach and exceed the classical baseline —
+ShallowConvNet attains 0.6725, places 94 of 103 subjects above chance, and exceeds the best
+single configuration reported from a 216,714-pipeline search on this dataset — so the
+limitation is not the quantity of data available. Yet freeing the spatial operator from the
+graph, with every other factor held fixed, recovers only 16 % of the gap, so the locality
+and weight-sharing constraint conventionally invoked to explain this class of result
+accounts for a minority of it.
 
 We conclude that the reported 93 % measures an evaluation protocol rather than a decoding
-capability, and we recommend that four-class results on this dataset be accompanied by the
-within-family decomposition.
+capability; that the graph-convolutional formulation, and not the dataset or the sample
+size, is what limits performance on this task; and that identifying which part of a
+formulation binds requires controls rather than inference from null results — our own
+initial inference was directionally correct and wrong by a factor of six. We recommend that
+four-class results on this dataset be accompanied by the within-family decomposition.
 
 ---
 
@@ -642,15 +783,33 @@ in Brain-Computer Interface." *IEEE International Joint Conference on Neural Net
 desynchronization: basic principles." *Clinical Neurophysiology* 110(11):1842–1857, 1999.
 DOI: 10.1016/S1388-2457(99)00141-8
 
+[14] V. J. Lawhern, A. J. Solon, N. R. Waytowich, S. M. Gordon, C. P. Hung, B. J. Lance.
+"EEGNet: a compact convolutional neural network for EEG-based brain–computer interfaces."
+*Journal of Neural Engineering* 15(5):056013, 2018. DOI: 10.1088/1741-2552/aace8c
+
+[15] R. T. Schirrmeister, J. T. Springenberg, L. D. J. Fiederer, M. Glasstetter,
+K. Eggensperger, M. Tangermann, F. Hutter, W. Burgard, T. Ball. "Deep learning with
+convolutional neural networks for EEG decoding and visualization." *Human Brain Mapping*
+38(11):5391–5420, 2017. DOI: 10.1002/hbm.23730
+
+[16] S. Chevallier, I. Carrara, B. Aristimunha, P. Guetschel, S. Sedlar, B. Lopes,
+S. Velut, S. Khazem, T. Moreau. "The largest EEG-based BCI reproducibility study for open
+science: the MOABB benchmark." arXiv:2404.15319, 2024
+
+[17] X. Vasques, P. Barbaste, O. Oullier. "Subject-Level Heterogeneity in EEG Motor Imagery
+Decoding: A Large-Scale Benchmark and Portfolio-Based Reduction of the Search Space."
+arXiv:2607.22778, 2026
+
 ---
 
 ## Data and code availability
 
-All code, configuration files and the complete experiment log — one row per fold for 9,300
+All code, configuration files and the complete experiment log — one row per fold for 12,590
 folds, each recording the git commit, random seed and full configuration — are released
 with this paper. `project_documentation.md` contains the full methods specification, the
-pre-registration, per-experiment results, and a record of the fourteen errors made and
-corrected during the work. Reproduction commands are given in §15 of that document.
+pre-registration, per-experiment results, and a record of the twenty errors made and
+corrected during the work, including two that would have altered a reported conclusion had
+they not been caught. Reproduction commands are given in §15 of that document.
 
 The dataset is publicly available from PhysioNet [3, 7] and is not redistributed here; the
 released code verifies it against the published SHA-256 manifest before use.
