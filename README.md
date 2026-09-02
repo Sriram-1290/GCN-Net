@@ -25,10 +25,12 @@ reproduces that number. Evaluating the same model correctly does not.
 | Correct trial-level split, 4-class | 0.3097 |
 | …of which is actual motor-imagery decoding | **none** — within-family 0.5090 [0.4984, 0.5199], chance 0.5 |
 | Best representation (within-family) | 0.5470 [0.5291, 0.5667] |
-| **CSP+LDA on identical splits** | **0.6217** |
+| **CSP+LDA on identical splits** | **0.6239** [0.5977, 0.6521] |
 | **Temporal attention (confirmatory, H2)** | **0.6038** [0.5805, 0.6278] — +0.0600 over baseline, p<0.001 |
 | Learnable adjacency (confirmatory, H1) | no effect: +0.0031, p=0.39 |
 | **LOSO, subject-independent (H5)** | **0.6040** [0.5823, 0.6268], 88/103 above chance |
+| **EEGNet, no graph (post-hoc)** | **0.6296** — indistinguishable from CSP, p=0.49 |
+| **ShallowConvNet, no graph (post-hoc)** | **0.6725** — beats CSP by +0.0485, 94/103 above chance |
 
 All rows except the last two are 103 subjects x 3 seeds. The paired gap between the
 published and correct protocols is **+0.6096, 95 % CI [+0.5767, +0.6411]**.
@@ -45,18 +47,23 @@ Three findings, in order of how much they matter:
    and classes 2/3 only in runs 6/10/14, so run-level drift separates the pairs for free.
    Under a correct split the model identifies the *run family* 12 points above chance and
    discriminates *within* a family at chance.
-3. **A 25-year-old linear method beats it.** CSP+LDA on the same subjects, folds and
-   metrics wins on both binary problems and on 16 of 20 subjects. Neither giving the
-   network explicit band power nor letting it learn the electrode graph closes that gap,
-   which points at the graph-convolutional inductive bias itself rather than at any
-   particular graph.
+3. **A 25-year-old linear method beats every graph model we built.** CSP+LDA on the same
+   subjects, folds and metrics wins on both binary problems. Neither explicit band power
+   nor a learnable electrode graph closes that gap.
+4. **But deep learning is not the problem — the *graph* is.** Two graph-free CNNs on
+   identical folds and the same ~45 trials per problem reach and pass CSP: EEGNet 0.6296
+   and ShallowConvNet 0.6725, the latter putting 94/103 subjects above chance and
+   exceeding the best pipeline a 216,714-configuration published search reports for this
+   dataset. Freeing the spatial operator *inside* the graph model recovers only 16 % of the
+   gap, so the locality constraint usually blamed for this is real but minor. Both controls
+   are post-hoc; see §9.11.
 
 ## Reproducing it
 
 ```bash
 pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cu132
 pip install -r requirements.txt
-pytest -q                                    # 166 tests
+pytest -q                                    # 205 tests
 ```
 
 The raw dataset (3.4 GB, 109 subjects) is not in the repository. Download the PhysioNet

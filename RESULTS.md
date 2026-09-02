@@ -2,18 +2,20 @@
 
 **A published graph convolutional network reports 93 % on four-class motor imagery.
 Reimplemented faithfully, its protocol reproduces. Evaluated correctly, the same model
-decodes nothing at all — and a linear method from 2000 beats every repair we tried.**
+decodes nothing at all — and a linear method from 2000 beats every *graph* repair we tried.
+Two graph-free networks on the identical folds beat them both.**
 
-103 subjects · PhysioNet EEG Motor Movement/Imagery · 9,300 logged folds ·
-five pre-registered hypotheses · 2 September 2026
+103 subjects · PhysioNet EEG Motor Movement/Imagery · 12,590 logged folds ·
+five pre-registered hypotheses · two post-hoc controls · 2 September 2026
 
 | | value | |
 |---|---|---|
 | Published protocol | **0.8975** | reproduced; paper reports 0.8835 |
 | Correct protocol | **0.5090** | within-family — chance is 0.500 |
-| Best model | **0.6038** | with temporal attention |
-| CSP+LDA | **0.6239** | still ahead, p = 0.0012 |
+| Best graph model | **0.6038** | with temporal attention |
+| CSP+LDA | **0.6239** | ahead of every graph arm, p = 0.0012 |
 | Subject-independent | **0.6040** | 88 of 103 above chance |
+| **ShallowConvNet (no graph)** | **0.6725** | **beats CSP by 0.0485; 94 of 103 above chance** |
 
 ---
 
@@ -28,11 +30,18 @@ reproduced its published protocol at **0.8975**. We then evaluated the identical
 under a correct trial-level split. Performance fell to chance. The residual above-chance
 signal in the four-class number turned out to be an artefact of how the dataset is
 organised, not motor imagery. A classical CSP+LDA baseline, run on the same subjects and
-folds, beat every configuration we built.
+folds, beat every graph-based configuration we built.
 
 Of three repairs attempted, one worked. Explicit band power did not help. A learnable
 electrode graph did not help. Temporal attention did, by a clear margin — and a control
 shows it works by weighting each trial differently, not by averaging.
+
+Two further controls (R8) then located the limitation. Freeing the spatial operator from
+the graph entirely recovers only a sixth of the gap to CSP, so the constraint usually
+blamed for this kind of result is real but minor. Two graph-free convolutional networks,
+trained on exactly the same folds and the same ~45 trials per problem, reach and pass CSP —
+which rules out sample size as the explanation and makes the graph formulation itself the
+binding limitation.
 
 ---
 
@@ -111,7 +120,7 @@ reaches 0.35 against 0.20, which is real within-family signal.*
 > place twice more: two later configurations raised four-class accuracy while the rise was
 > almost entirely better family identification.
 
-## R4 · A linear method from 2000 wins
+## R4 · A linear method from 2000 beats every graph model
 
 Common Spatial Patterns with shrinkage LDA, on the same subjects, folds, band-passed cache
 and metric. CSP is fit on training trials only, since it is a supervised spatial filter and
@@ -119,15 +128,14 @@ fitting it on all data would leak exactly as the reference's adjacency does.
 
 | Binary problem | GCNs-Net | CSP+LDA | Paired difference |
 |---|---|---|---|
-| Left vs right fist | 0.5178 | 0.5711 | −0.0533 [−0.1000, −0.0044] |
-| Both fists vs both feet | 0.5767 | 0.6722 | −0.0956 [−0.1511, −0.0367] |
-| **Mean within-family** | **0.5472** | **0.6239** | **−0.0744 [−0.1111, −0.0367]** |
+| Left vs right fist | 0.5148 | 0.5942 | −0.0794 [−0.1068, −0.0535] |
+| Both fists vs both feet | 0.5728 | 0.6537 | −0.0809 [−0.1031, −0.0591] |
+| **Mean within-family** | **0.5438** | **0.6239** | **−0.0802 [−0.0985, −0.0621]** |
 
-CSP wins on 16 of 20 subjects in the development comparison and remains ahead in the
-confirmatory test. Both methods find fists-versus-feet easier than left-versus-right, which
-is what the motor homunculus predicts — hand and foot cortex are well separated, while
-left-versus-right hand needs finer lateralisation. That ordering is mild evidence both
-pipelines track real signal.
+All figures are over the full 103 subjects, paired on subject. Both methods find
+fists-versus-feet easier than left-versus-right, which is what the motor homunculus
+predicts — hand and foot cortex are well separated, while left-versus-right hand needs
+finer lateralisation. That ordering is mild evidence both pipelines track real signal.
 
 CSP was not tuned: four components, Ledoit–Wolf regularisation, no search. A tuned CSP
 would likely be stronger, which makes this comparison conservative rather than flattering
@@ -243,6 +251,58 @@ of it.
 
 ---
 
+## R8 · Where the limitation actually is (post-hoc)
+
+R5 found that neither band power nor a learnable graph closes the gap, and it is tempting
+to read those two failures as proving the graph convolution is the problem. That inference
+does not follow on its own, and two explanations survived it:
+
+- **the graph prior** — an order-2 Chebyshev filter mixes only within one-hop
+  neighbourhoods with weights shared across nodes, and cannot express the unconstrained
+  spatial projection CSP fits;
+- **sample size** — a large benchmark reports deep pipelines typically need more than 150
+  trials per class and reach usable performance on an easy binary problem at about 50,
+  while classical methods succeed below 50. We have roughly 45.
+
+Both were tested on identical folds, seeds, cache and metric. **Neither is pre-registered;
+both are post-hoc.**
+
+| Arm | Within-family | vs fixed graph | Share of the gap to CSP |
+|---|---|---|---|
+| Fixed PCC graph | 0.5438 | — | — |
+| Learnable adjacency | 0.5469 | +0.0031, p = 0.39 | 3.9 % |
+| **Free spatial operator** | 0.5566 | **+0.0128**, p = 0.0046 | **16.0 %** |
+| + temporal attention | 0.6038 | +0.0600 | 74.8 % |
+| CSP+LDA | 0.6239 | +0.0802 | 100 % |
+| **EEGNet** (no graph) | 0.6296 | +0.0858 | **107 %** |
+| **ShallowConvNet** (no graph) | **0.6725** | +0.1287 | **161 %** |
+
+![Accuracy by architecture with per-subject spread](figures/posthoc_controls.png)
+
+*Every arm left of CSP is a graph model; every arm right of it is not. Each dot is a
+subject. The dashed line is the best single configuration from a 216,714-pipeline search on
+this dataset.*
+
+**Sample size is not the explanation.** Two graph-free networks on exactly the same trials
+and folds reach and pass CSP. EEGNet is indistinguishable from it (+0.0056, p = 0.49);
+ShallowConvNet beats it by +0.0485 [+0.0318, +0.0650], winning on 67 of 103 subjects and
+putting 94 above chance against CSP's 81. On left-versus-right it reaches 0.6608, above the
+0.650 that a 216,714-configuration search reports as its best single pipeline here.
+
+**But the constraint we blamed accounts for a sixth of the gap.** Freeing the spatial
+operator — lifting locality, symmetry and non-negativity at once, with everything else held
+fixed and the model bit-identical at initialisation — gains a reliable but small +0.0128.
+Four times the learnable adjacency's effect, so the extra freedom does buy something a
+learned graph cannot. Nowhere near enough.
+
+So the direction of the earlier reasoning was right and its magnitude was wrong by a factor
+of six. The largest remaining difference is temporal: both graph-free networks convolve
+over time *before* combining channels, while the architecture studied here works spatially
+first and gets temporal structure only from attention — which was, tellingly, the only
+repair of three that worked. That is a hypothesis we have not tested.
+
+---
+
 ## A result we did not expect
 
 Graclus coarsening groups electrodes by correlation alone. No electrode position enters the
@@ -278,8 +338,18 @@ this task needs.
   seeing H2. It is strong evidence about mechanism; it is not a pre-registered test.
 - **Single seed for the confirmatory arms**, though a three-seed sweep elsewhere showed a
   spread of 0.0008.
-- **CSP was left untuned**, which makes H4's negative result conservative.
+- **CSP was left untuned**, which makes H4's negative result conservative. Published
+  benchmarks put a tuned classical pipeline near 0.605 on left-versus-right where ours
+  reaches 0.5942, so the real classical baseline is modestly stronger than the one we show.
 - **4-class LOSO was never measured.** The 0.6040 figure is binary within-family.
+- **R8 is post-hoc.** Neither control is pre-registered, and the first tests a claim we
+  formed after the confirmatory runs. R1–R7 are unaffected by it.
+- **The graph-free networks ran outside their design regime.** EEGNet and ShallowConvNet
+  were built for 2–4 second windows; ours is 0.40 s, so their temporal hyperparameters had
+  to be scaled down. That makes their advantage conservative — but a matched comparison at
+  a longer window has not been run, and window length has never been swept for any arm.
+- **R8 does not say what the other 84 % is.** It bounds the graph-locality contribution and
+  rules out sample size. The temporal-ordering explanation is untested.
 
 ## Conclusion
 
@@ -293,11 +363,21 @@ representation — band-passing to mu and beta, widening the sample to 0.4 s, an
 time by attention — produces a model that genuinely decodes, at 0.6038 within-family and
 0.6040 subject-independent.
 
-That model is still beaten by CSP+LDA. Neither explicit band power nor a learnable graph
-closed the gap, which points at the graph-convolutional prior itself rather than at any
-particular graph. The honest summary is that this architecture, correctly evaluated on this
-dataset, is outperformed by a linear method a quarter of a century older, and that the
-reported 93 % measures a protocol rather than a capability.
+That model is still beaten by CSP+LDA, and so is every other graph configuration we built.
+Two controls then established what the limitation is and is not. It is not the amount of
+data: graph-free convolutional networks trained on identical folds and identical trial
+counts reach and pass the classical baseline, with ShallowConvNet at 0.6725 exceeding the
+best pipeline a 216,714-configuration search reports for this dataset. Nor is it mainly the
+locality constraint we first blamed: lifting that constraint recovers a sixth of the gap.
+
+The honest summary is threefold. This architecture, correctly evaluated on this dataset, is
+outperformed by a linear method a quarter of a century older. Deep learning is not the
+problem — the *graph* formulation is, and something in it other than the constraint
+conventionally invoked. And the reported 93 % measures a protocol rather than a capability.
+
+One methodological point deserves stating on its own, because we learned it the hard way:
+two null results told us where the limitation was and misled us by a factor of six about
+what it was. Inference from absences is not measurement.
 
 ---
 

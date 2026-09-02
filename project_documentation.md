@@ -1908,15 +1908,59 @@ identification, not decoding (9.6).
 | H4 | contribution vs CSP+LDA | −0.0263 | [−0.0413, −0.0112] | 0.0012 | **SUPPORTED (negative)** |
 | H5 | LOSO > chance | +0.1040 | [+0.0826, +0.1269] | 0.0005 | **SUPPORTED** |
 
-### 12.4 Classical baseline, per problem
+### 12.4 Classical baseline, per problem — 103 subjects
 
-| | CSP+LDA | best network |
-|---|---|---|
-| left vs right fist | 0.5711 | 0.5178 (fixed) |
-| both fists vs both feet | 0.6722 | 0.5767 (fixed) |
+*Corrected 2026-09-02. This table previously carried **20-subject development** values
+(0.5711 / 0.6722 against 0.5178 / 0.5767) with no cohort stated, and the same mixed pair
+had propagated into `PAPER.md` 5.4 and `RESULTS.md` R4 alongside a 103-subject mean —
+error 20 in 14.*
+
+| | CSP+LDA | fixed graph | paired difference |
+|---|---|---|---|
+| left vs right fist | 0.5942 | 0.5148 | −0.0794 [−0.1068, −0.0535] |
+| both fists vs both feet | 0.6537 | 0.5728 | −0.0809 [−0.1031, −0.0591] |
+| **mean within-family** | **0.6239** | **0.5438** | **−0.0802 [−0.0985, −0.0621]** |
 
 Both methods find fists-vs-feet easier than left-vs-right, which is what the homunculus
 predicts and is mild evidence both pipelines track real signal.
+
+### 12.5 A1 / A2 post-hoc controls — 103 subjects (9.11)
+
+**Exploratory. Not on the pre-registered list; A1 tests a claim written after the
+confirmatory runs.**
+
+| arm | within-family | vs fixed graph | % of gap to CSP |
+|---|---|---|---|
+| fixed PCC graph | 0.5438 | — | — |
+| learnable adjacency | 0.5469 | +0.0031, p = 0.39 | 3.9 % |
+| **A1 free spatial operator** | **0.5566** | +0.0128 [+0.0042, +0.0221], p = 0.0046 | **16.0 %** |
+| + temporal attention | 0.6038 | +0.0600 | 74.8 % |
+| CSP+LDA | 0.6239 | +0.0802 | 100 % |
+| **A2 EEGNet** | **0.6296** | +0.0858 [+0.0697, +0.1024] | **107.0 %** |
+| **A2 ShallowConvNet** | **0.6725** | +0.1287 [+0.1118, +0.1454] | **160.6 %** |
+
+vs CSP+LDA, two-sided, Holm-corrected: A1 −0.0673 [−0.0843, −0.0506] p = 0.0006 (24/103);
+EEGNet +0.0056 [−0.0107, +0.0220] **p = 0.49, not distinguishable** (56/103);
+ShallowConvNet **+0.0485** [+0.0318, +0.0650] p = 0.0006 (67/103).
+
+Per problem: ShallowConvNet 0.6608 (L/R) and 0.6841 (B/F), 94/103 above chance against
+CSP's 81. **0.6608 exceeds the 0.650 that [23] reports as the best single configuration
+from a 216,714-pipeline search on this dataset.**
+
+### 12.6 Per-subject decomposition — 103 subjects (17.6 E1)
+
+**Exploratory re-analysis of the confirmatory arms; not a pre-registered test.**
+
+| comparison | wins | Pearson *r* | mean | median |
+|---|---|---|---|---|
+| attention vs CSP | 37/103 (36 %) | +0.825 | −0.0202 | −0.011 |
+| both vs CSP (H4) | 34/103 (33 %) | +0.831 | −0.0263 | −0.033 |
+| attention vs fixed graph (H2) | **82/103 (80 %)** | +0.823 | +0.0600 | +0.056 |
+
+Between-subject SD 0.1247 against a method gap of ~0.02-0.03: subject identity carries
+23-38x the variance of the method choice. 11/103 subjects at or below chance under *both*
+methods. **H2 is a consistent per-subject effect; H4 is a thin mean over an interleaved
+distribution.** Report both means with their spreads.
 
 ---
 
@@ -1962,6 +2006,25 @@ stronger, which makes H4's negative result conservative rather than optimistic.
 
 **LOSO used one configuration.** The attention config only. Whether a learnable graph or
 band power behaves differently under LOSO is unmeasured.
+
+**A1 and A2 are post-hoc (added 2026-09-02).** Neither is on the pre-registered list (10.3),
+and A1 tests a claim (9.7.1) formed after the confirmatory runs. They are strong evidence
+about mechanism; they are not confirmatory tests, and 12.3's verdicts are unaffected by them.
+
+**The A2 baselines run outside their design regime.** EEGNet assumes ~500 samples at 128 Hz
+and ShallowConvNet ~500+ at 250 Hz; our confirmatory window is 64 samples at 160 Hz = 0.40 s,
+so their published kernel and pool sizes do not fit and every temporal hyperparameter is
+derived from T. This makes their advantage **conservative** — they beat CSP under conditions
+unfavourable to them — but a matched comparison at a longer window has not been run, and
+window length has never been swept for any arm (B5, 17.3).
+
+**9.11 does not identify the remaining 84 % of the gap.** It bounds the graph-locality
+contribution at 16 % and excludes sample size. The temporal-ordering hypothesis offered in
+9.11.2 is untested.
+
+**The classical baseline we report is weaker than the field's.** [23] puts a tuned
+tangent-space or CSP pipeline near 0.605 on left-vs-right where our untuned CSP reaches
+0.5942, so every "loses to CSP" statement here understates the true classical bar.
 
 **Trial counts are small.** ~22-23 trials per class per subject, ~45 per binary problem.
 Subject-dependent folds train on ~36 trials. 9.9 argues this is why LOSO outperforms
@@ -2044,9 +2107,25 @@ python scripts/ablation_summary.py          # 12.2
 python scripts/analyse_attention.py         # 9.10
 python scripts/make_figures.py              # montage, CAR, confusion
 
+# 12.5 post-hoc controls (A1 / A2, 9.11) -- identical folds to the confirmatory arms
+for c in "0 1" "2 3"; do
+  python scripts/run_subject_dependent.py --config configs/bandpass_8_30.yaml \
+      --folds 5 --epochs 50 --lr 1e-3 --batch-size 256 --window 64 --stride 16 \
+      --classes $c --free-spatial --resume --tag "A1-free-binary-${c// /-}"
+  for m in eegnet shallow; do
+    python scripts/run_subject_dependent.py --config configs/bandpass_8_30.yaml \
+        --folds 5 --epochs 50 --lr 1e-3 --batch-size 256 --window 64 --stride 16 \
+        --classes $c --model $m --resume --tag "A2-$m-binary-${c// /-}"
+  done
+done
+python scripts/posthoc_controls.py --figures figures   # 12.5 verdict + figure
+python scripts/subject_heterogeneity.py --figures figures   # 12.6, no compute
+
 # the typeset paper (PAPER.md -> GCNs-Net-Reassessed.pdf)
 python scripts/build_paper_pdf.py           # -> build/paper_print.html
-msedge --headless=new --disable-gpu --no-pdf-header-footer \n    --virtual-time-budget=25000 \n    --print-to-pdf=GCNs-Net-Reassessed.pdf build/paper_print.html
+msedge --headless=new --disable-gpu --no-pdf-header-footer \
+    --virtual-time-budget=25000 \
+    --print-to-pdf=GCNs-Net-Reassessed.pdf build/paper_print.html
 ```
 
 Every run appends one row per fold to `runs/experiments.jsonl` with the git commit, seed
@@ -2510,6 +2589,34 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-02
+
+- **Documentation currency pass — four documents had fallen behind the A1/A2 results.**
+  - **`RESULTS.md` was actively contradicting the paper.** Its headline read "a linear
+    method from 2000 beats every repair we tried" and R4 was titled "A linear method from
+    2000 wins". Both are now scoped to graph models, a new **R8** reports the controls with
+    the figure, and the limitations and conclusion are rewritten. It also carried the same
+    cohort-mixing error as the paper (error 20), now corrected.
+  - **`PAPER.md` had no per-subject reporting at all** — it argued for careful reporting
+    and then quoted only means, which is the precise failure 17.6 E1 exists to correct.
+    New **5.10** with `figures/subject_heterogeneity.png` as Figure 4: win rates, r = 0.825,
+    the 23-38x variance ratio, and the point that H2 (80 % of subjects) and H4 (33 %) differ
+    sharply in evidential quality once decomposed.
+  - **`README.md`** carried the 20-subject CSP value (0.6217) labelled as "identical
+    splits", "16 of 20 subjects", and a stale test count. All corrected; a fourth headline
+    finding added for the controls.
+  - **12.4 corrected and 12.5 / 12.6 added**; **13** gained four limitations (post-hoc
+    status, the CNNs' design-regime caveat, the unidentified 84 %, and that the published
+    classical bar is higher than our untuned CSP); **15** gained the A1/A2/E1 commands.
+- **Error 21, self-inflicted and caught by audit: the 5.9 edit deleted the `## 6.
+  Discussion` heading.** The discussion text survived intact but the paper ran 5 -> 7 for
+  three commits. Found by listing headings while checking whether E1 was represented, not by
+  reading the prose. Restored.
+- **A recurring mechanical failure, recorded because it caused three separate corruptions
+  today:** shell heredocs collapse backslash-newline continuations into a literal `
+`.
+  It mangled the caption regex, the `msedge` line in 15, and the new 15 recipe block. The
+  fix that works is writing the patch to a file and running it, never inlining it in a
+  heredoc.
 
 - **`PAPER.md` revised for the A1/A2 results** (5,244 -> ~6,900 words) and the PDF and
   artifact rebuilt. Targeted revision, not a rewrite: the central finding, the leakage

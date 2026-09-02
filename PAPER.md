@@ -598,6 +598,50 @@ channels, whereas the architecture under study performs a spatial operation firs
 admits temporal structure only through the attention module of §5.6 — which is, by a wide
 margin, the largest single gain any graph configuration achieved.
 
+---
+
+### 5.10 Per-subject variation dominates the method effect (exploratory)
+
+Every comparison above is a mean over 103 subjects, which presumes that the choice of
+method is the dominant source of variation. Re-analysing the same folds per subject shows
+that it is not.
+
+| Comparison | Subjects won | Pearson *r* | Mean | Median |
+|---|---|---|---|---|
+| GCN + attention vs CSP+LDA | 37/103 (36 %) | +0.825 | −0.0202 | −0.011 |
+| GCN + both vs CSP+LDA (H4) | 34/103 (33 %) | +0.831 | −0.0263 | −0.033 |
+| GCN + attention vs fixed graph (H2) | 82/103 (80 %) | +0.823 | +0.0600 | +0.056 |
+
+![Per-subject accuracy, network against classical baseline](figures/subject_heterogeneity.png)
+
+*Figure 4. Left: per-subject accuracy of the repaired model against CSP+LDA, which track the
+identity line closely. Right: the same differences sorted, showing the mean sitting inside a
+distribution running from −0.256 to +0.167.*
+
+Three observations follow. First, **the between-subject standard deviation is 0.1247
+against a method gap of roughly 0.02–0.03**, so subject identity carries on the order of
+twenty to forty times the variance that the choice of method does. Second, **per-subject
+accuracies of two structurally unrelated methods correlate at *r* ≈ 0.83**: they largely
+succeed and fail on the same people, which is the signature of a subject-level ceiling
+rather than of an algorithmic difference. Eleven of 103 subjects are at or below chance
+under *both* methods, consistent with the 15–30 % of participants generally reported not to
+produce classifiable sensorimotor rhythms.
+
+Third, and most consequential for how these results should be read, **the two headline
+findings differ sharply in evidential quality once the means are decomposed.** H2 wins on
+80 % of subjects — a consistent effect. H4's significant mean difference sits over an
+interleaved distribution in which our model wins on a third of subjects. Both statements are
+correct; reporting either mean without its spread would misrepresent it.
+
+This is consistent with published benchmarks on this dataset, which report that the single
+best pipeline is optimal for only 35 % of participants and that matching pipelines to
+individuals is worth roughly seven accuracy points [17] — an effect several times larger
+than any difference between methods reported here.
+
+---
+
+## 6. Discussion
+
 **The reported figure measures a protocol.** The gap between 0.8975 under the published
 protocol and chance under a correct one is not a difference in implementation quality; the
 same weights, data and training procedure produce both. This places GCNs-Net within the
