@@ -1608,6 +1608,63 @@ needs revision:
 
 ---
 
+### 9.12 The reordered architecture — pre-registration (written before any result)
+
+**Written 2026-09-02 at 23:15 local, commit `58415f4`, with the three arms launched and
+zero rows aggregated.** 9.7.1 is this project's cautionary tale about interpreting results
+after seeing them; this section exists so the G-arm interpretation is fixed in advance.
+
+*Epistemic state.* `GraphBandPowerNet` is implemented, tested (16 tests) and smoke-run on
+two subjects. **No aggregate over any `G-` tag has been computed.** Everything in 9.11 is
+known; nothing about these arms is.
+
+#### The arms
+
+| tag | spatial stage | graph role |
+|---|---|---|
+| `G1-gbp-graph-binary-*` | Chebyshev, order 2 | hard constraint |
+| `G2-gbp-free-binary-*` | unconstrained dense | none — the control |
+| `G3-gbp-prior-binary-*` | unconstrained + Dirichlet penalty, weight 1e-4 | soft prior |
+
+All three share the reordering (temporal filter -> spatial -> square -> mean -> log),
+depth 1, and no node pooling. **The only thing that varies across the three is the graph's
+role**, which is what makes the comparison interpretable.
+
+#### The smoothness weight is measured, not guessed
+
+At initialisation on S001 fold 0, cross-entropy is 0.786 and the graph penalty is 1470.
+Weight 1e-4 therefore contributes **18.7 %** of the loss — real regularisation without
+domination (1e-3 would be 187 %, 1e-5 only 1.9 %). Recorded because "the prior did not help"
+is uninterpretable if the weight was arbitrary. **Only one weight is being run**, which is a
+limitation: a null result for G3 will not distinguish "the prior does not help" from "this
+weight is wrong", and a sweep is the follow-up if G3 is null.
+
+#### Predictions, fixed now
+
+1. **G1 and G2 both land near ShallowConvNet (0.6725), well above `+ attention` (0.6038).**
+   This is the main prediction. If the reordering is what matters, all three G arms should
+   clear 0.65 regardless of the graph's role.
+2. **G2 >= G1 by a small margin**, mirroring A1: the graph as a hard constraint costs a
+   little. If G1 clearly beats G2, A1's finding does not transfer and 9.11.2 needs revising.
+3. **G3 - G2 is near zero.** The honest expectation is that the prior does not help.
+   A positive, replicable G3 - G2 would be the project's first evidence that the electrode
+   graph carries usable information, and would be the actual contribution.
+4. **None of them exceeds ShallowConvNet meaningfully.** 0.6725 already exceeds the best of
+   a published 216,714-configuration search (17.0), and the design detects ~0.020.
+
+**Decision rules.** Primary outcome is mean within-family accuracy over both binary
+problems, as in 10.2. Comparisons are paired on subject, two-sided, Holm-corrected across
+the family in `posthoc_controls.py`. **A difference below 0.020 is not reportable as an
+effect** whatever its p-value — that is the minimum detectable difference at 80 % power
+(17.2), and it is the trap error 17 encoded. Per-subject win rates accompany every mean.
+
+**These arms are exploratory.** They are not on the 10.3 list, and they test a claim
+(9.11.2's ordering argument) formed after the confirmatory runs. They must not be reported
+as confirmatory, and if they succeed the honest next step is a pre-registered replication,
+not promotion.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**

@@ -76,6 +76,9 @@ ARMS = {
     "A1 free spatial": ("A1-free-binary", "trial_accuracy"),
     "A2 EEGNet":     ("A2-eegnet-binary", "trial_accuracy"),
     "A2 ShallowNet": ("A2-shallow-binary", "trial_accuracy"),
+    "G1 gbp graph":  ("G1-gbp-graph-binary", "trial_accuracy"),
+    "G2 gbp free":   ("G2-gbp-free-binary", "trial_accuracy"),
+    "G3 gbp + prior": ("G3-gbp-prior-binary", "trial_accuracy"),
 }
 
 # (id, arm, reference, alternative). All two-sided: no direction was pre-declared
@@ -88,6 +91,14 @@ COMPARISONS = [
     ("EEGNet-vs-csp",   "A2 EEGNet", "CSP+LDA"),
     ("Shallow-vs-fixed", "A2 ShallowNet", "fixed graph"),
     ("Shallow-vs-csp",   "A2 ShallowNet", "CSP+LDA"),
+    # The reordered architecture (17.3 / 9.12). Each comparison answers one question:
+    # did reordering fix the graph model; does the graph constraint still cost; does
+    # the graph earn its place as a prior; and does any of it reach ShallowConvNet.
+    ("gbpGraph-vs-attention", "G1 gbp graph", "+ attention"),
+    ("gbpGraph-vs-csp",       "G1 gbp graph", "CSP+LDA"),
+    ("gbpFree-vs-gbpGraph",   "G2 gbp free", "G1 gbp graph"),
+    ("gbpPrior-vs-gbpFree",   "G3 gbp + prior", "G2 gbp free"),
+    ("gbpBest-vs-shallow",    "G3 gbp + prior", "A2 ShallowNet"),
 ]
 
 
@@ -126,13 +137,18 @@ def make_figure(arms: dict[str, dict[str, float]], out: Path) -> None:
     import matplotlib.pyplot as plt
 
     order = ["fixed graph", "A1 free spatial", "+ both", "+ attention",
-             "CSP+LDA", "A2 EEGNet", "A2 ShallowNet"]
+             "CSP+LDA", "A2 EEGNet", "A2 ShallowNet",
+             "G1 gbp graph", "G2 gbp free", "G3 gbp + prior"]
     order = [k for k in order if k in arms]
     vals = [np.array(list(arms[k].values())) for k in order]
     means = [v.mean() for v in vals]
-    graph_arm = {"fixed graph", "A1 free spatial", "+ both", "+ attention"}
-    colors = ["#8A2F2A" if k in graph_arm else "#1B6B4A" if k != "CSP+LDA" else "#4B4F5A"
-              for k in order]
+    # red: the published graph formulation. green: graph-free. blue: the reordered
+    # architecture, which is a graph model built the way CSP is.
+    old_graph = {"fixed graph", "A1 free spatial", "+ both", "+ attention"}
+    reordered = {"G1 gbp graph", "G2 gbp free", "G3 gbp + prior"}
+    colors = ["#8A2F2A" if k in old_graph else
+              "#1F4D8F" if k in reordered else
+              "#4B4F5A" if k == "CSP+LDA" else "#1B6B4A" for k in order]
 
     fig, ax = plt.subplots(figsize=(10, 5.2))
     for i, (v, c) in enumerate(zip(vals, colors)):
@@ -150,7 +166,8 @@ def make_figure(arms: dict[str, dict[str, float]], out: Path) -> None:
                        fontsize=9)
     ax.set_ylabel("within-family accuracy")
     ax.set_ylim(.30, 1.0)
-    ax.set_title("Graph arms (red) plateau; graph-free CNNs (green) pass CSP\n"
+    ax.set_title("Red: the published graph formulation.  Green: graph-free.  "
+                 "Blue: reordered, graph-informed\n"
                  "103 subjects, identical folds, dots are subjects", fontsize=11)
     ax.legend(fontsize=8, loc="upper left")
     fig.tight_layout()
