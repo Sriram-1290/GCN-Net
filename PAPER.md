@@ -37,10 +37,14 @@ the same ~45 trials per problem reach and exceed the classical baseline — EEGN
 p = 0.0006), the latter placing 94 of 103 subjects above chance and exceeding the best
 single configuration reported from a 216,714-pipeline search on this dataset. Deep learning
 is therefore not limited by sample size here; the graph-convolutional formulation is
-limited by something other than the constraint usually invoked for it. We conclude that the
-reported figure measures an evaluation protocol rather than a decoding capability, and that
-the graph prior is the binding limitation on this task — but that identifying *which* part
-of the formulation binds requires controls, not inference from null results.
+limited by something other than the constraint usually invoked for it. Finally, a resting
+sensorimotor-rhythm measure taken from a task-free baseline run predicts per-subject
+decodability equally well for the graph network (r = +0.547) and for the classical baseline
+(r = +0.548), accounting for roughly 30 % of the between-subject variance and bounding what
+any architecture could recover here. We conclude that the reported figure measures an
+evaluation protocol rather than a decoding capability, and that the graph prior is the
+binding limitation on this task — but that identifying *which* part of the formulation binds
+requires controls, not inference from null results.
 
 **Keywords:** EEG, motor imagery, brain–computer interface, graph convolutional networks,
 data leakage, reproducibility, common spatial patterns
@@ -103,6 +107,13 @@ the protocol does not measure what it is taken to measure.
    configuration reported from a large published pipeline search on this dataset. Together
    these refute a sample-size explanation and show that the constraint conventionally
    invoked to explain graph-network underperformance accounts for a minority of the gap.
+
+8. **A subject-level ceiling, quantified** (§5.10). Per-subject accuracies of two unrelated
+   methods correlate at *r* ≈ 0.83, and a resting sensorimotor-rhythm measure from a
+   task-free baseline predicts both equally (+0.547, +0.548), explaining about 30 % of the
+   between-subject variance. Reporting means alone obscures this: our repaired model wins on
+   80 % of subjects against the fixed graph but on only a third against the classical
+   baseline, from comparable p-values.
 
 All code, the full experiment log covering 12,590 folds, and a record of the twenty errors
 made and corrected during this work are released with the paper.
@@ -638,6 +649,37 @@ best pipeline is optimal for only 35 % of participants and that matching pipelin
 individuals is worth roughly seven accuracy points [17] — an effect several times larger
 than any difference between methods reported here.
 
+**A third of that variance is fixed before any modelling choice.** If subject identity
+dominates, it should be predictable from the subject rather than from the task. We computed
+Blankertz et al.'s SMR predictor [18] — the prominence of the resting mu rhythm above a
+fitted 1/f background — from run R01, the 61-second eyes-open baseline. That run contains no
+motor imagery and is used nowhere else in this work, so it cannot leak into a decoding
+result.
+
+| Arm | *r* with the resting predictor | Variance explained |
+|---|---|---|
+| GCN + temporal attention | **+0.547** | **30 %** |
+| CSP+LDA | **+0.548** | **30 %** |
+| ShallowConvNet | +0.480 | 23 % |
+
+![Resting mu prominence against per-subject decodability](figures/smr_predictor.png)
+
+*Figure 5. The resting SMR predictor against within-family accuracy for three methods.
+Predictor range 16.32–30.10 dB over 103 subjects.*
+
+The first two coefficients are +0.547 and +0.548. A graph network and a linear method
+published in 2000, sharing no component, are predicted equally well by a property of the
+participant measured before either was run — which is close to a direct demonstration of a
+subject-level ceiling. The eleven subjects at or below chance under both methods average
+1.70 dB less mu prominence than the rest. Blankertz et al. report their predictor explaining
+approximately 37 % of variance in SMR-BCI feedback accuracy; our 30 % on a different task
+and cohort is consistent with that.
+
+This bounds what any architecture could recover on this dataset. It does not excuse the
+graph formulation — the remaining variance is where ShallowConvNet exceeds it by 0.1287 —
+but it means a substantial part of the apparent difficulty is a property of the participants
+rather than of the models.
+
 ---
 
 ## 6. Discussion
@@ -731,6 +773,10 @@ by training-set size rather than by inter-subject variability.
   values only at longer windows. Their advantage in §5.9 is therefore obtained under
   conditions unfavourable to them, which makes it conservative — but a matched comparison
   at a longer window has not been run, and window length has never been swept for any arm.
+- **Roughly 30 % of the between-subject variance is not attributable to any model.** The
+  resting SMR predictor correlates at +0.547 with our best model and +0.548 with CSP
+  (§5.10), so part of the apparent difficulty is a subject-level ceiling that bounds what
+  any architecture could recover on this dataset.
 - **§5.9 does not identify what the remaining 84 % of the gap is.** It bounds the
   contribution of graph locality and excludes sample size. The temporal-ordering
   hypothesis offered in §6 is untested.
@@ -839,6 +885,10 @@ convolutional neural networks for EEG decoding and visualization." *Human Brain 
 [16] S. Chevallier, I. Carrara, B. Aristimunha, P. Guetschel, S. Sedlar, B. Lopes,
 S. Velut, S. Khazem, T. Moreau. "The largest EEG-based BCI reproducibility study for open
 science: the MOABB benchmark." arXiv:2404.15319, 2024
+
+[18] B. Blankertz, C. Sannelli, S. Halder, E. M. Hammer, A. Kübler, K.-R. Müller,
+G. Curio, T. Dickhaus. "Neurophysiological predictor of SMR-based BCI performance."
+*NeuroImage* 51(4):1303–1309, 2010. DOI: 10.1016/j.neuroimage.2010.03.022
 
 [17] X. Vasques, P. Barbaste, O. Oullier. "Subject-Level Heterogeneity in EEG Motor Imagery
 Decoding: A Large-Scale Benchmark and Portfolio-Based Reduction of the Search Space."

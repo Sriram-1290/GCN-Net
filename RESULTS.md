@@ -43,6 +43,11 @@ trained on exactly the same folds and the same ~45 trials per problem, reach and
 which rules out sample size as the explanation and makes the graph formulation itself the
 binding limitation.
 
+A last analysis (R8b) bounds how much any of this could ever have been worth. A resting
+sensorimotor-rhythm measure, taken from a task-free baseline run, predicts per-subject
+decodability equally well for the graph network and for CSP — about 30 % of the
+between-subject variance is fixed before any modelling choice is made.
+
 ---
 
 ## R1 · The published protocol reproduces
@@ -251,6 +256,35 @@ of it.
 
 ---
 
+## R8b · A third of the variance is the subject, not the model (post-hoc)
+
+Per-subject accuracies of our repaired model and CSP+LDA correlate at **r = 0.825** — two
+methods sharing no component, succeeding and failing on the same people. That is what a
+subject-level ceiling looks like, and it is measurable.
+
+Blankertz et al.'s SMR predictor is the prominence of the resting mu rhythm above a fitted
+1/f background. We computed it from **run R01, the 61-second eyes-open baseline** — no motor
+imagery, used nowhere else in this work, so it cannot leak into a decoding result.
+
+| | r with resting SMR | variance explained |
+|---|---|---|
+| GCN + temporal attention | **+0.547** | **30 %** |
+| CSP+LDA | **+0.548** | **30 %** |
+| ShallowConvNet | +0.480 | 23 % |
+
+![Resting mu prominence against decodability](figures/smr_predictor.png)
+
+**+0.547 and +0.548.** A graph network and a linear method from 2000 are predicted equally
+well by a property of the participant measured before either ran. The 11 subjects at or
+below chance under both methods have 1.70 dB less mu prominence than the rest. Blankertz
+et al. report ~37 % on a different task; our 30 % is consistent.
+
+This bounds the headroom. It does not excuse the graph formulation — the other 70 % is
+where ShallowConvNet beats it by 0.1287 — but a third of the apparent difficulty on this
+dataset belongs to the participants, not the models.
+
+---
+
 ## R8 · Where the limitation actually is (post-hoc)
 
 R5 found that neither band power nor a learnable graph closes the gap, and it is tempting
@@ -348,6 +382,8 @@ this task needs.
   were built for 2–4 second windows; ours is 0.40 s, so their temporal hyperparameters had
   to be scaled down. That makes their advantage conservative — but a matched comparison at
   a longer window has not been run, and window length has never been swept for any arm.
+- **About 30 % of the between-subject variance is not any model's to fix** (R8b), which
+  bounds what any architecture could recover here.
 - **R8 does not say what the other 84 % is.** It bounds the graph-locality contribution and
   rules out sample size. The temporal-ordering explanation is untested.
 

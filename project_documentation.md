@@ -788,7 +788,7 @@ section listing every trap this project actually hit.
 
 ---
 
-## 7.1 Class scheme (a) vs (b) - the comparison, for the record
+### 7.1 Class scheme (a) vs (b) - the comparison, for the record
 
 **(a) L / R / B / F** - left fist, right fist (runs 4/8/12), both fists, both feet
 (runs 6/10/14). T0 discarded. ~22-23 trials per class, 90 per subject. **This is what
@@ -824,7 +824,7 @@ Mitigation, to be reported alongside the 4-class number:
 Scheme (b) partially breaks the confound for the rest class (T0 occurs in every run) but
 leaves it intact for the motor classes.
 
-## 7.2 Baseline reproduction protocol (decision 4, option (i))
+### 7.2 Baseline reproduction protocol (decision 4, option (i))
 
 Two runs of the same architecture, reported side by side:
 
@@ -1962,6 +1962,40 @@ Between-subject SD 0.1247 against a method gap of ~0.02-0.03: subject identity c
 methods. **H2 is a consistent per-subject effect; H4 is a thin mean over an interleaved
 distribution.** Report both means with their spreads.
 
+### 12.7 Resting SMR predicts a third of the between-subject variance (17.6 E2)
+
+**Exploratory. Devised after seeing 12.6; not pre-registered.**
+
+12.6 shows subject identity dominating method choice, with *r* ≈ 0.83 between two unrelated
+methods — the signature of a subject-level ceiling. The standard measure of that ceiling is
+Blankertz et al.'s SMR predictor [26]: the prominence of the resting mu rhythm above the
+fitted 1/f background. `scripts/smr_predictor.py` computes it from **run R01, the 61-second
+eyes-open baseline** — downloaded from the start, never used by any experiment here, and
+containing no motor imagery, so it cannot leak into a decoding result.
+
+| arm | *r* with the resting predictor | variance explained |
+|---|---|---|
+| GCN + temporal attention | **+0.547** | **30 %** |
+| CSP+LDA | **+0.548** | **30 %** |
+| ShallowConvNet | +0.480 | 23 % |
+
+Predictor range 16.32-30.10 dB, median 21.14, over all 103 subjects.
+
+**The two headline numbers are +0.547 and +0.548.** A graph network and a linear method from
+2000, sharing nothing, are predicted equally well by a property of the *subject* measured
+before either ran. That is about as direct a demonstration of a subject-level ceiling as
+this dataset can supply. The 11 subjects at or below chance under both methods average
+1.70 dB less mu prominence than the rest.
+
+For external calibration, [26] reports the predictor explaining roughly 37 % of variance in
+SMR-BCI feedback accuracy; our 30 % on a different task and cohort is consistent with it.
+
+**Consequence.** Roughly a third of what looks like model failure on this dataset is a
+property of the participants, fixed before any modelling choice. 13 now says so with a
+number rather than a citation. It does not excuse the graph formulation — the 70 % that
+remains is still where ShallowConvNet beats it by 0.1287 — but it bounds how much any
+architecture could ever recover.
+
 ---
 
 ## 13. Limitations and threats to validity
@@ -2021,6 +2055,12 @@ window length has never been swept for any arm (B5, 17.3).
 **9.11 does not identify the remaining 84 % of the gap.** It bounds the graph-locality
 contribution at 16 % and excludes sample size. The temporal-ordering hypothesis offered in
 9.11.2 is untested.
+
+**About 30 % of the between-subject variance is not ours to fix (12.7).** The resting SMR
+predictor, computed from a baseline run recorded before any task, correlates at +0.547 with
+our best model and +0.548 with CSP. Part of what looks like model failure is a subject-level
+ceiling. This bounds the headroom any architecture has on this dataset, and it is a reason to
+prefer per-subject reporting (12.6) over means.
 
 **The classical baseline we report is weaker than the field's.** [23] puts a tuned
 tangent-space or CSP pipeline near 0.605 on left-vs-right where our untuned CSP reaches
@@ -2437,7 +2477,8 @@ subjects.
   subjects, the two methods correlate at 0.825, and subject identity dominates method
   choice by ~38x in variance" is both more honest and more interesting. **The data already
   exists; this is an afternoon of analysis.**
-- **E2. Screen for BCI illiteracy.** 15-30 % of people do not produce classifiable
+- **E2. Screen for BCI illiteracy. DONE — see 12.7.** Resting SMR explains ~30 % of the between-subject variance, equally for the network (+0.547) and CSP (+0.548).
+  *Original entry:* 15-30 % of people do not produce classifiable
   sensorimotor rhythms; our 15 of 103 at or below chance sits inside that range, and
   *r* = 0.825 is exactly what a subject-level ceiling would produce. Resting mu-band power
   from the baseline runs — already downloaded, never used — is the standard predictor.
@@ -2580,6 +2621,10 @@ Space," arXiv:2607.22778, 2026.
 Optimality: A Friedman-Nemenyi Benchmark of EEG Motor-Imagery BCI Decoders,"
 arXiv:2606.24394, 2026.
 
+**[26]** B. Blankertz, C. Sannelli, S. Halder, E. M. Hammer, A. Kübler, K.-R. Müller,
+G. Curio, and T. Dickhaus, "Neurophysiological predictor of SMR-based BCI performance,"
+*NeuroImage*, vol. 51, no. 4, pp. 1303-1309, 2010. DOI: 10.1016/j.neuroimage.2010.03.022.
+
 **[25]** S. Jia, Y. Hou, Y. Shi, and Y. Li, "Attention-based Graph ResNet for Motor Intent
 Detection from Raw EEG signals," arXiv:2007.13484, 2020. — **same group and same shipped
 pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
@@ -2589,6 +2634,36 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 ## 18. Changelog
 
 ### 2026-09-02
+
+- **E2 done (12.7): resting SMR explains ~30 % of the between-subject variance.**
+  `scripts/smr_predictor.py` computes Blankertz et al.'s predictor [26] from **run R01**,
+  the 61-second eyes-open baseline — downloaded from the start, never used by any experiment
+  here, and containing no imagery, so it cannot leak. Correlation with per-subject accuracy:
+  **+0.547** for the repaired graph network, **+0.548** for CSP+LDA, +0.480 for
+  ShallowConvNet. The 11 subjects at or below chance under both methods average 1.70 dB less
+  mu prominence. [26] reports ~37 % on a different task; our 30 % is consistent.
+  - **The two headline coefficients being +0.547 and +0.548 is the finding.** Two methods
+    sharing no component are predicted equally well by a property of the participant
+    measured before either ran. That is a subject-level ceiling, and it bounds what any
+    architecture could recover on this dataset.
+  - Written into 12.7, 13, `PAPER.md` 5.10 (with Figure 5) plus a new contribution 8 and a
+    sentence in the abstract, and `RESULTS.md` R8b. Reference [26] verified against Crossref.
+- **`tests/test_documentation_consistency.py` — the audit turned into a test suite.**
+  Errors 20 and 21 were both documentation errors that repeated readings missed and that a
+  mechanical check finds instantly. Nine checks: every headline accuracy quoted in the
+  write-ups is recomputed from `runs/experiments.jsonl` and must match to four decimals;
+  any table row labelled as a mean must actually be the mean of the rows above it; top-level
+  section numbering must be contiguous; referenced figures must exist; and every citation in
+  `PAPER.md` must resolve both ways.
+  - **Verified by reintroducing both errors**, which the suite caught with the exact
+    diagnostic — including the 0.6239-versus-0.6217 discrepancy that was error 20. A test
+    that has never failed is not evidence of anything.
+  - Two false positives were tightened out first: rows whose labels merely *contain* "mean"
+    (`fixed mean pool`, `mean edge weight`) are no longer treated as summary rows.
+- **7.1 and 7.2 were written as level-2 headings**, so the numbering check read them as
+  three consecutive section 7s. Promoted to subsections; this is the kind of drift the new
+  test now prevents.
+- Suite is 234 tests, from 205.
 
 - **Documentation currency pass — four documents had fallen behind the A1/A2 results.**
   - **`RESULTS.md` was actively contradicting the paper.** Its headline read "a linear
