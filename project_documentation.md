@@ -2648,6 +2648,48 @@ pipeline as [1]; reports 98.08 % subject-level. See 17.7.**
 
 ### 2026-09-02
 
+- **New architecture: `models/graph_bandpower.py` (`GraphBandPowerNet`), implementing the
+  four changes 9.11.2 identified plus the graph-as-prior variant.** Built as a *new class*
+  rather than more flags on `GCNsNet`, so every existing arm stays bit-identical and no
+  prior result is invalidated. `--model graphbp` on the same runner. 16 tests, 259 passing.
+  Not yet run beyond a smoke test.
+  - **Change 1, and the one that matters: power is taken AFTER the spatial stage.**
+    `square -> mean over time -> log`, where `GCNsNet` applies softplus to voltage.
+    **This is why 9.6's null result does not close the door.** 9.6 supplied band power as
+    node features, computed per channel by FFT *before* the network — power-then-spatial.
+    CSP, FBCSP and ShallowConvNet are all spatial-then-power, and the order is essential:
+    a spatial filter works by *cancellation* between channels, which needs phase-coherent
+    voltage. Square first and the sign is gone. 9.6 tested the ordering that cannot work
+    in principle, so its result says nothing about this one.
+  - **Change 2: a learned temporal filter first**, replacing reliance on the fixed 8-30 Hz
+    band-pass and keeping the time axis alive until power is taken. Temporal attention
+    pooled time away *before* the first convolution, so the six graph layers saw four
+    numbers per node.
+  - **Change 3: depth 1, not 6.** **Change 4: no Graclus node pooling** (`--pool-nodes`
+    restores it, so dropping it is an ablation rather than an assumption).
+  - **The regulariser variant, which is the actual contribution on offer.**
+    `--spatial free --graph-smoothness X` leaves the spatial operator unconstrained and
+    adds a Dirichlet-energy penalty over the electrode graph. A1 measured the graph as a
+    *constraint* recovering 16 % of the gap; this asks whether it earns its place as a
+    *prior*, which is plausible at ~45 trials exactly where a constraint is not. Testing
+    against `--graph-smoothness 0` isolates the prior from the parameters.
+  - **Prediction recorded before running**, because 9.7.1 is a lesson about not doing that:
+    this should land near ShallowConvNet (0.6725) if changes 1-4 are what matter, and the
+    graph terms should make little difference either way. *Reaching* ShallowConvNet with a
+    graph-informed model would be a result; exceeding it would be surprising.
+- **The penalty uses the COMBINATORIAL Laplacian, not the normalised one, and a test
+  caught the difference.** `v(D-A)v` is exactly `0.5 * sum_ij A_ij (v_i - v_j)^2`, whose
+  null space is the constant vector — "an electrode's weights should resemble its
+  neighbours'". The normalised Laplacian's null vector is `D^(1/2)1`, so it would penalise
+  a *uniform* spatial pattern, which is not the prior intended. Written normalised first;
+  the test asserting a constant operator scores zero returned 18.67 and was right.
+- **The `--model` guard now runs both ways.** Adding `graphbp` had quietly re-opened the
+  hole error #12 came from: GCNsNet-only flags were accepted and ignored. Both directions
+  now exit with an error — GCNsNet flags under `graphbp`, and graphbp flags under any other
+  model.
+- `Trainer._loss` gained an opt-in `graph_smoothness` hook alongside the existing
+  `adjacency_l1` one. Purely additive: any arm that does not set it is bit-identical.
+
 - **Error 22: the experiment log's lock was not actually exclusive.** `_exclusive` seeked
   to end-of-file and then locked one byte, but `msvcrt.locking` locks relative to the
   *current position* — so two processes at different EOFs locked **different bytes** and

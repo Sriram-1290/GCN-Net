@@ -68,7 +68,8 @@ def main() -> int:
                     help="learn the adjacency, initialised at the PCC graph so the "
                          "model starts identical to the fixed baseline")
     ap.add_argument("--learn-graph-scale", action="store_true")
-    ap.add_argument("--model", choices=["gcn", "eegnet", "shallow"], default="gcn",
+    ap.add_argument("--model", choices=["gcn", "eegnet", "shallow", "graphbp"],
+                    default="gcn",
                     help="A2 (17.2): run a graph-free CNN baseline on the SAME folds, "
                          "cache, seeds and metric. eegnet = EEGNet-8,2; shallow = "
                          "ShallowConvNet. Discriminates the graph-prior explanation "
@@ -81,6 +82,19 @@ def main() -> int:
                          "--learnable-graph")
     ap.add_argument("--adjacency-l1", type=float, default=0.0,
                     help="L1 on the learned graph correction (sparsity)")
+    ap.add_argument("--spatial", choices=["graph", "free"], default="graph",
+                    help="--model graphbp only: Chebyshev graph convolution, or an "
+                         "unconstrained operator the graph only regularises")
+    ap.add_argument("--graph-smoothness", type=float, default=0.0,
+                    help="--model graphbp with --spatial free: weight on the "
+                         "Dirichlet-energy prior over the electrode graph. The "
+                         "regulariser variant; 0 disables it")
+    ap.add_argument("--gbp-layers", type=int, default=1,
+                    help="--model graphbp only: spatial layers (default 1, against "
+                         "GCNs-Net's 6)")
+    ap.add_argument("--pool-nodes", action="store_true",
+                    help="--model graphbp only: restore Graclus node pooling, so "
+                         "dropping it stays an ablation rather than an assumption")
     ap.add_argument("--features", choices=["raw", "bandpower"], default="raw",
                     help="node features: raw voltage, or log band power per band. "
                          "bandpower requires an UNFILTERED cache")
@@ -125,6 +139,9 @@ def main() -> int:
     # A2's baselines have no graph and no attention module. Silently ignoring a
     # flag would produce a log row claiming a configuration the run did not have,
     # which is how the tag pollution in error #12 happened. Fail instead.
+    # GCNsNet-only flags. graphbp uses a graph but none of these modules, so it
+    # belongs here too: silently logging a row that claims a configuration the run
+    # did not have is error #12.
     if args.model != "gcn":
         ignored = [name for name, on in [
             ("--temporal-attention", args.temporal_attention),
@@ -135,10 +152,23 @@ def main() -> int:
         ] if on]
         if ignored:
             raise SystemExit(
-                f"--model {args.model} has no graph and no attention module, so "
-                f"{', '.join(ignored)} would be ignored. Drop the flag or use "
-                "--model gcn."
+                f"--model {args.model} does not use {', '.join(ignored)}; they would "
+                "be ignored. Drop the flag, or use --model gcn."
             )
+    # ...and the converse: graphbp-only flags must not be silently dropped either.
+    if args.model != "graphbp":
+        ignored = [name for name, on in [
+            ("--spatial free", args.spatial != "graph"),
+            ("--graph-smoothness", bool(args.graph_smoothness)),
+            ("--gbp-layers", args.gbp_layers != 1),
+            ("--pool-nodes", args.pool_nodes),
+        ] if on]
+        if ignored:
+            raise SystemExit(
+                f"{', '.join(ignored)} applies only to --model graphbp; got "
+                f"--model {args.model}."
+            )
+    if args.model in ("eegnet", "shallow"):
         if args.window < 32:
             raise SystemExit(
                 f"--model {args.model} is a windowed CNN and needs --window 32 "
@@ -219,9 +249,24 @@ def main() -> int:
             fold = prepare_fold(train, test, val, lmax=lmax, seed=seed,
                                 sfreq=ep.sfreq, window=args.window, stride=args.stride,
                                 features=args.features, bands=args.bands,
-                                leaky=args.leaky, build_graph=args.model == "gcn")
+                                leaky=args.leaky,
+                                build_graph=args.model in ("gcn", "graphbp"))
             if args.model == "gcn":
                 model = GCNsNet(fold.bases, model_cfg, adjacencies=fold.adjacencies)
+            elif args.model == "graphbp":
+                from graphs.laplacian import laplacian
+                from models.graph_bandpower import (GraphBandPowerConfig,
+                                                    GraphBandPowerNet)
+                gbp_cfg = GraphBandPowerConfig(
+                    n_classes=n_classes, spatial=args.spatial,
+                    n_layers=args.gbp_layers, pool_nodes=args.pool_nodes,
+                    graph_smoothness=args.graph_smoothness)
+                # The layer-0 coarsened graph, which matches the node ordering
+                # the model sees -- not the raw 64x64 adjacency.
+                lap = (laplacian(fold.adjacencies[0], normalized=False)
+                       if args.graph_smoothness else None)
+                model = GraphBandPowerNet(fold.bases, args.window, gbp_cfg,
+                                          laplacian=lap)
             else:
                 # Shape comes from the fold, not from the config, so a windowing
                 # change cannot silently desynchronise the model from the data.
@@ -259,6 +304,11 @@ def main() -> int:
                 "temporal_attention": args.temporal_attention,
                 "attention_heads": args.attention_heads if args.temporal_attention else None,
                 "model": args.model,
+                "spatial": args.spatial if args.model == "graphbp" else None,
+                "graph_smoothness": (args.graph_smoothness
+                                     if args.model == "graphbp" else None),
+                "gbp_layers": args.gbp_layers if args.model == "graphbp" else None,
+                "pool_nodes": args.pool_nodes if args.model == "graphbp" else None,
                 "learnable_graph": args.learnable_graph,
                 "free_spatial": args.free_spatial,
                 "features": args.features,

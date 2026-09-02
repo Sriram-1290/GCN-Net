@@ -92,9 +92,16 @@ class Trainer:
             loss = loss + self.cfg.regularization * self.model.l2_penalty()
         # Optional sparsity on a learned graph's correction, so the result stays
         # interpretable against the PCC prior instead of drifting to a dense matrix.
-        l1 = getattr(getattr(self.model, "cfg", None), "adjacency_l1", 0.0)
+        cfg = getattr(self.model, "cfg", None)
+        l1 = getattr(cfg, "adjacency_l1", 0.0)
         if l1 > 0 and hasattr(self.model, "adjacency_penalty"):
             loss = loss + l1 * self.model.adjacency_penalty()
+        # Optional graph-smoothness prior on an unconstrained spatial operator
+        # (models.graph_bandpower). Additive and opt-in: every arm that does not set
+        # it is bit-identical to before this hook existed.
+        smooth = getattr(cfg, "graph_smoothness", 0.0)
+        if smooth > 0 and hasattr(self.model, "graph_penalty"):
+            loss = loss + smooth * self.model.graph_penalty()
         return loss
 
     # --------------------------------------------------------------- training
