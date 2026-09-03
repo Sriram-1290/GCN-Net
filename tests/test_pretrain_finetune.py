@@ -121,6 +121,61 @@ def test_target_is_excluded_from_the_source_list():
         assert len(source) == len(subjects) - 1
 
 
+# ---------------------------------------------------------------- grouped pre-training
+
+def test_groups_partition_the_subjects_exactly():
+    m = _load()
+    subjects = [f"S{i:03d}" for i in range(1, 104)]
+    for k in (0, 1, 3, 10, 103, 500):
+        groups = m.assign_groups(subjects, k)
+        flat = [s for g in groups for s in g]
+        assert sorted(flat) == sorted(subjects), f"k={k}: not a cover"
+        assert len(flat) == len(set(flat)), f"k={k}: groups overlap"
+        assert all(groups), f"k={k}: an empty group"
+
+
+def test_no_target_is_ever_in_its_own_source_set():
+    """The leakage guarantee that grouping has to preserve.
+
+    Pre-training excludes the target's whole GROUP, not just the target, so every
+    member of that group is absent from the model they later fine-tune from. If this
+    ever failed, a subject would be pre-trained on their own trials.
+    """
+    m = _load()
+    subjects = [f"S{i:03d}" for i in range(1, 104)]
+    for k in (0, 10, 25):
+        for group in m.assign_groups(subjects, k):
+            source = [s for s in subjects if s not in group]
+            for target in group:
+                assert target not in source, f"k={k}: {target} is in its own source set"
+            assert len(source) == len(subjects) - len(group)
+
+
+def test_grouping_is_deterministic_and_seed_free():
+    """Reproducible without carrying a seed, since it is index % k."""
+    m = _load()
+    subjects = [f"S{i:03d}" for i in range(1, 104)]
+    assert m.assign_groups(subjects, 10) == m.assign_groups(subjects, 10)
+
+
+def test_groups_are_interleaved_not_contiguous_blocks():
+    """A contiguous block would make a group a slice of the recording order."""
+    m = _load()
+    subjects = [f"S{i:03d}" for i in range(1, 104)]
+    first = m.assign_groups(subjects, 10)[0]
+    assert first[:3] == ["S001", "S011", "S021"], first[:3]
+
+
+def test_ten_groups_cut_the_pretraining_count_by_an_order_of_magnitude():
+    """The point of the change: error 24 made 103 pre-trainings a ~51 h run."""
+    m = _load()
+    subjects = [f"S{i:03d}" for i in range(1, 104)]
+    assert len(m.assign_groups(subjects, 0)) == 103      # leave-one-subject-out
+    assert len(m.assign_groups(subjects, 10)) == 10      # grouped
+    # and a target still draws on the great majority of the cohort
+    assert min(103 - len(g) for g in m.assign_groups(subjects, 10)) >= 92
+
+
 # ------------------------------------------------------------------ the control arm
 
 def test_no_pretrain_control_is_declared_and_documented():

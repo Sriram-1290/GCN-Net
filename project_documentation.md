@@ -1790,6 +1790,31 @@ with every mean.
 **Exploratory.** Not on the 10.3 list. Four-for-four on 9.12 is a reason to take these
 predictions seriously, not a promotion to confirmatory.
 
+#### 9.14.1 Amendment, 2026-09-04: grouped pre-training
+
+**Made before any PT result was read.** The pre-trained arm reached 55 of 515 folds on one
+problem — far below the completeness guard — and no aggregate over any `PT-` tag has been
+computed. The four predictions above are unchanged; this amends only how the source model
+is trained.
+
+*Why.* Error 24: leave-one-subject-out pre-training costs one pre-training per target, 206
+in total, measured at 14.9 min each — about 51 h. That is not a run we can afford.
+
+*The change.* Pre-train once per **group** of targets. With `--groups 10` a target's model
+excludes that target's whole group, so **no target is ever in its own source set** and the
+leakage guarantee is unchanged; the only cost is that a target draws on ~92 source subjects
+instead of 102. Twenty pre-trainings instead of 206.
+
+*Tag hygiene.* The 55 existing `PT-*` rows were produced under leave-one-subject-out
+pre-training and **must not be mixed with grouped rows under one tag** — that is error 12.
+The grouped arm therefore uses a **new tag, `PTG-*`**. `PT-*` is abandoned at 55 folds,
+is unreportable on its own, and is kept only as a record of the configuration that proved
+too expensive.
+
+*What is unaffected.* The control arm `PTC-*` is complete at 0.6744 and does not involve
+pre-training at all, so grouping does not touch it. PTG − PTC remains the contrast that
+isolates pre-training.
+
 ---
 
 ## 10. Pre-registration of the remaining ablations
@@ -2953,6 +2978,19 @@ ShallowConvNet.
 ## 18. Changelog
 
 ### 2026-09-04
+
+- **Grouped pre-training implemented** (`--groups`, default 10), 5 new tests, suite 272.
+  `assign_groups` partitions by `index % k`, which is deterministic, needs no seed, and
+  interleaves subjects so no group is a contiguous block of the recording order. The
+  load-bearing test asserts that **no target is ever in its own source set** for any group
+  count — the guarantee grouping had to preserve.
+- **Cost, stated with its uncertainty rather than guessed again (error 24).** A single
+  pre-training exceeds ten minutes, so it could not be timed inside one tool call. The
+  basis is the measured 14.9 min per pre-training at 102 source subjects *while sharing the
+  GPU*; alone, at 92 subjects, 8-12 min is the plausible range. Twenty pre-trainings gives
+  **~3-4 h**, plus roughly 1.5 h of fine-tunes, so **4-5.5 h for both problems**. **The
+  first group's elapsed time will confirm or refute this within about fifteen minutes of
+  launch** — the run prints it, and that is the check error 24 skipped.
 
 - **The control arm (PTC) is COMPLETE and lands at 0.6744** — L/R 0.6533, B/F 0.6956,
   SD 0.1548, 89/103 above chance. That is statistically the same as G3 (0.6737) and

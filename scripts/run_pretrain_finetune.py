@@ -95,6 +95,23 @@ def build_model(name: str, prepared, n_samples: int, n_classes: int, sfreq: floa
     raise ValueError(f"unknown model {name!r}")
 
 
+def assign_groups(subjects: list[str], n_groups: int) -> list[list[str]]:
+    """Partition subjects into groups that share one pre-trained model.
+
+    Assignment is ``index % n_groups``, which is deterministic, needs no seed, and
+    interleaves subjects so no group is a contiguous block of the recording order.
+    ``n_groups <= 1`` gives one group per subject — strict leave-one-subject-out
+    pre-training, the original and most expensive form.
+    """
+    if n_groups <= 1:
+        return [[s] for s in subjects]
+    n_groups = min(n_groups, len(subjects))
+    groups: list[list[str]] = [[] for _ in range(n_groups)]
+    for i, s in enumerate(subjects):
+        groups[i % n_groups].append(s)
+    return [g for g in groups if g]
+
+
 def subset_samples(s: Samples, trial_ids: set[int]) -> Samples:
     """Take the windows belonging to a set of trials.
 
@@ -127,6 +144,13 @@ def main() -> int:
     ap.add_argument("--stride", type=int, default=16)
     ap.add_argument("--val-subjects", type=int, default=5,
                     help="source subjects held out for pre-training checkpoint selection")
+    ap.add_argument("--groups", type=int, default=10,
+                    help="pre-train once per GROUP of targets rather than once per "
+                         "target. 103 targets need 103 pre-trainings; 10 groups need 10, "
+                         "which is what makes this arm tractable (error 24). Still "
+                         "leakage-free: a group's model excludes that whole group, so a "
+                         "target is never in its own source set. Pass 0 for strict "
+                         "leave-one-subject-out pre-training")
     ap.add_argument("--no-pretrain", action="store_true",
                     help="THE CONTROL. Identical pipeline and representation, "
                          "pre-training skipped. Isolates the effect of pre-training "
@@ -181,9 +205,12 @@ def main() -> int:
 
     print(f"model {args.model}  classes {args.classes}  "
           f"window {args.window} stride {args.stride}")
+    groups = assign_groups(subjects, args.groups)
+    n_src = len(subjects) - max(len(g) for g in groups)
     print("PRE-TRAIN " + ("SKIPPED (control arm)" if args.no_pretrain else
-                          f"{args.pretrain_epochs} epochs @ {args.pretrain_lr} "
-                          f"on the other {len(subjects) - 1} subjects"))
+                          f"{args.pretrain_epochs} epochs @ {args.pretrain_lr}, "
+                          f"{len(groups)} group(s) of <= {max(len(g) for g in groups)} "
+                          f"targets, ~{n_src} source subjects each"))
     print(f"FINE-TUNE {args.finetune_epochs} epochs @ {args.finetune_lr} "
           f"on the target's training folds\n")
 
@@ -195,112 +222,125 @@ def main() -> int:
     rng = np.random.default_rng(seed)
     t0 = time.time()
 
-    for i, target in enumerate(subjects, 1):
-        if all((target, f) in done for f in range(args.folds)):
+    for gi, group in enumerate(groups, 1):
+        if all((t, f) in done for t in group for f in range(args.folds)):
             continue
         if deadline is not None and dt.datetime.now() >= deadline:
             print(f"\nreached --stop-at {args.stop_at}; stopping cleanly before "
-                  f"{target}. Re-run with --resume to continue.")
+                  f"group {gi}. Re-run with --resume to continue.")
             break
 
         # ---------------------------------------------------------- pre-train
-        # The target is excluded outright: not their trials, not the graph, not the
-        # normalisation statistics.
-        source = [s for s in subjects if s != target]
+        # The whole GROUP is excluded, so every target in it is absent from its own
+        # source set: not their trials, not the graph, not the standardiser.
+        source = [s for s in subjects if s not in group]
         val_pick = list(rng.choice(source, size=min(args.val_subjects, len(source) - 1),
                                    replace=False))
         src_train = concat_trials([trials[s] for s in source if s not in val_pick])
         src_val = concat_trials([trials[s] for s in val_pick])
 
         # One representation for both phases: graph and standardiser fit on SOURCE.
-        # The target's own trials are the "test" argument here purely so they are
-        # transformed by the same statistics; nothing about them is fit.
+        # The group's trials are the "test" argument purely so they are transformed by
+        # the same statistics; nothing about them is fit. concat_trials preserves order,
+        # so each target occupies a known contiguous span of trial ids.
+        group_trials = [trials[t] for t in group]
+        offsets = np.cumsum([0] + [len(t) for t in group_trials])
         prepared = prepare_fold(
-            src_train, trials[target], src_val, lmax=lmax, seed=seed, sfreq=sfreq,
-            window=args.window, stride=args.stride,
+            src_train, concat_trials(group_trials), src_val, lmax=lmax, seed=seed,
+            sfreq=sfreq, window=args.window, stride=args.stride,
             build_graph=args.model in ("gcn", "graphbp"))
 
-        model = build_model(args.model, prepared, args.window, n_classes, sfreq,
-                            spatial=args.spatial,
-                            graph_smoothness=args.graph_smoothness)
         pretrained_state = None
         if not args.no_pretrain:
+            model = build_model(args.model, prepared, args.window, n_classes, sfreq,
+                                spatial=args.spatial,
+                                graph_smoothness=args.graph_smoothness)
             trainer = Trainer(model, pre_cfg, n_classes=n_classes)
             trainer.fit(prepared)
             pretrained_state = {k: v.detach().clone()
                                 for k, v in trainer.model.state_dict().items()}
-
-        # ------------------------------------------------------------ fine-tune
-        # The same trial-level folds run_subject_dependent.py uses at this seed, so
-        # the arms are paired subject by subject and fold by fold.
-        y_target = trials[target].y
-        fold_accs = []
-        for split in stratified_trial_kfold(y_target, n_splits=args.folds, seed=seed):
-            if (target, split.fold) in done:
-                continue
-            ft_train = subset_samples(prepared.test, set(split.train + 200_000))
-            ft_test = subset_samples(prepared.test, set(split.test + 200_000))
-
-            model = build_model(args.model, prepared, args.window, n_classes, sfreq,
-                                spatial=args.spatial,
-                                graph_smoothness=args.graph_smoothness)
-            if pretrained_state is not None:
-                model.load_state_dict(pretrained_state)
-            trainer = Trainer(model, ft_cfg, n_classes=n_classes)
-            # A Fold whose train/test are the target's own split, same representation.
-            ft_fold = type(prepared)(
-                train=ft_train, val=None, test=ft_test, bases=prepared.bases,
-                adjacencies=prepared.adjacencies, perm=prepared.perm,
-                adjacency=prepared.adjacency, standardizer=prepared.standardizer,
-                leaky=False)
-            history = trainer.fit(ft_fold)
-            result = trainer.evaluate_samples(ft_test)
-            fold_accs.append(result["trial"].accuracy)
-
-            log_experiment({
-                "experiment": "pretrain_finetune",
-                "tag": args.tag,
-                "subject": target,
-                "fold": split.fold,
-                "n_folds": args.folds,
-                "protocol": "pretrain_finetune" if not args.no_pretrain else "finetune_only",
-                "split_type": "stratified_trial_kfold",
-                **seed_info,
-                "config_source": str(cfg.source_path),
-                "preprocess": {"bandpass": cfg.preprocess.bandpass,
-                               "rereference": cfg.preprocess.rereference},
-                "classes": args.classes,
-                "n_classes": n_classes,
-                "window": args.window,
-                "stride": args.stride,
-                "model": args.model,
-                "pretrained": not args.no_pretrain,
-                "n_source_subjects": len(source),
-                "pretrain_epochs": 0 if args.no_pretrain else args.pretrain_epochs,
-                "finetune_epochs": args.finetune_epochs,
-                "pretrain_lr": None if args.no_pretrain else args.pretrain_lr,
-                "finetune_lr": args.finetune_lr,
-                "train_config": {"epochs": args.finetune_epochs,
-                                 "batch_size": args.batch_size,
-                                 "learning_rate": args.finetune_lr,
-                                 "device": ft_cfg.device},
-                "n_parameters": sum(p.numel() for p in model.parameters()),
-                "accuracy": result["trial"].accuracy,
-                "trial_accuracy": result["trial"].accuracy,
-                "timepoint_accuracy": result["timepoint"].accuracy,
-                "trial_confusion": result["trial"].confusion.tolist(),
-                "trial_per_class": list(result["trial"].per_class_accuracy),
-                "trial_kappa": result["trial"].kappa,
-                "trial_macro_f1": result["trial"].macro_f1,
-                "history": history.as_dict(),
-            }, path=args.log)
-
-        if fold_accs:
-            per_subject.append(float(np.mean(fold_accs)))
             if not args.quiet:
-                rate = (time.time() - t0) / max(1, len(per_subject))
-                print(f"{target} ({i}/{len(subjects)}): trial {per_subject[-1]:.4f}   "
-                      f"[{rate/60:.1f} min/subject]", flush=True)
+                print(f"group {gi}/{len(groups)}: pre-trained on {len(source)} subjects "
+                      f"[{time.time() - t0:.0f}s elapsed]", flush=True)
+
+        for j, target in enumerate(group):
+            if all((target, f) in done for f in range(args.folds)):
+                continue
+            # This target's trials are a contiguous span of the concatenated group.
+            base = 200_000 + int(offsets[j])
+
+            # -------------------------------------------------------- fine-tune
+            # The same trial-level folds run_subject_dependent.py uses at this
+            # seed, so the arms are paired subject by subject and fold by fold.
+            y_target = trials[target].y
+            fold_accs = []
+            for split in stratified_trial_kfold(y_target, n_splits=args.folds, seed=seed):
+                if (target, split.fold) in done:
+                    continue
+                ft_train = subset_samples(prepared.test, set(split.train + base))
+                ft_test = subset_samples(prepared.test, set(split.test + base))
+
+                model = build_model(args.model, prepared, args.window, n_classes, sfreq,
+                                    spatial=args.spatial,
+                                    graph_smoothness=args.graph_smoothness)
+                if pretrained_state is not None:
+                    model.load_state_dict(pretrained_state)
+                trainer = Trainer(model, ft_cfg, n_classes=n_classes)
+                # A Fold whose train/test are the target's own split, same representation.
+                ft_fold = type(prepared)(
+                    train=ft_train, val=None, test=ft_test, bases=prepared.bases,
+                    adjacencies=prepared.adjacencies, perm=prepared.perm,
+                    adjacency=prepared.adjacency, standardizer=prepared.standardizer,
+                    leaky=False)
+                history = trainer.fit(ft_fold)
+                result = trainer.evaluate_samples(ft_test)
+                fold_accs.append(result["trial"].accuracy)
+
+                log_experiment({
+                    "experiment": "pretrain_finetune",
+                    "tag": args.tag,
+                    "subject": target,
+                    "fold": split.fold,
+                    "n_folds": args.folds,
+                    "protocol": "pretrain_finetune" if not args.no_pretrain else "finetune_only",
+                    "split_type": "stratified_trial_kfold",
+                    **seed_info,
+                    "config_source": str(cfg.source_path),
+                    "preprocess": {"bandpass": cfg.preprocess.bandpass,
+                                   "rereference": cfg.preprocess.rereference},
+                    "classes": args.classes,
+                    "n_classes": n_classes,
+                    "window": args.window,
+                    "stride": args.stride,
+                    "model": args.model,
+                    "pretrained": not args.no_pretrain,
+                    "n_source_subjects": len(source),
+                    "n_groups": len(groups),
+                    "group_id": gi,
+                    "group_size": len(group),
+                    "pretrain_epochs": 0 if args.no_pretrain else args.pretrain_epochs,
+                    "finetune_epochs": args.finetune_epochs,
+                    "pretrain_lr": None if args.no_pretrain else args.pretrain_lr,
+                    "finetune_lr": args.finetune_lr,
+                    "train_config": {"epochs": args.finetune_epochs,
+                                     "batch_size": args.batch_size,
+                                     "learning_rate": args.finetune_lr,
+                                     "device": ft_cfg.device},
+                    "n_parameters": sum(p.numel() for p in model.parameters()),
+                    "accuracy": result["trial"].accuracy,
+                    "trial_accuracy": result["trial"].accuracy,
+                    "timepoint_accuracy": result["timepoint"].accuracy,
+                    "trial_confusion": result["trial"].confusion.tolist(),
+                    "trial_per_class": list(result["trial"].per_class_accuracy),
+                    "trial_kappa": result["trial"].kappa,
+                    "trial_macro_f1": result["trial"].macro_f1,
+                    "history": history.as_dict(),
+                }, path=args.log)
+
+            if fold_accs:
+                per_subject.append(float(np.mean(fold_accs)))
+                if not args.quiet:
+                    print(f"  {target}: trial {per_subject[-1]:.4f}", flush=True)
 
     print("\n" + "=" * 64)
     if not per_subject:
