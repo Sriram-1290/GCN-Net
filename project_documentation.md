@@ -2300,6 +2300,7 @@ process that reported success.**
 | 19 | 9.7.1 inferred a *mechanism* from two null results; it was ~84 % wrong about magnitude | A1 measured it directly at 16 % of the gap | 9.7.1 superseded in part, original kept verbatim |
 | 20 | `PAPER.md` 5.4 mixed a **20-subject** per-problem breakdown with the **103-subject** mean in one table | its own two rows did not average to its own mean (0.6217 vs 0.6239) | recomputed on 103 subjects: −0.0802 [−0.0985, −0.0621] |
 | 21 | The 5.9 edit **deleted the `## 6. Discussion` heading**; the prose survived, so the paper read correctly but ran 5 -> 7 for three commits, including in a released PDF | listing headings during an audit, not reading the prose | restored; now covered by `test_section_numbering_is_contiguous` |
+| 24 | **Under-costed the pre-training arm by ~8x** — projected 6-8 h, measured ~51 h — by carrying the LOSO timing (`GCNsNet`, which pools time before the convs) over to `graphbp` (which deliberately carries the time axis *through* the spatial stage, so its cost scales with pooled sample count far more steeply) | the arm reached 50 folds in 149 min when it should have reached ~450 | grouped pre-training reduces 206 pre-trainings to ~20; a timing probe on the actual arm would have cost three minutes |
 | 23 | `--stop-at` rolled a past time forward to **tomorrow**. Each process honoured 03:00 correctly, but the shell loop then started the next binary problem at 03:00:0x, which read its own deadline as past and scheduled itself for the *following day* — a 24-hour run from a flag meant to bound one to 50 minutes | the user asked for status at 03:02 and the processes were still alive with `-2-3` tags gaining rows | a past time now stops immediately, which is the only reading that composes under repetition |
 | 22 | The log's exclusive lock seeked to **EOF** before locking one byte, but `msvcrt.locking` locks relative to the *current position* — so once two processes saw different EOFs they locked different bytes and the mutual exclusion lapsed | its own regression test (for error 13) went intermittently flaky under full-suite load | lock byte fixed at offset 0, a rendezvous every process agrees on; 10/10 clean afterwards |
 
@@ -2950,6 +2951,41 @@ ShallowConvNet.
 ---
 
 ## 18. Changelog
+
+### 2026-09-04
+
+- **The control arm (PTC) is COMPLETE and lands at 0.6744** — L/R 0.6533, B/F 0.6956,
+  SD 0.1548, 89/103 above chance. That is statistically the same as G3 (0.6737) and
+  ShallowConvNet (0.6725). **This is the control doing exactly its job**: it shows the
+  source-fit representation is neutral, so any PT − PTC difference will be attributable to
+  pre-training and nothing else. Had PTC come out at 0.63 or 0.71 the comparison would
+  already be confounded.
+- **Error 24, mine: I under-costed the pre-training arm by roughly 8x.** I projected 6-8 h
+  for both problems from the LOSO timing of ~1.9 min per fold. Measured: **14.9 min per
+  pre-training**, giving **~51 h**, not 6-8.
+  - **The projection used the wrong architecture's cost.** LOSO was measured on `GCNsNet`
+    with temporal attention, which pools the time axis away *before* the convolutions.
+    `graphbp` deliberately does not — 9.11.2's whole point is that power is taken *after*
+    the spatial stage, so the time axis is carried through it. The spatial op therefore runs
+    on `N x T'` rows rather than `N`, with `T' = 49` at our window. On ~36 training trials
+    that is invisible (36 s/subject); on 102 pooled subjects it is the dominant cost.
+    Roughly 4x from the architecture and 2x from sharing the GPU with PTC.
+  - **The lesson is the same one as errors 10 and 18**: a number measured under one
+    configuration was carried to another without checking that the configuration matched.
+    A timing probe on the actual arm would have cost three minutes and did not happen.
+- **The fix, for tomorrow: grouped pre-training.** Pre-training once per *target* means 206
+  pre-trainings. Pre-training once per *group of targets* — say 10 groups — means 20, a 10x
+  reduction to about **5 h**, and it stays leakage-free: each model excludes the target's
+  entire group, so a target is never in its own source set. The only cost is that a target
+  draws on ~92 source subjects instead of 102, which is immaterial. This needs a small
+  change to `run_pretrain_finetune.py` and a note in 9.14 that the protocol was amended for
+  tractability **before** any PT result was read.
+- Ran to the 01:00 deadline as instructed. **PT reached 50/515 folds on problem 0-1 only**
+  and is far too incomplete to read; `posthoc_controls.py` will refuse it.
+- `--stop-at` gained an absolute `YYYY-MM-DD HH:MM` form. A bare `HH:MM` means today and a
+  past one stops immediately (error 23), which is right inside a shell loop but makes an
+  overnight deadline unexpressible — `01:00` at 22:00 reads as past. The ambiguity was in
+  the format, not the rule.
 
 ### 2026-09-03
 
