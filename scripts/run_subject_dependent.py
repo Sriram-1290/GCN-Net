@@ -112,13 +112,15 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="", help="free-text note stored with each row")
-    ap.add_argument("--stop-at", default=None, metavar="HH:MM",
-                    help="exit cleanly at this local time TODAY, at a FOLD BOUNDARY. "
+    ap.add_argument("--stop-at", default=None, metavar="[YYYY-MM-DD ]HH:MM",
+                    help="exit cleanly at this local time, at a FOLD BOUNDARY. "
                          "Use this rather than killing the process: a kill can orphan "
                          "the python child (error #11) and can interrupt a fold "
-                         "mid-write. A time already past stops immediately rather than "
-                         "rolling to tomorrow, so the flag is safe to repeat inside a "
-                         "loop. Combine with --resume to continue later, losing nothing")
+                         "mid-write. A bare HH:MM means TODAY and a past one stops "
+                         "immediately rather than rolling to tomorrow, so the flag is "
+                         "safe to repeat inside a loop (error 23). Use "
+                         "'YYYY-MM-DD HH:MM' for an overnight deadline. Combine with "
+                         "--resume to continue later, losing nothing")
     ap.add_argument("--resume", action="store_true",
                     help="skip (subject, fold) pairs already logged under this tag, "
                          "so an interrupted run can be restarted with the same command")
@@ -230,8 +232,13 @@ def main() -> int:
     deadline = None
     if args.stop_at:
         now = dt.datetime.now()
-        hh, mm = (int(v) for v in args.stop_at.split(":"))
-        deadline = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        # "YYYY-MM-DD HH:MM" names one instant and is unambiguous overnight; a bare
+        # "HH:MM" means today, and a past one stops immediately (error 23).
+        if " " in args.stop_at:
+            deadline = dt.datetime.strptime(args.stop_at, "%Y-%m-%d %H:%M")
+        else:
+            hh, mm = (int(v) for v in args.stop_at.split(":"))
+            deadline = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
         # A time already past means stop NOW, never "tomorrow". The rollover was the
         # obvious convenience and it is actively wrong here (error 23): these runs are
         # driven by a shell loop over the two binary problems, so when the first

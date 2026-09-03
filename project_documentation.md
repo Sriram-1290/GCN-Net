@@ -1753,6 +1753,45 @@ should be taken seriously; it is not a substitute for confirmatory status.
 
 ---
 
+### 9.14 Pre-training — pre-registration (written before any result)
+
+**Written 2026-09-03 22:05 local, commit `4246b74`, with both arms about to launch and
+zero rows aggregated.** Same discipline as 9.12, which scored four for four.
+
+**Arms.** `PT-gbp-binary-*` (pre-trained) and `PTC-gbp-binary-*` (the `--no-pretrain`
+control). Architecture: **G3** — reordered band-power net, free spatial operator, graph
+smoothness 1e-4. Chosen because 17.11.6 committed in advance to "whichever architecture
+the G arms name", and G3 is the project's best measured arm at 0.6737. **The choice is
+not load-bearing**: G1/G2/G3 span 0.0108 and are mutually indistinguishable (9.13), so
+what is being tested is pre-training, not a variant.
+
+**Why the control is mandatory.** Pre-training and source-fit normalisation change
+together; only PT − PTC isolates pre-training. A comparison of PT against the
+subject-dependent or G arms alone would confound the two.
+
+**Predictions, fixed now:**
+
+1. **PT > PTC.** The direction the whole idea rests on. [27] reports up to +7.76 %
+   generally and +27.34 % on limited data; at ~36 fine-tuning trials we are in the
+   limited regime.
+2. **The gain is larger in the lower tail than the upper.** 17.11.1 showed the deficit
+   sits below the median, and [27]'s 75 % variance reduction is the mechanism. Concretely:
+   **between-subject SD should fall**, and the bottom-quartile mean should rise more than
+   the top-quartile mean.
+3. **PT beats ShallowConvNet's 0.6725.** Weaker confidence than 1 or 2 — this is the
+   first thing in the project predicted to clear it.
+4. **PT does not reach 0.70.** +0.0263 is more than a single lever has yet delivered here.
+
+**Decision rules.** Primary outcome mean within-family accuracy over both binary problems;
+paired on subject, two-sided, Holm-corrected in `posthoc_controls.py`. **A difference
+below 0.020 is not an effect** whatever its p-value (17.2). Per-subject win rates reported
+with every mean.
+
+**Exploratory.** Not on the 10.3 list. Four-for-four on 9.12 is a reason to take these
+predictions seriously, not a promotion to confirmatory.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**

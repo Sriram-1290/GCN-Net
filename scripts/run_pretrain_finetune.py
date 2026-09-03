@@ -135,7 +135,7 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="ptft")
-    ap.add_argument("--stop-at", default=None, metavar="HH:MM")
+    ap.add_argument("--stop-at", default=None, metavar="[YYYY-MM-DD ]HH:MM")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
@@ -151,8 +151,13 @@ def main() -> int:
     deadline = None
     if args.stop_at:
         now = dt.datetime.now()
-        hh, mm = (int(v) for v in args.stop_at.split(":"))
-        deadline = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        # "YYYY-MM-DD HH:MM" names one instant and is unambiguous overnight; a bare
+        # "HH:MM" means today, and a past one stops immediately (error 23).
+        if " " in args.stop_at:
+            deadline = dt.datetime.strptime(args.stop_at, "%Y-%m-%d %H:%M")
+        else:
+            hh, mm = (int(v) for v in args.stop_at.split(":"))
+            deadline = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if deadline <= now:
             print(f"--stop-at {args.stop_at} is already past; stopping immediately.")
             return 0
