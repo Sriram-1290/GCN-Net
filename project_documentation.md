@@ -2826,6 +2826,32 @@ ShallowConvNet.
 
 ### 2026-09-03
 
+- **`scripts/run_pretrain_finetune.py` implemented** (17.11.2), with 8 leakage tests;
+  suite is 267. Not yet run beyond a smoke test on four subjects.
+  - **Protocol.** For each target subject, pre-train on the other 102 — the target
+    contributes nothing, not their trials, not the graph, not the normalisation
+    statistics — then fine-tune on the target's own training folds, which are the folds
+    `run_subject_dependent.py` uses at the same seed. The arms are therefore paired
+    subject by subject and fold by fold.
+  - **One representation across both phases.** The graph and standardiser are fit on the
+    source subjects and used throughout, because a pre-trained model cannot have its input
+    rescaled underneath it between phases. That does mean the normalisation differs from
+    the subject-dependent arm, which is why **`--no-pretrain` is built in as the control**:
+    the identical pipeline with pre-training skipped, isolating the effect of pre-training
+    from the effect of the representation. Comparing against the subject-dependent arm
+    alone would confound the two, so both arms must be run or neither.
+  - **The target's training trials are excluded from pre-training too**, though they need
+    not be in principle. Including them would require a separate pre-training per fold —
+    1,030 instead of 206 — and excluding the subject outright is both cheaper and stricter.
+  - **Fine-tuning learning rate defaults to 1e-4 against 1e-3 for pre-training.** At ~36
+    trials the pre-training rate would destroy the transferred features.
+  - Cost: one pre-training per (target, problem), reused across that target's five folds.
+    206 pre-trainings at roughly a LOSO fold each (1.57 min measured, 12.5), so **6-8 hours
+    for both binary problems**. `--resume` and `--stop-at` both supported.
+- **Second power cut, ~15:50. Cost nothing** — the G arms had been stopped at 03:02 and
+  nothing was in flight. The log is byte-identical to before: 14,017 lines, zero malformed,
+  proper trailing newline, no duplicates.
+
 - **17.11 added: what a >0.70 target actually requires.** Eight searches, two new verified
   references, plus an arithmetic analysis of our own ShallowConvNet distribution.
   - **The target is +0.0275 and the deficit is in the lower tail, not the top.** 41 of 103
