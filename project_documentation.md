@@ -1665,6 +1665,94 @@ not promotion.
 
 ---
 
+### 9.13 The reordered architecture — results (EXPLORATORY)
+
+**Run 2026-09-02/03 across two power cuts, 3,090 folds, 103 subjects, identical cache,
+splits, seeds and metric as every other arm. Pre-registered in 9.12 at commit `58415f4`
+with zero rows aggregated. All four predictions were confirmed.**
+
+#### 9.13.1 Results
+
+| arm | L vs R | B vs F | within-family | above chance |
+|---|---|---|---|---|
+| fixed PCC graph | 0.5148 | 0.5728 | 0.5438 | 65/103 |
+| GCN + temporal attention | 0.5877 | 0.6198 | 0.6038 | 83/103 |
+| CSP+LDA | 0.5942 | 0.6537 | 0.6239 | 81/103 |
+| EEGNet | 0.6058 | 0.6533 | 0.6296 | 83/103 |
+| ShallowConvNet | **0.6608** | 0.6841 | 0.6725 | **94/103** |
+| **G1 gbp, graph constraint** | 0.6408 | 0.6850 | **0.6629** | 88/103 |
+| **G2 gbp, free operator** | 0.6494 | 0.6893 | **0.6694** | 93/103 |
+| **G3 gbp, graph as prior** | 0.6520 | **0.6954** | **0.6737** | 91/103 |
+
+Paired, two-sided, Holm-corrected across eleven post-hoc comparisons:
+
+| comparison | difference | p (Holm) | wins | verdict |
+|---|---|---|---|---|
+| **G1 vs GCN + attention** | **+0.0591** [+0.0458, +0.0722] | 0.0011 | 82/103 (80 %) | **different** |
+| **G1 vs CSP+LDA** | **+0.0389** [+0.0224, +0.0552] | 0.0011 | 72/103 (70 %) | **different** |
+| G2 vs G1 (constraint lifted) | +0.0065 [−0.0018, +0.0148] | 0.52 | 53/103 (51 %) | not distinguishable |
+| G3 vs G2 (the prior) | +0.0043 [−0.0020, +0.0107] | 0.54 | 51/103 (50 %) | not distinguishable |
+| G3 vs ShallowConvNet | +0.0012 [−0.0099, +0.0121] | 0.99 | 46/103 (45 %) | not distinguishable |
+
+#### 9.13.2 Prediction scorecard
+
+9.12 fixed four predictions before any row was aggregated. **All four hold.**
+
+1. *"G1 and G2 both land near ShallowConvNet, well above `+ attention`."* — **Confirmed.**
+   0.6629 and 0.6694 against 0.6725, and +0.0591 over the attention arm.
+2. *"G2 ≥ G1 by a small margin, mirroring A1."* — **Direction confirmed, magnitude below
+   detectability.** +0.0065, under the 0.020 rule 9.12 fixed in advance.
+3. *"G3 − G2 is near zero; the prior does not help."* — **Confirmed.** +0.0043, and a
+   **51/103 win rate is a coin flip.**
+4. *"None exceeds ShallowConvNet meaningfully."* — **Confirmed.** +0.0012, p = 0.99.
+
+Getting four for four is worth stating plainly, because 9.7.1 is the counter-example: the
+difference is that these were written down first.
+
+#### 9.13.3 What this changes
+
+**A graph-based model now beats CSP+LDA.** G1 — the *hard* Chebyshev constraint, the same
+graph formulation the paper proposes — reaches 0.6629 and beats CSP by **+0.0389** on
+72/103 subjects. Every previous graph arm lost to CSP. The paper's central negative result
+about the published *protocol* is untouched; what has changed is that the graph formulation
+is no longer the thing that fails.
+
+**The reordering was the entire story.** The four changes in 9.11.2 — power after the
+spatial stage, a learned temporal filter, depth 1, no node pooling — lift the graph model
+from 0.6038 to 0.6629, **+0.0591**, on 80 % of subjects. Nothing about the graph changed.
+
+**And the graph itself contributes nothing.** Hard constraint (G1), free operator (G2) and
+soft prior (G3) are mutually indistinguishable, spanning 0.0108 in total. The prior wins on
+exactly half the subjects.
+
+**The sharpest observation, and it revises 9.11 again.** In the *wrong* architecture,
+freeing the spatial operator was significant: A1 gained +0.0128 (p = 0.0046) over the fixed
+graph. In the *right* architecture the same relaxation gains +0.0065 and is not
+distinguishable. **The graph constraint only cost anything while the rest of the
+architecture was broken.** A1's 16 % was not measuring a graph problem; it was measuring
+how much slack a badly-ordered network had. That is a different claim from either "the
+graph helps" or "the graph hurts", and it is better supported than both.
+
+#### 9.13.4 On the 0.70 target
+
+**G3 at 0.6737 is the project's best model and is statistically identical to
+ShallowConvNet.** 17.11 set out that *reaching* ShallowConvNet with a graph-informed model
+would be a result and *exceeding* it would be surprising. The first happened; the second did
+not, and the +0.0012 margin is a rounding artefact rather than a lead.
+
+0.70 remains **+0.0263** away — almost exactly the gap CSP once held over us, now pointing
+the other way. Nothing in 9.13 suggests architecture alone will close it: three
+architecturally distinct spatial stages landed within 0.011 of each other and of
+ShallowConvNet, which looks like a ceiling for this representation rather than a plateau
+between designs. 17.11.2's pre-training route is untouched by these results and remains the
+strongest untested lever.
+
+**These arms are exploratory.** Not on the 10.3 list, and they test a claim (9.11.2) formed
+after the confirmatory runs. Four-for-four on pre-registered predictions is evidence they
+should be taken seriously; it is not a substitute for confirmatory status.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -2825,6 +2913,36 @@ ShallowConvNet.
 ## 18. Changelog
 
 ### 2026-09-03
+
+- **G arms complete (3,090 folds) and scored: 9.13. All four 9.12 predictions hold.**
+  - **A graph model now beats CSP+LDA.** G1 — the *hard* Chebyshev constraint, the same
+    formulation the paper proposes — reaches **0.6629** and beats CSP by **+0.0389**
+    (p = 0.0011 Holm, 72/103 subjects). Every previous graph arm lost to CSP.
+  - **The reordering was the entire story.** The four changes in 9.11.2 lift the graph model
+    from 0.6038 to 0.6629: **+0.0591 on 80 % of subjects.** Nothing about the graph changed.
+  - **The graph itself contributes nothing.** Hard constraint (0.6629), free operator
+    (0.6694) and soft prior (0.6737) span 0.0108 and are mutually indistinguishable. The
+    prior wins on **51/103** subjects — a coin flip. The contribution 17.11 hoped for is not
+    there.
+  - **The observation that revises 9.11 again.** In the *wrong* architecture, freeing the
+    spatial operator was significant (A1: +0.0128, p = 0.0046). In the *right* one the same
+    relaxation gains +0.0065 and is not distinguishable. **The graph constraint only cost
+    anything while the rest of the architecture was broken.** A1's 16 % was measuring slack
+    in a badly-ordered network, not a graph problem.
+  - **G3 at 0.6737 is the project's best model and is statistically identical to
+    ShallowConvNet** (+0.0012, p = 0.99, 46/103). 17.11 said reaching ShallowConvNet with a
+    graph-informed model would be a result and exceeding it would be surprising: the first
+    happened, the second did not.
+  - **Four-for-four on pre-registered predictions**, which is worth stating because 9.7.1 is
+    the counter-example. The difference is that these were written down first.
+- **`CLAUDE.md` Expected Results corrected again.** "Graph-convolutional deep learning does
+  not work on this data" — added yesterday — is now false. Two G rows added, and the
+  attention arm's "the best model we have" note retired.
+- **On 0.70:** still +0.0263 away, almost exactly the gap CSP once held over us. Three
+  architecturally distinct spatial stages landed within 0.011 of each other *and* of
+  ShallowConvNet, which reads as a ceiling for this representation rather than a plateau
+  between designs. 17.11.2's pre-training route is untouched by these results and remains
+  the strongest untested lever.
 
 - **`scripts/run_pretrain_finetune.py` implemented** (17.11.2), with 8 leakage tests;
   suite is 267. Not yet run beyond a smoke test on four subjects.
