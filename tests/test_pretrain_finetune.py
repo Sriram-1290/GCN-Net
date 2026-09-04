@@ -197,3 +197,148 @@ def test_model_factory_covers_every_runner_architecture():
     m = _load()
     with pytest.raises(ValueError, match="unknown model"):
         m.build_model("resnet", None, 64, 2, 160.0)
+
+
+# ------------------------------------------------- the source-model cache
+
+class _Args:
+    """A stand-in for the parsed namespace, carrying only what the key hashes."""
+
+    def __init__(self, **over):
+        self.model = "graphbp"
+        self.spatial = "graph"
+        self.graph_smoothness = 0.0
+        self.classes = [0, 1]
+        self.window = 64
+        self.stride = 16
+        self.lmax = 2.0
+        self.groups = 10
+        self.pretrain_epochs = 30
+        self.pretrain_lr = 1e-3
+        self.batch_size = 256
+        self.config = "configs/bandpass_8_30.yaml"
+        self.__dict__.update(over)
+
+
+def _key(module, args=None, seed=42, group=1, source=None, val=None):
+    return module.source_cache_key(
+        args or _Args(), seed, group,
+        source if source is not None else ["S001", "S002", "S003"],
+        val if val is not None else ["S004"])
+
+
+def test_source_cache_key_is_stable_across_calls():
+    m = _load()
+    assert _key(m) == _key(m)
+
+
+def test_source_cache_key_ignores_subject_list_order():
+    """The source set is a set; a reordering must still hit the same cache entry."""
+    m = _load()
+    assert _key(m, source=["S001", "S002", "S003"]) == \
+           _key(m, source=["S003", "S001", "S002"])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("model", "shallow"),
+    ("spatial", "free"),
+    ("graph_smoothness", 0.1),
+    ("classes", [2, 3]),
+    ("window", 128),
+    ("stride", 32),
+    ("lmax", 1.5),
+    ("groups", 5),
+    ("pretrain_epochs", 10),
+    ("pretrain_lr", 1e-2),
+    ("batch_size", 512),
+    ("config", "configs/default.yaml"),
+])
+def test_every_hyperparameter_that_changes_the_weights_changes_the_key(field, value):
+    """A stale hit would pre-train on the wrong thing — the failure this must not have."""
+    m = _load()
+    assert _key(m) != _key(m, args=_Args(**{field: value})), (
+        f"{field} changes the fitted source model but not its cache key")
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"seed": 43},
+    {"group": 2},
+    {"source": ["S001", "S002", "S009"]},
+    {"val": ["S005"]},
+])
+def test_run_identity_fields_change_the_key(kwargs):
+    m = _load()
+    assert _key(m) != _key(m, **kwargs)
+
+
+def test_source_cache_key_is_a_short_hex_digest():
+    m = _load()
+    k = _key(m)
+    assert len(k) == 16 and all(c in "0123456789abcdef" for c in k)
+
+
+def test_source_cache_is_on_by_default_and_can_be_disabled():
+    """Caching only removes recomputation, so it is safe as a default; the flag
+    exists to force a cold pre-train when checking reproducibility."""
+    import subprocess
+    out = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "run_pretrain_finetune.py"), "--help"],
+        capture_output=True, text=True, timeout=120).stdout
+    assert "--source-cache" in out
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    assert 'default="runs/source_models"' in src
+
+
+def test_cached_checkpoint_is_written_atomically():
+    """A power cut mid-write must not leave a truncated file a later run trusts.
+
+    Three power cuts have already interrupted this script; a half-written
+    checkpoint that loaded cleanly would corrupt an arm silently.
+    """
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    assert ".partial" in src and "tmp.replace(cache_path)" in src
+
+
+# ------------------------------------- each stage seeds itself (reproducibility)
+
+def test_seed_stage_is_deterministic_and_distinct_per_stage():
+    m = _load()
+    import torch
+
+    def draw(*parts):
+        m.seed_stage(42, *parts)
+        return torch.rand(4).tolist()
+
+    assert draw(1, 0, 0) == draw(1, 0, 0), "the same stage must draw the same numbers"
+    assert draw(1, 0, 0) != draw(2, 0, 0), "different groups must not share a stream"
+    assert draw(1, 1, 0) != draw(1, 1, 1), "different folds must not share a stream"
+    assert draw(1, 0, 0) != _seed_other(m, 43), "the run seed must still matter"
+
+
+def _seed_other(m, seed):
+    import torch
+    m.seed_stage(seed, 1, 0, 0)
+    return torch.rand(4).tolist()
+
+
+def test_validation_pick_does_not_depend_on_how_many_groups_preceded_it():
+    """A resumed run skips completed groups; the survivors must be unaffected.
+
+    Before this, `val_pick` came from one generator advanced once per group, so a
+    run resumed mid-cohort drew a different validation split for every remaining
+    group than an uninterrupted run would — silently unreproducible.
+    """
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    assert "np.random.default_rng([seed, gi])" in src, (
+        "the validation pick must be seeded per group, not drawn from a shared "
+        "generator whose position depends on the resume point")
+
+
+def test_finetune_is_seeded_before_the_model_is_built():
+    """Dropout draws from the global generator, so the fine-tune stage has to be
+    seeded before it runs or a cached source model changes the result."""
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    ft = src.index("# -------------------------------------------------------- fine-tune")
+    seed_call = src.index("seed_stage(seed, gi, j + 1, split.fold)", ft)
+    build = src.index("build_model(", seed_call)
+    assert seed_call < build, "seed_stage must precede build_model in the fine-tune loop"

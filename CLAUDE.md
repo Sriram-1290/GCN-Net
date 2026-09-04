@@ -13,6 +13,15 @@ Building an improved graph convolutional network for EEG motor imagery decoding,
 
 **Hardware:** RTX 5060 8GB. Model is small (~350K params) — VRAM is NOT a constraint. Do not add mixed precision, gradient checkpointing, or memory optimizations unless explicitly asked.
 
+- *Qualified 2026-09-05:* true of parameters, **not of activations for `graphbp`**. That
+  architecture reshapes to `(B x t_out, M, F)` before the spatial stage, so activations
+  scale with batch x time: 1.23 GB at batch 256 (14 % of the card) but an overflow to host
+  memory at batch 1024, which collapses throughput 16x. **Batch 256 is near this
+  architecture's ceiling, not an arbitrary default — do not raise it.** Throughput is flat
+  from batch 256 to 384 (8,004 → 8,431 samples/s), so the GPU is already saturated and
+  there is no speed left to win in the training loop; making the data GPU-resident measures
+  1.0x. The cost that *can* be reduced is algorithmic — see §18 (2026-09-05).
+
 **Stack:** Python, PyTorch, PyTorch Geometric, MNE-Python, NumPy/SciPy, scikit-learn, Matplotlib.
 
 ---

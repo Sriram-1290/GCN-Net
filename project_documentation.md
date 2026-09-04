@@ -2442,6 +2442,7 @@ process that reported success.**
 | 21 | The 5.9 edit **deleted the `## 6. Discussion` heading**; the prose survived, so the paper read correctly but ran 5 -> 7 for three commits, including in a released PDF | listing headings during an audit, not reading the prose | restored; now covered by `test_section_numbering_is_contiguous` |
 | 24 | **Under-costed the pre-training arm by ~8x** — projected 6-8 h, measured ~51 h — by carrying the LOSO timing (`GCNsNet`, which pools time before the convs) over to `graphbp` (which deliberately carries the time axis *through* the spatial stage, so its cost scales with pooled sample count far more steeply) | the arm reached 50 folds in 149 min when it should have reached ~450 | grouped pre-training reduces 206 pre-trainings to ~20; a timing probe on the actual arm would have cost three minutes |
 | 23 | `--stop-at` rolled a past time forward to **tomorrow**. Each process honoured 03:00 correctly, but the shell loop then started the next binary problem at 03:00:0x, which read its own deadline as past and scheduled itself for the *following day* — a 24-hour run from a flag meant to bound one to 50 minutes | the user asked for status at 03:02 and the processes were still alive with `-2-3` tags gaining rows | a past time now stops immediately, which is the only reading that composes under repetition |
+| 25 | **Fine-tuning results depended on how much work the process had already done.** Dropout draws from the global torch generator, and `val_pick` came from one generator advanced once per group, so skipping a completed group on resume shifted every remaining fold. The three power-cut resumes were therefore not reproducible, and the logged PTG/PTC numbers cannot be re-derived exactly by a clean run | adding a source-model cache and finding the cached run scored 0.5188 where the cold run scored 0.5110 — the cache was supposed to be result-neutral | each stage now seeds itself from its own identity (`seed_stage`), and `val_pick` is seeded per group; a resumed run now reproduces an uninterrupted one fold for fold (verified on 12 folds) |
 | 22 | The log's exclusive lock seeked to **EOF** before locking one byte, but `msvcrt.locking` locks relative to the *current position* — so once two processes saw different EOFs they locked different bytes and the mutual exclusion lapsed | its own regression test (for error 13) went intermittently flaky under full-suite load | lock byte fixed at offset 0, a rendezvous every process agrees on; 10/10 clean afterwards |
 
 **The recurring lesson.** A process exiting with code 0 and printing a plausible mean is
@@ -3107,6 +3108,38 @@ ShallowConvNet.
 ---
 
 ## 18. Changelog
+
+### 2026-09-05
+
+- **Costed the pre-training arm properly and cached the expensive half.** The cost is
+  measured from timestamp deltas in the log, not estimated — error 24 was an 8x estimate
+  miss, so this is now derived from what actually ran.
+  - **PTG's 4.86 h wall clock decomposes as 2.6 h of source-model fitting (~70 %) plus
+    1.21 h of fine-tuning plus a 1.12 h power-cut gap.** The source fit is 20 models
+    (10 groups x 2 problems) at ~8.0 min each; `prepare_fold` is under 60 s per group and
+    is not a factor.
+  - **The source models are now cached** (`--source-cache`, on by default, keyed by a hash
+    of everything that determines the weights). A resume previously re-paid the full 8 min
+    for any group with even one fold outstanding — which the three power cuts each
+    triggered. A re-run of the same arm now costs the fine-tuning hour alone.
+  - **This exposed error 25.** The cache was supposed to change nothing and changed the
+    result, because the fine-tuning stage inherited whatever global RNG state the process
+    happened to be in. Fixed by seeding each stage from its own identity. **Consequence:
+    the logged PTG and PTC numbers were produced under the old, resume-dependent seeding
+    and are not exactly reproducible by the current code** — they were never exactly
+    reproducible, since they depended on where the power cuts fell. Future runs are.
+  - **There is no engineering optimisation left.** Measured on an idle GPU, `graphbp`
+    reaches 8,004 samples/s at batch 256 and 8,431 at batch 384 — flat, so the card is
+    already saturated at the production batch size. Peak VRAM at batch 256 is **1.23 GB of
+    8.5 GB (14 %)**, so the arm is not memory-constrained either. Making the training
+    tensor GPU-resident instead of gathering each batch on CPU measured **1.0x**: the time
+    is genuinely in the model's forward and backward pass, not in data movement.
+  - **`CLAUDE.md`'s "the model is tiny, VRAM is not a constraint" holds for parameters and
+    misleads about activations.** `graphbp` has 23 K parameters but reshapes to
+    `(B x t_out, M, F)` before the spatial stage, so activations scale with batch x time.
+    At batch 1024 that overflows 8 GB and spills to host memory, collapsing throughput to
+    488 samples/s — a 16x slowdown. Batch 256 is not a tuning choice to revisit; it is
+    near the ceiling this architecture allows.
 
 ### 2026-09-04
 

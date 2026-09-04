@@ -65,6 +65,8 @@ before walking away** — that is the check error 24 skipped. `--resume` is keye
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
 import time
 from pathlib import Path
@@ -123,6 +125,41 @@ def assign_groups(subjects: list[str], n_groups: int) -> list[list[str]]:
     return [g for g in groups if g]
 
 
+def seed_stage(seed: int, *parts: int) -> None:
+    """Seed every RNG a training stage touches, from the stage's own identity.
+
+    Without this, a stage's result depends on how much work the *process* did
+    before it: dropout draws from the global generator, so skipping a pre-training
+    fit (a cache hit, or a resumed run picking up mid-cohort) shifts every
+    subsequent fold. That made three power-cut resumes silently non-reproducible
+    and made the source-model cache change results. Seeding per stage makes each
+    fold a pure function of its own configuration.
+    """
+    h = hashlib.sha256(":".join(str(p) for p in (seed, *parts)).encode()).digest()
+    torch.manual_seed(int.from_bytes(h[:8], "big") % (2 ** 63))
+
+
+def source_cache_key(args, seed: int, group_idx: int,
+                     source: list[str], val_pick: list[str]) -> str:
+    """Hash everything the source model's weights depend on.
+
+    Deliberately exhaustive rather than clever: a stale hit here would silently
+    pre-train on the wrong subjects, which is the one failure this script exists to
+    make impossible. Anything that changes the fitted weights must change the key,
+    so the source and validation subject lists are hashed by name.
+    """
+    payload = json.dumps({
+        "model": args.model, "spatial": args.spatial,
+        "graph_smoothness": args.graph_smoothness,
+        "classes": args.classes, "window": args.window, "stride": args.stride,
+        "lmax": args.lmax, "seed": seed, "n_groups": args.groups, "group": group_idx,
+        "epochs": args.pretrain_epochs, "lr": args.pretrain_lr,
+        "batch_size": args.batch_size, "config": str(args.config),
+        "source": sorted(source), "val": sorted(val_pick),
+    }, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def subset_samples(s: Samples, trial_ids: set[int]) -> Samples:
     """Take the windows belonging to a set of trials.
 
@@ -171,6 +208,13 @@ def main() -> int:
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="ptft")
     ap.add_argument("--stop-at", default=None, metavar="[YYYY-MM-DD ]HH:MM")
+    ap.add_argument("--source-cache", default="runs/source_models",
+                    help="directory of cached source models; '' disables caching. "
+                         "A source model is keyed by everything that determines it "
+                         "(model, group, source subjects, validation pick, epochs, lr, "
+                         "batch, window, stride, seed, config), so a hit is exact. "
+                         "Pre-training is ~70%% of this script's cost and is otherwise "
+                         "re-paid in full whenever a run is resumed.")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
@@ -230,7 +274,6 @@ def main() -> int:
         print(describe_resume(done, len(subjects) * args.folds, args.tag))
 
     per_subject: list[float] = []
-    rng = np.random.default_rng(seed)
     t0 = time.time()
 
     for gi, group in enumerate(groups, 1):
@@ -245,8 +288,12 @@ def main() -> int:
         # The whole GROUP is excluded, so every target in it is absent from its own
         # source set: not their trials, not the graph, not the standardiser.
         source = [s for s in subjects if s not in group]
-        val_pick = list(rng.choice(source, size=min(args.val_subjects, len(source) - 1),
-                                   replace=False))
+        # Drawn from a generator seeded by this group alone: on a resumed run the
+        # skipped groups must not shift which subjects validate this one.
+        val_rng = np.random.default_rng([seed, gi])
+        val_pick = list(val_rng.choice(source,
+                                       size=min(args.val_subjects, len(source) - 1),
+                                       replace=False))
         src_train = concat_trials([trials[s] for s in source if s not in val_pick])
         src_val = concat_trials([trials[s] for s in val_pick])
 
@@ -263,16 +310,38 @@ def main() -> int:
 
         pretrained_state = None
         if not args.no_pretrain:
-            model = build_model(args.model, prepared, args.window, n_classes, sfreq,
-                                spatial=args.spatial,
-                                graph_smoothness=args.graph_smoothness)
-            trainer = Trainer(model, pre_cfg, n_classes=n_classes)
-            trainer.fit(prepared)
-            pretrained_state = {k: v.detach().clone()
-                                for k, v in trainer.model.state_dict().items()}
-            if not args.quiet:
-                print(f"group {gi}/{len(groups)}: pre-trained on {len(source)} subjects "
-                      f"[{time.time() - t0:.0f}s elapsed]", flush=True)
+            cache_path = None
+            if args.source_cache:
+                cache_dir = Path(args.source_cache)
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                key = source_cache_key(args, seed, gi, source, list(val_pick))
+                cache_path = cache_dir / f"src-{args.tag}-g{gi}-{key}.pt"
+
+            if cache_path is not None and cache_path.exists():
+                pretrained_state = torch.load(cache_path, map_location="cpu",
+                                              weights_only=True)
+                if not args.quiet:
+                    print(f"group {gi}/{len(groups)}: reused cached source model "
+                          f"({cache_path.name}) [{time.time() - t0:.0f}s elapsed]",
+                          flush=True)
+            else:
+                seed_stage(seed, gi, 0, 0)
+                model = build_model(args.model, prepared, args.window, n_classes, sfreq,
+                                    spatial=args.spatial,
+                                    graph_smoothness=args.graph_smoothness)
+                trainer = Trainer(model, pre_cfg, n_classes=n_classes)
+                trainer.fit(prepared)
+                pretrained_state = {k: v.detach().clone()
+                                    for k, v in trainer.model.state_dict().items()}
+                if cache_path is not None:
+                    # Write via a temporary file: a power cut mid-write would otherwise
+                    # leave a truncated checkpoint that a later run would load as valid.
+                    tmp = cache_path.with_suffix(".pt.partial")
+                    torch.save({k: v.cpu() for k, v in pretrained_state.items()}, tmp)
+                    tmp.replace(cache_path)
+                if not args.quiet:
+                    print(f"group {gi}/{len(groups)}: pre-trained on {len(source)} "
+                          f"subjects [{time.time() - t0:.0f}s elapsed]", flush=True)
 
         for j, target in enumerate(group):
             if all((target, f) in done for f in range(args.folds)):
@@ -291,6 +360,7 @@ def main() -> int:
                 ft_train = subset_samples(prepared.test, set(split.train + base))
                 ft_test = subset_samples(prepared.test, set(split.test + base))
 
+                seed_stage(seed, gi, j + 1, split.fold)
                 model = build_model(args.model, prepared, args.window, n_classes, sfreq,
                                     spatial=args.spatial,
                                     graph_smoothness=args.graph_smoothness)
