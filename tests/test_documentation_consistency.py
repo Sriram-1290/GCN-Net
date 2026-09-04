@@ -55,6 +55,7 @@ HEADLINES = {
     "G2 free operator":    ("G2-gbp-free-binary", "trial_accuracy", 0.6694),
     "G3 graph as prior":   ("G3-gbp-prior-binary", "trial_accuracy", 0.6737),
     "PTC control":         ("PTC-gbp-binary", "trial_accuracy", 0.6744),
+    "PTG pre-trained":     ("PTG-gbp-binary", "trial_accuracy", 0.7301),
 }
 TOL = 5e-4
 
@@ -189,3 +190,30 @@ def test_every_citation_resolves(doc):
              for n in grp.split(",") if n.strip().isdigit()}
     assert not cited - defined, f"cited but undefined: {sorted(cited - defined)}"
     assert not defined - cited, f"defined but never cited: {sorted(defined - cited)}"
+
+
+# ------------------------------- 4. the one comparison that must never be made
+
+@pytest.mark.parametrize("doc", DOCS)
+def test_ptg_is_never_compared_to_the_within_session_ceiling(doc):
+    """PTG sees ~92 other subjects; the 0.650 benchmark arms see only their own.
+
+    9.15.4 forbids presenting PTG against that figure as if it were like-for-like.
+    Any paragraph that mentions both must also carry the disclaimer, so the guard is:
+    wherever 0.7206 and 0.650 appear near each other, a denial appears too.
+    """
+    text = (ROOT / doc).read_text(encoding="utf-8")
+    for m in re.finditer(r"0\.7206", text):
+        window = text[max(0, m.start() - 900):m.start() + 900]
+        if "0.650" not in window:
+            continue
+        assert re.search(
+            r"not\s+(a\s+)?like[- ]for[- ]like"
+            r"|must not be drawn"
+            r"|must (not|never) be (given|presented)"
+            r"|never compare"
+            r"|different protocol",
+            window, re.I), (
+            f"{doc} places PTG's 0.7206 beside the 0.650 within-session ceiling "
+            "without the disclaimer required by 9.15.4."
+        )

@@ -36,15 +36,25 @@ the same ~45 trials per problem reach and exceed the classical baseline — EEGN
 (indistinguishable from CSP, p = 0.49) and ShallowConvNet 0.6725 (+0.0485 over CSP,
 p = 0.0006), the latter placing 94 of 103 subjects above chance and exceeding the best
 single configuration reported from a 216,714-pipeline search on this dataset. Deep learning
-is therefore not limited by sample size here; the graph-convolutional formulation is
-limited by something other than the constraint usually invoked for it. Finally, a resting
-sensorimotor-rhythm measure taken from a task-free baseline run predicts per-subject
-decodability equally well for the graph network (r = +0.547) and for the classical baseline
-(r = +0.548), accounting for roughly 30 % of the between-subject variance and bounding what
-any architecture could recover here. We conclude that the reported figure measures an
-evaluation protocol rather than a decoding capability, and that the graph prior is the
-binding limitation on this task — but that identifying *which* part of the formulation binds
-requires controls, not inference from null results.
+is therefore not limited by sample size here.
+
+The limitation is nonetheless not the graph. Reordering the network so that power is taken
+*after* the spatial stage, with a learned temporal filter, a single spatial layer and no
+node pooling, lifts the identical Chebyshev graph convolution to 0.6629 and past the
+classical baseline by 0.0389 on 70 % of subjects, with nothing about the graph altered.
+Three variants — hard constraint, unconstrained operator, and the graph as a Dirichlet
+prior — span 0.0108 and are mutually indistinguishable, so the graph is neither the handicap
+it first appeared nor a source of usable information. Finally, cross-subject pre-training
+with a group-wise design that never places a subject in their own source set adds 0.0557
+over an otherwise identical control on 90 % of subjects, reaching 0.7301 with 98 of 103
+subjects above chance; the gain is twice as large in the weakest quartile as in the
+strongest, and between-subject variance falls. A resting sensorimotor-rhythm measure from a
+task-free baseline predicts per-subject decodability equally for a graph network
+(r = +0.547) and the classical baseline (r = +0.548), accounting for roughly 30 % of the
+between-subject variance. We conclude that the reported figure measures an evaluation
+protocol rather than a decoding capability; that the graph-convolutional formulation was
+never the binding constraint, though the graph earns nothing either; and that the largest
+available gain on this dataset comes from data rather than architecture.
 
 **Keywords:** EEG, motor imagery, brain–computer interface, graph convolutional networks,
 data leakage, reproducibility, common spatial patterns
@@ -115,8 +125,23 @@ the protocol does not measure what it is taken to measure.
    80 % of subjects against the fixed graph but on only a third against the classical
    baseline, from comparable p-values.
 
-All code, the full experiment log covering 12,590 folds, and a record of the twenty-four errors
-made and corrected during this work are released with the paper.
+9. **A reordering that makes a graph model competitive** (§5.11). Taking power after the
+   spatial stage, with a learned temporal filter, one spatial layer and no node pooling,
+   lifts the same Chebyshev convolution from 0.6038 to 0.6629 and past CSP+LDA — with the
+   graph untouched. Three variants isolating the graph's role are mutually
+   indistinguishable, so the formulation was never the binding constraint and the graph
+   contributes nothing either. This also corrects §5.9: the constraint it measured only
+   cost anything while the surrounding architecture was misordered.
+
+10. **Cross-subject pre-training, with the control that makes it interpretable** (§5.12).
+    Pre-training on other subjects and fine-tuning on the target's own folds adds 0.0557
+    over an otherwise identical arm with pre-training skipped, on 90 % of subjects, reaching
+    0.7301. The gain is concentrated in the weakest quartile. We report it as a claim about
+    data rather than architecture, since the technique is architecture-agnostic and the
+    transfer control has not been run.
+
+All code, the full experiment log covering 17,795 folds, and a record of the twenty-four
+errors made and corrected during this work are released with the paper.
 
 ---
 
@@ -352,6 +377,21 @@ full channel pattern at each instant, s_t = W_2 tanh(W_1 x_t), and normalised ov
 softmax to give α ∈ ℝ^(T×H). The output is Σ_t α_{t,h} x_t ∈ ℝ^(M×H). Profiles are shared
 across nodes by default. Unlike the adjacency this is not initialisation-equivalent to the
 baseline: the first convolution sees F_in = H rather than T.
+
+**Reordered spatial-then-power block (§5.11).** A learned temporal filter of F kernels is
+applied per node, the graph convolution then acts on the F-dimensional node features at each
+retained time step, and power is taken last as `mean_t(h²) → log`. The graph operator itself
+is the same Chebyshev filter as the baseline; three variants differ only in whether the
+spatial weights are constrained to the Chebyshev basis, free, or free with a Dirichlet
+penalty ‖·‖_L over the electrode graph, using the combinatorial Laplacian D − A so that a
+constant potential across electrodes is penalised at zero.
+
+**Grouped cross-subject pre-training (§5.12).** Subjects are partitioned into ten groups by
+index, and one source model is fitted per group on the cohort minus that entire group, so no
+subject's source model has seen that subject. Each target's own folds then fine-tune the
+corresponding source model at a tenth of the pre-training learning rate. The fine-tuning
+stage holds out no validation set and selects the final epoch, so no target test trial can
+influence model selection.
 
 ### 4.7 Statistical procedure
 
@@ -682,6 +722,131 @@ rather than of the models.
 
 ---
 
+### 5.11 Reordering the architecture (exploratory)
+
+Section 6 of an earlier draft of this paper offered a hypothesis and declined to test it:
+that the difference between the graph models and the networks outperforming them is
+*temporal*, since both graph-free networks convolve over time before combining channels
+while the architecture studied here operates spatially first. We then tested it.
+
+**What the ordering argument actually says.** CSP combines channels linearly and *then*
+takes the variance. The combination works by cancellation between channels, which requires
+phase-coherent voltage: square first and the sign is gone, so no subsequent linear
+combination can perform that cancellation. This is why §5.5's null result — band power
+supplied as node features, computed per channel before the network — says nothing about the
+present question. That is power-then-spatial; CSP, FBCSP and ShallowConvNet are all
+spatial-then-power.
+
+**Four changes, none of them to the graph.** We built a network that (i) takes power
+*after* the spatial stage as `square → mean over time → log`, where GCNs-Net applies a
+softplus to voltage; (ii) places a learned temporal filter first, so the time axis survives
+until power is taken, whereas attention pooled it away before the first convolution;
+(iii) uses one spatial layer rather than six; and (iv) drops the Graclus node pooling. The
+graph is untouched.
+
+**Three variants isolate the graph's role**, and are the only thing that differs between
+them: **G1** keeps the Chebyshev constraint, **G2** frees the spatial operators entirely,
+and **G3** frees them but adds a Dirichlet-energy penalty over the electrode graph — the
+graph as a *prior* rather than a constraint, which is the form A1's result suggests might
+survive. Predictions were registered before any aggregate was computed.
+
+| Arm | L vs R | B vs F | Within-family | Above chance |
+|---|---|---|---|---|
+| Fixed PCC graph | 0.5148 | 0.5728 | 0.5438 | 65/103 |
+| GCN + temporal attention (§5.6) | 0.5877 | 0.6198 | 0.6038 | 83/103 |
+| CSP+LDA | 0.5942 | 0.6537 | 0.6239 | 81/103 |
+| ShallowConvNet | 0.6608 | 0.6841 | 0.6725 | 94/103 |
+| **G1 — graph constraint** | 0.6408 | 0.6850 | **0.6629** | 88/103 |
+| **G2 — free operator** | 0.6494 | 0.6893 | **0.6694** | 93/103 |
+| **G3 — graph as prior** | 0.6520 | 0.6954 | **0.6737** | 91/103 |
+
+Paired, two-sided, Holm-corrected:
+
+| Comparison | Difference | p | Subjects won |
+|---|---|---|---|
+| **G1 vs GCN + attention** | **+0.0591** [+0.0458, +0.0722] | 0.0014 | 82/103 (80 %) |
+| **G1 vs CSP+LDA** | **+0.0389** [+0.0224, +0.0552] | 0.0014 | 72/103 (70 %) |
+| G2 vs G1 (constraint lifted) | +0.0065 [−0.0018, +0.0148] | 0.52 | 53/103 |
+| G3 vs G2 (the prior added) | +0.0043 [−0.0020, +0.0107] | 0.54 | 51/103 |
+| G3 vs ShallowConvNet | +0.0012 [−0.0099, +0.0121] | 0.99 | 46/103 |
+
+**A graph-based model now beats the classical baseline.** G1 is the *hard* Chebyshev
+constraint — the same formulation the original work proposes — and it exceeds CSP+LDA by
+0.0389 on 70 % of subjects. Every graph configuration in §5.6 lost to CSP. The reordering
+alone lifts the graph model by 0.0591 on four subjects in five, and nothing about the graph
+changed.
+
+**The graph itself contributes nothing.** Hard constraint, free operator and soft prior
+span 0.0108 in total and are mutually indistinguishable; the prior wins on exactly half the
+subjects. Whatever the electrode graph encodes, this architecture does not need it.
+
+**This revises §5.9's conclusion rather than confirming it.** In the *unreordered*
+architecture, freeing the spatial operator was a significant improvement (A1: +0.0128,
+p = 0.0046). In the reordered one, the identical relaxation gains 0.0065 and is not
+distinguishable from zero. The graph constraint only cost anything while the rest of the
+architecture was misordered — so A1's 16 % was measuring the slack available in a badly
+ordered network, not a property of graph convolution.
+
+### 5.12 Cross-subject pre-training (exploratory)
+
+Section 5.8 reported two numbers that had never been combined: leave-one-subject-out at
+0.6040, with roughly a hundred times the training data and no subject-specific calibration,
+and subject-dependent at 0.6038, with calibration and approximately 36 training trials per
+fold. They are the same number reached from opposite directions, and neither uses the
+other's information.
+
+We pre-train on other subjects and then fine-tune on the target's own training folds.
+Subjects are partitioned into ten groups; each group's source model excludes that entire
+group, so **no subject is ever pre-trained on their own data** — not their trials, not the
+graph, not the normalisation statistics. Fine-tuning uses the same folds as every other arm
+at the same seed.
+
+**A control is mandatory here and is reported alongside.** Pre-training and source-fit
+normalisation change together, so only the difference between the pre-trained arm and an
+otherwise identical arm with pre-training skipped isolates the effect of pre-training. We
+ran both.
+
+| Arm | L vs R | B vs F | Within-family | Above chance |
+|---|---|---|---|---|
+| **PTC** — control, pre-training skipped | 0.6533 | 0.6956 | **0.6744** | 89/103 |
+| **PTG** — cross-subject pre-training | **0.7206** | **0.7396** | **0.7301** | **98/103** |
+
+| Comparison | Difference | p | Subjects won |
+|---|---|---|---|
+| **PTG vs PTC** (isolates pre-training) | **+0.0557** [+0.0464, +0.0650] | 0.0014 | **93/103 (90 %)** |
+| PTG vs ShallowConvNet | +0.0576 [+0.0454, +0.0693] | 0.0014 | 85/103 (83 %) |
+| PTG vs G3 | +0.0564 [+0.0461, +0.0666] | 0.0014 | 87/103 (84 %) |
+
+The control landing at 0.6744 — indistinguishable from G3's 0.6737 — is what makes the
+contrast interpretable: the representation change is neutral, so the 0.0557 is pre-training.
+
+**The gain is concentrated where the deficit was.** Splitting subjects by their control
+accuracy, the weakest quartile gains 0.0720 and the strongest 0.0346, and between-subject
+standard deviation falls from 0.1548 to 0.1490. This is the variance reduction reported for
+pre-training elsewhere [19], and it matters because §5.10 located the shortfall below the
+median rather than at the top. Ninety-eight of 103 subjects are now above chance, against
+89 without pre-training.
+
+**On the size of the number.** 0.7301 is the highest figure this work produces, and an
+unexpectedly high number is the point at which leakage should be suspected rather than
+celebrated. We ran eight structural checks before recording it: group assignment matches
+the deterministic rule; every source set is exactly the cohort minus that group; no target
+appears in its own source set; all 1,030 fine-tuning folds report final-epoch selection, so
+nothing was ever chosen using the target's test trials; and the gain is distributed across
+groups (SD 0.0189) rather than concentrated in a few. The shape of the effect argues the
+same way: a leak of test information would be expected to help uniformly, or to help
+already-strong subjects, not to help the weakest quartile twice as much as the strongest.
+
+**One comparison that must not be drawn.** PTG's 0.7206 on left-versus-right exceeds the
+0.650 that [17] reports as the best of 216,714 configurations on this dataset. **That is not
+a like-for-like comparison.** Those pipelines are evaluated within-session and see only the
+target subject's own data, whereas PTG additionally consumes roughly 92 other subjects'
+recordings. It is not a better pipeline under their protocol; it is a different protocol
+with two orders of magnitude more data. Every other arm in this paper is directly
+comparable to that figure. This one is not.
+
+---
+
 ## 6. Discussion
 
 **The reported figure measures a protocol.** The gap between 0.8975 under the published
@@ -697,38 +862,48 @@ split this is invisible, because neighbouring timepoints of the same trial appea
 sides and the classifier can memorise trial-specific voltage. Under an honest split it is
 fatal. Our repairs work by restoring temporal extent, not by improving the graph.
 
-**The graph formulation is the limitation, and it is not sample size.** Every
-graph-based configuration we built plateaus between 0.5438 and 0.6038, while two graph-free
-convolutional networks on identical folds and identical trial counts reach 0.6296 and
-0.6725 (§5.9). ShallowConvNet beats the fixed-graph model on 95 of 103 subjects. Since the
-training data is the same by construction, the widely available explanation that deep
-models simply need more trials than this dataset supplies [16] does not apply to this
-comparison.
+**The limitation was the architecture around the graph, not the graph.** Every
+graph configuration in §5.6 plateaus between 0.5438 and 0.6038 while graph-free networks on
+identical folds reach 0.6296 and 0.6725, which invites the conclusion that the graph
+formulation is what fails. It is the wrong conclusion. Reordering the network so that power
+is taken *after* the spatial stage, with a learned temporal filter, one spatial layer and no
+node pooling, lifts the same Chebyshev graph convolution to 0.6629 — past CSP+LDA by 0.0389
+on 70 % of subjects (§5.11). Nothing about the graph changed. The published graph
+*formulation* was never the binding constraint; the pipeline it sat inside was.
 
-**But the constraint usually invoked accounts for a minority of the gap.** It is natural to
-attribute graph-network underperformance to locality and node-shared weights: an order-2
-Chebyshev convolution mixes only within one-hop neighbourhoods, whereas CSP fits an
-unconstrained spatial projection over all 64 channels using the labels, and learning the
-adjacency changes which nodes are neighbours without lifting either restriction. We tested
-that attribution directly by freeing the operators entirely, and it recovers 16 % of the
-gap. The claim is therefore correct in direction and substantially wrong in magnitude.
+**Yet the graph contributes nothing.** Hard constraint, unconstrained operator and soft
+Dirichlet prior span 0.0108 and are mutually indistinguishable, and the prior wins on
+exactly half the subjects. The electrode graph is neither the handicap it appeared to be in
+§5.9 nor a source of usable information; in a correctly ordered network it is close to
+inert. This bears directly on the turn toward adaptive and learnable adjacencies [4, 5],
+because it suggests the choice of graph is not where the remaining performance lives.
 
-This matters beyond the present architecture, because the same attribution motivates the
-recent turn toward adaptive and learnable adjacencies [4, 5]. Our measurements suggest that
-line of work addresses a genuine but secondary constraint. The larger difference between
-the graph models and the networks that outperform them is *temporal*: both graph-free
-networks convolve over time before combining channels, while the architecture studied here
-operates spatially first and admits temporal structure only through the attention module —
-which was in turn the only repair of three that succeeded, and by a wide margin the largest
-single gain any graph configuration achieved. We offer this as the most economical
-hypothesis consistent with our measurements, not as a demonstration; it is directly
-testable and we have not tested it.
+**One measurement in §5.9 was an artefact of the broken ordering.** In the unreordered
+network, freeing the spatial operator gained 0.0128 (p = 0.0046) — significant, and the
+basis for attributing the gap to graph locality. In the reordered network the identical
+relaxation gains 0.0065 and is indistinguishable from zero. The constraint only cost
+anything while the rest of the architecture was misordered. What §5.9 measured was the slack
+available in a badly ordered network, not a property of graph convolution, and we report it
+that way rather than as the mechanistic finding it first appeared to be.
 
-We state the scope narrowly. This is not a claim that graph networks fail on EEG generally.
-It is that on this dataset, under a correct protocol, with this formulation, the graph
-construction is worse than no spatial prior at all — and that inferring *why* from null
-results, as we initially did, produced an answer that was directionally right and
-quantitatively wrong by a factor of six.
+**The largest single intervention is data, not architecture.** Cross-subject pre-training
+adds 0.0557 over its own control on 90 % of subjects (§5.12) — more than the reordering
+contributed and far more than any graph variant. It also acts where the deficit is: the
+weakest quartile of subjects gains twice what the strongest does, and between-subject
+variance falls. §5.8's observation that leave-one-subject-out matches subject-dependent
+performance was evidence that this protocol is data-starved; pre-training converts that
+observation into a usable gain.
+
+We are explicit that this is a claim about data rather than about our architecture.
+Pre-training is architecture-agnostic and would very likely transfer to ShallowConvNet or
+EEGNet unchanged; **we have not run that control**, so the supported statement is that this
+architecture *plus* pre-training reaches 0.7301, not that the architecture does.
+
+We state the scope narrowly throughout. Nothing here shows that graph networks fail on EEG,
+and the corrected finding is nearly the opposite of the one an earlier draft of this paper
+reached: with the surrounding pipeline built correctly, a graph-convolutional model is
+competitive with the best graph-free network we tried. What it is not is *better* for having
+the graph.
 
 **A dataset-level caution.** The run-family confound in EEGMMIDB (§3.3) is structural and
 affects any four-class result on this dataset, not only ours. We recommend that four-class
@@ -774,9 +949,22 @@ by training-set size rather than by inter-subject variability.
   conditions unfavourable to them, which makes it conservative — but a matched comparison
   at a longer window has not been run, and window length has never been swept for any arm.
 - **Roughly 30 % of the between-subject variance is not attributable to any model.** The
-  resting SMR predictor correlates at +0.547 with our best model and +0.548 with CSP
+  resting SMR predictor correlates at +0.547 with the attention model and +0.548 with CSP
   (§5.10), so part of the apparent difficulty is a subject-level ceiling that bounds what
   any architecture could recover on this dataset.
+- **§5.11 and §5.12 are exploratory.** Neither is on the pre-registered list, though both
+  fixed their predictions and decision rules before any aggregate was computed — four of
+  four held for §5.11 and three of four for §5.12. That is a reason to take them seriously,
+  not a promotion to confirmatory status.
+- **The pre-training gain is architecture-agnostic and we did not test the transfer.**
+  Running the same pre-training on ShallowConvNet or EEGNet is the obvious control and it
+  has not been run, so §5.12 supports "this architecture plus pre-training reaches 0.7301"
+  and not "this architecture reaches 0.7301".
+- **PTG is not comparable to the published within-session ceiling.** It consumes ~92 other
+  subjects' recordings that those pipelines do not see (§5.12).
+- **§5.11 does not explain why the reordering works.** It establishes that taking power
+  after the spatial stage, a learned temporal filter, depth one and no node pooling together
+  produce the gain, but the four changes were made jointly and are not individually ablated.
 - **§5.9 does not identify what the remaining 84 % of the gap is.** It bounds the
   contribution of graph locality and excludes sample size. The temporal-ordering
   hypothesis offered in §6 is untested.
@@ -800,19 +988,34 @@ gap to the classical baseline.
 
 Two further controls locate the limitation. Graph-free convolutional networks trained on
 identical folds and identical trial counts reach and exceed the classical baseline —
-ShallowConvNet attains 0.6725, places 94 of 103 subjects above chance, and exceeds the best
-single configuration reported from a 216,714-pipeline search on this dataset — so the
-limitation is not the quantity of data available. Yet freeing the spatial operator from the
-graph, with every other factor held fixed, recovers only 16 % of the gap, so the locality
-and weight-sharing constraint conventionally invoked to explain this class of result
-accounts for a minority of it.
+ShallowConvNet attains 0.6725 and places 94 of 103 subjects above chance — so the limitation
+is not the quantity of data available. Yet freeing the spatial operator from the graph, with
+every other factor held fixed, recovers only 16 % of the gap, so the locality and
+weight-sharing constraint conventionally invoked to explain this class of result accounts
+for a minority of it.
+
+Two exploratory experiments then found the majority of it, and it was not the graph. Taking
+power *after* the spatial stage — with a learned temporal filter, one spatial layer and no
+node pooling, and the Chebyshev convolution left exactly as published — lifts the graph model
+to 0.6629 and past CSP+LDA by 0.0389 on 70 % of subjects. Three variants spanning a hard
+graph constraint, a free operator and a Dirichlet graph prior differ by 0.0108 in total and
+are mutually indistinguishable, so the graph is neither the handicap nor an advantage; it is
+inert. This also revises our own §5.9 result: the constraint it measured was real only while
+the surrounding architecture was misordered. Finally, cross-subject pre-training under a
+group-wise design in which no subject is ever pre-trained on their own data adds 0.0557 over
+an identical control, on 90 % of subjects, reaching 0.7301 with 98 of 103 above chance and
+the largest gains in the weakest quartile. That is the single largest intervention in this
+work, and it is a claim about data rather than architecture: the technique is
+architecture-agnostic and we have not run the control that would show otherwise.
 
 We conclude that the reported 93 % measures an evaluation protocol rather than a decoding
-capability; that the graph-convolutional formulation, and not the dataset or the sample
-size, is what limits performance on this task; and that identifying which part of a
-formulation binds requires controls rather than inference from null results — our own
-initial inference was directionally correct and wrong by a factor of six. We recommend that
-four-class results on this dataset be accompanied by the within-family decomposition.
+capability; that the graph-convolutional formulation was never what limited performance,
+though it earns nothing either; that the architecture surrounding a graph operator can be
+worth more than five times what the operator itself contributes; and that identifying which
+part of a formulation binds requires controls rather than inference from null results — we
+drew that inference twice and were wrong both times, once by a factor of six and once in
+direction. We recommend that four-class results on this dataset be accompanied by the
+within-family decomposition.
 
 ---
 
@@ -886,19 +1089,24 @@ convolutional neural networks for EEG decoding and visualization." *Human Brain 
 S. Velut, S. Khazem, T. Moreau. "The largest EEG-based BCI reproducibility study for open
 science: the MOABB benchmark." arXiv:2404.15319, 2024
 
+[17] X. Vasques, P. Barbaste, O. Oullier. "Subject-Level Heterogeneity in EEG Motor Imagery
+Decoding: A Large-Scale Benchmark and Portfolio-Based Reduction of the Search Space."
+arXiv:2607.22778, 2026
+
 [18] B. Blankertz, C. Sannelli, S. Halder, E. M. Hammer, A. Kübler, K.-R. Müller,
 G. Curio, T. Dickhaus. "Neurophysiological predictor of SMR-based BCI performance."
 *NeuroImage* 51(4):1303–1309, 2010. DOI: 10.1016/j.neuroimage.2010.03.022
 
-[17] X. Vasques, P. Barbaste, O. Oullier. "Subject-Level Heterogeneity in EEG Motor Imagery
-Decoding: A Large-Scale Benchmark and Portfolio-Based Reduction of the Search Space."
-arXiv:2607.22778, 2026
+[19] Y. Xie, K. Wang, J. Meng, J. Yue, L. Meng, W. Yi, T.-P. Jung, M. Xu, D. Ming.
+"Cross-dataset transfer learning for motor imagery signal classification via multi-task
+learning and pre-training." *Journal of Neural Engineering* 20(5):056037, 2023.
+DOI: 10.1088/1741-2552/acfe9c
 
 ---
 
 ## Data and code availability
 
-All code, configuration files and the complete experiment log — one row per fold for 12,590
+All code, configuration files and the complete experiment log — one row per fold for 17,795
 folds, each recording the git commit, random seed and full configuration — are released
 with this paper. `project_documentation.md` contains the full methods specification, the
 pre-registration, per-experiment results, and a record of the twenty-four errors made and

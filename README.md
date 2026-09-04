@@ -6,7 +6,7 @@ that decodes motor imagery when evaluated correctly.
 
 **Start here:** [`PAPER.md`](PAPER.md) is the full research paper — abstract, related
 work, methods, results, discussion and references; the typeset version is
-[`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (12 pages, rebuilt with
+[`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (22 pages, rebuilt with
 `scripts/build_paper_pdf.py`). [`RESULTS.md`](RESULTS.md) is the
 shorter writeup: the findings in publication order with figures. [`project_documentation.md`](project_documentation.md) is the living
 record: every measurement, decision and correction, plus full methods, a reproduction
@@ -31,8 +31,11 @@ reproduces that number. Evaluating the same model correctly does not.
 | **LOSO, subject-independent (H5)** | **0.6040** [0.5823, 0.6268], 88/103 above chance |
 | **EEGNet, no graph (post-hoc)** | **0.6296** — indistinguishable from CSP, p=0.49 |
 | **ShallowConvNet, no graph (post-hoc)** | **0.6725** — beats CSP by +0.0485, 94/103 above chance |
+| **Reordered graph model, G3 (post-hoc)** | **0.6737** — beats CSP by +0.0389; ties ShallowConvNet, p=0.99 |
+| **+ cross-subject pre-training, PTG (post-hoc)** | **0.7301** — +0.0557 over its own control, 98/103 above chance |
 
-All rows except the last two are 103 subjects x 3 seeds. The paired gap between the
+All rows except the post-hoc ones are 103 subjects x 3 seeds; the post-hoc arms are 103
+subjects at one seed on identical folds. The paired gap between the
 published and correct protocols is **+0.6096, 95 % CI [+0.5767, +0.6411]**.
 
 Three findings, in order of how much they matter:
@@ -50,20 +53,31 @@ Three findings, in order of how much they matter:
 3. **A 25-year-old linear method beats every graph model we built.** CSP+LDA on the same
    subjects, folds and metrics wins on both binary problems. Neither explicit band power
    nor a learnable electrode graph closes that gap.
-4. **But deep learning is not the problem — the *graph* is.** Two graph-free CNNs on
-   identical folds and the same ~45 trials per problem reach and pass CSP: EEGNet 0.6296
-   and ShallowConvNet 0.6725, the latter putting 94/103 subjects above chance and
-   exceeding the best pipeline a 216,714-configuration published search reports for this
-   dataset. Freeing the spatial operator *inside* the graph model recovers only 16 % of the
-   gap, so the locality constraint usually blamed for this is real but minor. Both controls
-   are post-hoc; see §9.11.
+4. **Deep learning is not the problem.** Two graph-free CNNs on identical folds and the
+   same ~45 trials per problem reach and pass CSP: EEGNet 0.6296 and ShallowConvNet 0.6725,
+   the latter putting 94/103 subjects above chance. So sample size is not the explanation
+   either. Freeing the spatial operator *inside* the graph model recovers only 16 % of the
+   gap. Post-hoc; see §9.11.
+5. **The graph was not the problem either — the architecture around it was.** Taking power
+   *after* the spatial stage, with a learned temporal filter, one spatial layer and no node
+   pooling, and the Chebyshev convolution left exactly as published, lifts the graph model
+   to 0.6629 and past CSP by 0.0389 on 70 % of subjects. A hard constraint, a free operator
+   and a Dirichlet graph prior then span 0.0108 and are indistinguishable — the graph is
+   inert, not harmful. This overturns finding 3 and revises the 16 % above, which measured
+   slack in a misordered network. Post-hoc; see §9.13.
+6. **The largest single gain is data, not architecture.** Pre-training on other subjects —
+   no subject ever pre-trained on their own data — adds 0.0557 over an otherwise identical
+   control on 90 % of subjects, reaching 0.7301 with 98/103 above chance, and helps the
+   weakest quartile twice as much as the strongest. Pre-training is architecture-agnostic
+   and the transfer control has not been run, so this supports "this architecture *plus*
+   pre-training reaches 0.7301", not "our architecture reaches 0.7301". Post-hoc; §9.15.
 
 ## Reproducing it
 
 ```bash
 pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cu132
 pip install -r requirements.txt
-pytest -q                                    # 205 tests
+pytest -q                                    # 280 tests
 ```
 
 The raw dataset (3.4 GB, 109 subjects) is not in the repository. Download the PhysioNet
@@ -94,11 +108,12 @@ documentation can be traced to the run that produced it.
 configs/         default.yaml (raw) and bandpass_8_30.yaml; one cache each
 data/            loader, epoching, splits, normalisation, band-power features
 graphs/          PCC adjacency, Laplacian, Chebyshev basis, Graclus coarsening
-models/          Chebyshev conv, GCNs-Net, learnable adjacency, temporal attention
+models/          Chebyshev conv, GCNs-Net, learnable adjacency, temporal attention,
+                 free spatial operator, EEGNet/ShallowConvNet, reordered graph block
 evaluation/      metrics, fold assembly, trainer, experiment log
 visualization/   scalp topography, adjacency and confusion figures
 scripts/         cache building, experiment runners, analysis
-tests/           166 tests
+tests/           280 tests
 ```
 
 ## Things that will bite you
@@ -129,10 +144,14 @@ them adds nothing over attention alone; CSP+LDA remains significantly ahead by 0
 and LOSO reaches 0.6040 with 88/103 subjects above chance — *higher* than the
 subject-dependent figure, because a LOSO fold trains on ~100x more data.
 
-The audit is complete and reproducible. The remaining work — a learnable adjacency and
-temporal attention — is **pre-registered** in `project_documentation.md` §10: five
-hypotheses with fixed directions, Holm correction, and the 20 subjects used during
-development demoted to a development set so all confirmatory tests run on the full 103.
+Four post-hoc lines of work then went beyond the pre-registered set, each with its
+predictions and decision rule fixed before any aggregate was read (§9.11, §9.13, §9.15).
+Together they establish that neither sample size nor the graph formulation was the
+limitation — the architecture around the graph was — and that cross-subject pre-training
+is worth more than every architectural change combined. They are labelled exploratory
+wherever they appear.
+
+The audit is complete and reproducible.
 
 `python scripts/confirmatory_results.py` prints that table and refuses to call anything
 supported on development data.

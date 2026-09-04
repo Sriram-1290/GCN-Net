@@ -2,20 +2,23 @@
 
 **A published graph convolutional network reports 93 % on four-class motor imagery.
 Reimplemented faithfully, its protocol reproduces. Evaluated correctly, the same model
-decodes nothing at all — and a linear method from 2000 beats every *graph* repair we tried.
-Two graph-free networks on the identical folds beat them both.**
+decodes nothing at all. Reordering the architecture around the *unchanged* graph makes it
+beat a classical baseline — and shows the graph itself contributes nothing either way.
+Pre-training on other subjects is worth more than every architectural change combined.**
 
-103 subjects · PhysioNet EEG Motor Movement/Imagery · 12,590 logged folds ·
-five pre-registered hypotheses · two post-hoc controls · 2 September 2026
+103 subjects · PhysioNet EEG Motor Movement/Imagery · 17,795 logged folds ·
+five pre-registered hypotheses · four post-hoc controls · 4 September 2026
 
 | | value | |
 |---|---|---|
 | Published protocol | **0.8975** | reproduced; paper reports 0.8835 |
 | Correct protocol | **0.5090** | within-family — chance is 0.500 |
-| Best graph model | **0.6038** | with temporal attention |
-| CSP+LDA | **0.6239** | ahead of every graph arm, p = 0.0012 |
+| Published formulation, repaired | **0.6038** | with temporal attention |
+| CSP+LDA | **0.6239** | ahead of every graph arm *at that point* |
 | Subject-independent | **0.6040** | 88 of 103 above chance |
-| **ShallowConvNet (no graph)** | **0.6725** | **beats CSP by 0.0485; 94 of 103 above chance** |
+| ShallowConvNet (no graph) | **0.6725** | beats CSP by 0.0485 |
+| **Reordered graph model** | **0.6737** | **beats CSP by 0.0389; ties ShallowConvNet, p = 0.99** |
+| **+ cross-subject pre-training** | **0.7301** | **+0.0557 over its own control; 98 of 103 above chance** |
 
 ---
 
@@ -36,12 +39,21 @@ Of three repairs attempted, one worked. Explicit band power did not help. A lear
 electrode graph did not help. Temporal attention did, by a clear margin — and a control
 shows it works by weighting each trial differently, not by averaging.
 
-Two further controls (R8) then located the limitation. Freeing the spatial operator from
-the graph entirely recovers only a sixth of the gap to CSP, so the constraint usually
-blamed for this kind of result is real but minor. Two graph-free convolutional networks,
-trained on exactly the same folds and the same ~45 trials per problem, reach and pass CSP —
-which rules out sample size as the explanation and makes the graph formulation itself the
-binding limitation.
+Two further controls (R8) then narrowed the limitation. Freeing the spatial operator from
+the graph entirely recovers only a sixth of the gap to CSP, so the constraint usually blamed
+for this kind of result is real but minor. Two graph-free convolutional networks, trained on
+exactly the same folds and the same ~45 trials per problem, reach and pass CSP — which rules
+out sample size.
+
+Two later experiments (R9, R10) found what it actually was, and it was not the graph.
+Taking power *after* the spatial stage — with a learned temporal filter, one spatial layer
+and no node pooling, and the Chebyshev convolution left exactly as published — lifts the
+graph model to 0.6629 and past CSP. A hard graph constraint, a free operator and a Dirichlet
+graph prior then differ by 0.0108 in total and are indistinguishable from each other, so the
+graph is inert rather than harmful. Finally, pre-training on other subjects — under a design
+in which no subject is ever pre-trained on their own data — adds 0.0557 over an identical
+control and reaches 0.7301, the largest single effect in the project and a claim about data
+rather than architecture.
 
 A last analysis (R8b) bounds how much any of this could ever have been worth. A resting
 sensorimotor-rhythm measure, taken from a task-free baseline run, predicts per-subject
@@ -125,7 +137,7 @@ reaches 0.35 against 0.20, which is real within-family signal.*
 > place twice more: two later configurations raised four-class accuracy while the rise was
 > almost entirely better family identification.
 
-## R4 · A linear method from 2000 beats every graph model
+## R4 · A linear method from 2000 beats every graph model *so far*
 
 Common Spatial Patterns with shrinkage LDA, on the same subjects, folds, band-passed cache
 and metric. CSP is fit on training trials only, since it is a supervised spatial filter and
@@ -190,8 +202,13 @@ signal that is a specific weighted contrast across the whole scalp, that prior a
 cost more than it contributes.
 
 This is not a claim that graph networks fail on EEG. It is that on this dataset, under a
-correct protocol, with this Chebyshev formulation, the graph constraint is worse than no
-prior at all.
+correct protocol, with this Chebyshev formulation *and this ordering of operations*, the
+graph constraint is worse than no prior at all.
+
+> **R9 overturns the last paragraph.** This reasoning attributes the gap to the graph prior,
+> and it is wrong. With the surrounding architecture reordered, the identical Chebyshev
+> constraint beats CSP, and lifting it changes nothing. The paragraph is kept as written
+> because the correction is part of the result.
 
 ## R6 · Attention weights each trial differently
 
@@ -279,9 +296,10 @@ well by a property of the participant measured before either ran. The 11 subject
 below chance under both methods have 1.70 dB less mu prominence than the rest. Blankertz
 et al. report ~37 % on a different task; our 30 % is consistent.
 
-This bounds the headroom. It does not excuse the graph formulation — the other 70 % is
-where ShallowConvNet beats it by 0.1287 — but a third of the apparent difficulty on this
-dataset belongs to the participants, not the models.
+This bounds the headroom: a third of the apparent difficulty on this dataset belongs to the
+participants, not the models. The remaining 70 % is where every architectural difference in
+this work lives — and where R10's pre-training does most of its work, since its gain is
+twice as large in the weakest quartile as in the strongest.
 
 ---
 
@@ -330,10 +348,121 @@ Four times the learnable adjacency's effect, so the extra freedom does buy somet
 learned graph cannot. Nowhere near enough.
 
 So the direction of the earlier reasoning was right and its magnitude was wrong by a factor
-of six. The largest remaining difference is temporal: both graph-free networks convolve
-over time *before* combining channels, while the architecture studied here works spatially
-first and gets temporal structure only from attention — which was, tellingly, the only
-repair of three that worked. That is a hypothesis we have not tested.
+of six. The largest remaining difference is temporal: both graph-free networks convolve over
+time *before* combining channels, while the architecture studied here works spatially first
+and gets temporal structure only from attention — which was, tellingly, the only repair of
+three that worked.
+
+**R9 tests that hypothesis and confirms it, at the cost of this section's own headline.**
+With the ordering fixed, the graph constraint is free: the +0.0128 above is slack in a badly
+ordered network, not a cost of graph convolution.
+
+---
+
+## R9 · The architecture was the limitation, not the graph (post-hoc)
+
+R8 ruled out sample size and mostly ruled out the locality constraint, and left a hypothesis
+it declined to test: both graph-free winners convolve over *time* before combining channels,
+while this architecture works spatially first.
+
+The argument is sharper than "temporal structure helps". CSP combines channels linearly and
+*then* takes variance, and the combination works by cancellation between channels — which
+needs phase-coherent voltage. Square first and the sign is gone, so no later linear
+combination can cancel. That is why R5's band-power ablation says nothing here: that is
+power-then-spatial, and CSP, FBCSP and ShallowConvNet are all spatial-then-power.
+
+So we changed four things, **none of them the graph**: power taken after the spatial stage
+as `square → mean over time → log`; a learned temporal filter placed first, so the time axis
+survives; one spatial layer instead of six; and no Graclus node pooling.
+
+| Arm | L vs R | B vs F | Within-family | Above chance |
+|---|---|---|---|---|
+| Fixed PCC graph | 0.5148 | 0.5728 | 0.5438 | 65/103 |
+| GCN + temporal attention (R5) | 0.5877 | 0.6198 | 0.6038 | 83/103 |
+| CSP+LDA | 0.5942 | 0.6537 | 0.6239 | 81/103 |
+| ShallowConvNet | 0.6608 | 0.6841 | 0.6725 | 94/103 |
+| **G1 — hard graph constraint** | 0.6408 | 0.6850 | **0.6629** | 88/103 |
+| **G2 — free operator** | 0.6494 | 0.6893 | **0.6694** | 93/103 |
+| **G3 — graph as Dirichlet prior** | 0.6520 | 0.6954 | **0.6737** | 91/103 |
+
+| Comparison | Difference | p (Holm) | Subjects won |
+|---|---|---|---|
+| **G1 vs GCN + attention** | **+0.0591** [+0.0458, +0.0722] | 0.0014 | 82/103 (80 %) |
+| **G1 vs CSP+LDA** | **+0.0389** [+0.0224, +0.0552] | 0.0014 | 72/103 (70 %) |
+| G2 vs G1 (constraint lifted) | +0.0065 [−0.0018, +0.0148] | 0.52 | 53/103 |
+| G3 vs G2 (prior added) | +0.0043 [−0.0020, +0.0107] | 0.54 | 51/103 |
+| G3 vs ShallowConvNet | +0.0012 [−0.0099, +0.0121] | 0.99 | 46/103 |
+
+**A graph model beats the classical baseline.** G1 carries the *hard* Chebyshev constraint —
+the formulation the original work proposes — and exceeds CSP+LDA by 0.0389 on 70 % of
+subjects. The reordering alone lifts the graph model by 0.0591 on four subjects in five, and
+nothing about the graph changed.
+
+**The graph still contributes nothing.** Hard constraint, free operator and soft prior span
+0.0108 in total and are mutually indistinguishable; the prior wins on exactly half the
+subjects. Whatever the electrode graph encodes, this architecture does not need it.
+
+**And R8's headline measurement was an artefact of the broken ordering.** In the unreordered
+architecture, freeing the spatial operator was a real gain (+0.0128, p = 0.0046). In the
+reordered one the identical relaxation gains 0.0065 and is indistinguishable from zero. The
+graph constraint only cost anything while the rest of the architecture was misordered — so
+R8's "16 %" measured the slack in a badly ordered network, not a property of graph
+convolution.
+
+## R10 · Pre-training on other subjects is the largest effect in the project (post-hoc)
+
+R7 left two numbers side by side that had never been combined: LOSO at 0.6040 with ~100×
+the training data and no calibration, and subject-dependent at 0.6038 with calibration and
+~36 trials. The same number from opposite directions, neither using the other's information.
+
+We pre-train on other subjects, then fine-tune on the target's own training folds. Subjects
+are partitioned into ten groups and each group's source model excludes that entire group, so
+**no subject is ever pre-trained on their own data** — not their trials, not the graph, not
+the normalisation statistics.
+
+**The control is what makes this interpretable.** Pre-training and source-fit normalisation
+change together, so only the difference against an otherwise identical arm with pre-training
+skipped isolates pre-training. Both were run.
+
+| Arm | L vs R | B vs F | Within-family | Above chance |
+|---|---|---|---|---|
+| **PTC** — control, pre-training skipped | 0.6533 | 0.6956 | **0.6744** | 89/103 |
+| **PTG** — cross-subject pre-training | **0.7206** | **0.7396** | **0.7301** | **98/103** |
+
+| Comparison | Difference | p (Holm) | Subjects won |
+|---|---|---|---|
+| **PTG vs PTC** (isolates pre-training) | **+0.0557** [+0.0464, +0.0650] | 0.0014 | **93/103 (90 %)** |
+| PTG vs ShallowConvNet | +0.0576 [+0.0454, +0.0693] | 0.0014 | 85/103 (83 %) |
+| PTG vs G3 | +0.0564 [+0.0461, +0.0666] | 0.0014 | 87/103 (84 %) |
+
+The control landing at 0.6744 — indistinguishable from G3's 0.6737 — is the point: the
+representation change is neutral, so the 0.0557 is pre-training and nothing else.
+
+**The gain lands where the deficit was.** By control-accuracy quartile the weakest gains
+**+0.0720** and the strongest **+0.0346**, and between-subject SD falls from 0.1548 to
+0.1490. R8b located the shortfall below the median, and that is where this helps. Ninety-
+eight of 103 subjects are now above chance, against 89 without pre-training.
+
+**0.7301 is the highest number this project has produced, so we looked for leakage first.**
+Eight structural checks ran before it was written down: group assignment matches the
+deterministic rule; every source set is exactly the cohort minus that group; no target
+appears in its own source set; all 1,030 fine-tuning folds report final-epoch selection, so
+nothing was ever chosen using the target's test trials; and the gain is spread across groups
+(SD 0.0189) rather than concentrated. The shape of the effect argues the same way — a leak
+would be expected to help uniformly, or to help strong subjects, not to help the weakest
+quartile twice as much as the strongest.
+
+> **One comparison that must not be drawn.** PTG's 0.7206 on left-versus-right exceeds the
+> 0.650 that a 216,714-configuration search reports as its best single pipeline here. **That
+> is not like-for-like.** Those pipelines see only the target subject's own data; PTG
+> additionally consumes ~92 other subjects' recordings. It is not a better pipeline under
+> their protocol — it is a different protocol with two orders of magnitude more data. Every
+> other arm on this page is comparable to that figure. This one is not.
+
+**And it is a claim about data, not about our architecture.** Pre-training is
+architecture-agnostic and would very likely transfer to ShallowConvNet or EEGNet unchanged.
+We have not run that control, so the supported statement is "this architecture *plus*
+pre-training reaches 0.7301", not "this architecture reaches 0.7301".
 
 ---
 
@@ -376,8 +505,17 @@ this task needs.
   benchmarks put a tuned classical pipeline near 0.605 on left-versus-right where ours
   reaches 0.5942, so the real classical baseline is modestly stronger than the one we show.
 - **4-class LOSO was never measured.** The 0.6040 figure is binary within-family.
-- **R8 is post-hoc.** Neither control is pre-registered, and the first tests a claim we
-  formed after the confirmatory runs. R1–R7 are unaffected by it.
+- **R8, R9 and R10 are post-hoc.** None is on the pre-registered list, and each tests a
+  claim formed after the confirmatory runs. R9 and R10 fixed their predictions and decision
+  rules before any aggregate was read — four of four held for R9 and three of four for R10 —
+  which is a reason to take them seriously, not a promotion to confirmatory. R1–R7 are
+  unaffected.
+- **R10's gain is architecture-agnostic and the transfer is untested.** Running the same
+  pre-training on ShallowConvNet or EEGNet is the obvious control and has not been run.
+- **PTG is not comparable to the published within-session ceiling**, since it consumes ~92
+  other subjects' recordings that those pipelines never see.
+- **R9 does not explain *why* the reordering works.** Four changes were made jointly and are
+  not individually ablated.
 - **The graph-free networks ran outside their design regime.** EEGNet and ShallowConvNet
   were built for 2–4 second windows; ours is 0.40 s, so their temporal hyperparameters had
   to be scaled down. That makes their advantage conservative — but a matched comparison at
@@ -385,7 +523,7 @@ this task needs.
 - **About 30 % of the between-subject variance is not any model's to fix** (R8b), which
   bounds what any architecture could recover here.
 - **R8 does not say what the other 84 % is.** It bounds the graph-locality contribution and
-  rules out sample size. The temporal-ordering explanation is untested.
+  rules out sample size; R9 then attributes the bulk of it to the ordering of operations.
 
 ## Conclusion
 
@@ -399,26 +537,40 @@ representation — band-passing to mu and beta, widening the sample to 0.4 s, an
 time by attention — produces a model that genuinely decodes, at 0.6038 within-family and
 0.6040 subject-independent.
 
-That model is still beaten by CSP+LDA, and so is every other graph configuration we built.
-Two controls then established what the limitation is and is not. It is not the amount of
-data: graph-free convolutional networks trained on identical folds and identical trial
-counts reach and pass the classical baseline, with ShallowConvNet at 0.6725 exceeding the
-best pipeline a 216,714-configuration search reports for this dataset. Nor is it mainly the
-locality constraint we first blamed: lifting that constraint recovers a sixth of the gap.
+That model is still beaten by CSP+LDA, and so is every graph configuration built up to that
+point. Two controls narrowed the reason. It is not the amount of data: graph-free networks
+on identical folds and identical trial counts reach and pass the classical baseline, with
+ShallowConvNet at 0.6725. Nor is it mainly the locality constraint we first blamed: lifting
+that constraint recovers a sixth of the gap.
 
-The honest summary is threefold. This architecture, correctly evaluated on this dataset, is
-outperformed by a linear method a quarter of a century older. Deep learning is not the
-problem — the *graph* formulation is, and something in it other than the constraint
-conventionally invoked. And the reported 93 % measures a protocol rather than a capability.
+The rest of it is the architecture around the graph. Taking power *after* the spatial stage,
+with a learned temporal filter, one spatial layer and no node pooling — and the Chebyshev
+convolution left exactly as published — lifts the graph model to 0.6629 and past CSP by
+0.0389 on 70 % of subjects. The graph earns nothing by this: a hard constraint, a free
+operator and a Dirichlet prior span 0.0108 and are indistinguishable. It is not a handicap
+either, which is the opposite of what our own earlier controls implied.
 
-One methodological point deserves stating on its own, because we learned it the hard way:
-two null results told us where the limitation was and misled us by a factor of six about
-what it was. Inference from absences is not measurement.
+Finally, the largest single intervention in the project is not architectural at all.
+Pre-training on other subjects, under a design where no subject ever sees their own data in
+its source model, adds 0.0557 over an identical control on 90 % of subjects and reaches
+0.7301 with 98 of 103 above chance. Since the technique is architecture-agnostic and we did
+not run the transfer control, that supports "this architecture plus pre-training reaches
+0.7301", not "our architecture reaches 0.7301".
+
+The honest summary is threefold. The reported 93 % measures a protocol rather than a
+capability. The graph-convolutional formulation was never what limited performance here,
+though it contributes nothing either — what limited it was the pipeline built around it,
+worth more than five times what the operator itself is. And on this dataset the cheapest
+remaining gain is data, not architecture.
+
+One methodological point deserves stating on its own, because we learned it twice: null
+results told us where the limitation was and misled us both times — once by a factor of six,
+once in direction. Inference from absences is not measurement.
 
 ---
 
-Full methods, per-fold results and a complete record of the fourteen errors made and
+Full methods, per-fold results and a complete record of the twenty-four errors made and
 corrected during this work are in [`project_documentation.md`](project_documentation.md).
 Every number here traces to a row in `runs/experiments.jsonl`, which records the git commit,
-seed and full configuration for each of 9,300 folds. Reproduction commands are in the
+seed and full configuration for each of 17,795 folds. Reproduction commands are in the
 [README](README.md) and in §15 of the documentation.
