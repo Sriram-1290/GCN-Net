@@ -1910,6 +1910,124 @@ is a reason to take the pre-registration seriously, not a promotion to confirmat
 
 ---
 
+### 9.16 Is the pre-training gain architecture-agnostic? (PRE-REGISTERED 2026-09-05)
+
+**Written before the run, as 9.12 and 9.14 were. Predictions and decision rules below are
+fixed; nothing here may be revised after a number is read.**
+
+#### 9.16.1 The claim under test
+
+`CLAUDE.md` currently forbids "our architecture reaches 0.73" and mandates "this
+architecture **plus pre-training that any of these architectures could use** reaches 0.73".
+The second clause is an **assertion, not a measurement**. 9.15.5 states it plainly: the gain
+"would very likely transfer to ShallowConvNet or EEGNet unchanged, and we have not tested
+that". This is that test.
+
+Let
+
+* **Δ_gbp = PTG − PTC = +0.0557** [+0.0464, +0.0650], measured, n = 103, SD 0.0487
+* **Δ_shallow = PTG-shallow − PTC-shallow**, to be measured on the same subjects and folds
+
+The primary quantity is the **difference of differences, Δ_shallow − Δ_gbp**, paired on
+subject. It is not PTG-shallow's absolute accuracy, which is uninformative on its own.
+
+#### 9.16.2 Why the design is clean, and what would make it dirty
+
+**The two architectures start from the same place.** PTC = 0.6744 and ShallowConvNet =
+0.6725 differ by 0.0019, far inside the 0.020 minimum detectable difference fixed in 9.12.
+A difference in transfer gain therefore cannot be dismissed as a ceiling or floor artefact —
+the usual and usually correct objection to comparing gains across models that start at
+different accuracies.
+
+**PTC-shallow is mandatory and is also a validity check.** Pre-training and source-fit
+normalisation change together, so only the within-architecture difference isolates
+pre-training; this is the same reason PTC exists. Additionally, PTC-shallow should land near
+ShallowConvNet's 0.6725, exactly as PTC landed near G3's 0.6737. **If it does not, the
+pipeline change is not neutral for this architecture and the difference of differences is
+confounded — stop and diagnose rather than reporting a gain.**
+
+#### 9.16.3 Power
+
+Per-subject gain SD is 0.0487 over 103 subjects, so SE = 0.0048 and a single arm-vs-arm gain
+has a minimum detectable difference of **0.0134** at 80 % power, two-sided α = 0.05. For the
+difference of differences, with the two gains measured on the same subjects and correlating
+at ρ:
+
+| ρ between the two architectures' per-subject gains | MDD |
+|---|---|
+| 0.0 | 0.0190 |
+| 0.3 | 0.0159 |
+| 0.5 | 0.0134 |
+| 0.7 | 0.0104 |
+
+ρ should be **substantially positive**: 9.15 established that the gain is driven by
+subject-level data hunger (bottom quartile +0.0720, top +0.0346), which is a property of the
+subject, not of the model. So the realistic MDD is **~0.013–0.016** — enough to separate
+"transfers fully" from "transfers about half", not enough to resolve differences below 0.010.
+**Any |Δ_shallow − Δ_gbp| below 0.010 must be reported as indistinguishable, not as a
+direction.**
+
+#### 9.16.4 Predictions, fixed in advance
+
+1. **PTC-shallow lands within 0.020 of ShallowConvNet's 0.6725.** Validity check, not a
+   result. Failure halts the analysis.
+2. **Δ_shallow > 0.** Pre-training helps ShallowConvNet too.
+3. **|Δ_shallow − Δ_gbp| < 0.020** — the gains are equivalent, i.e. the transfer is
+   architecture-agnostic. *This is the prediction the paper currently assumes to be true.*
+4. **PTG-shallow > 0.70.**
+
+#### 9.16.5 Decision rules, fixed in advance
+
+**A — gains equivalent (|Δ_shallow − Δ_gbp| < 0.020).** The 9.15.5 caveat is confirmed by
+measurement instead of asserted. `PAPER.md` contribution 10 and its Limitations entry stand
+as written, with "untested" replaced by the measurement. Nothing about the reordered
+architecture is special for transfer, and we say so.
+
+**B — Δ_shallow reliably *smaller*.** The reordered graph model benefits more from
+pre-training than ShallowConvNet does. This would be a genuine *architectural* claim and the
+only outcome in which "our architecture reaches 0.73" becomes defensible — but only if
+prediction 1 held, so that it is not a floor effect. It would materially strengthen
+contribution 10.
+
+**C — Δ_shallow reliably *larger*.** ShallowConvNet is the better vehicle for the project's
+largest effect, and PTG-shallow becomes the project's best number — a model with no graph in
+it at all. **This outcome is recorded here in advance precisely because it is the
+uncomfortable one**, and the rule is that it gets reported with the same prominence as A or
+B. `CLAUDE.md`'s standing instruction not to write "our architecture reaches 0.73" would
+then be permanent rather than provisional.
+
+#### 9.16.6 Conditions on reporting
+
+* The eight-point leakage audit of 9.15.3 is re-run on PTG-shallow **before** any number is
+  written down. 0.70+ is still the region where leakage is the first hypothesis.
+* Both arms must be complete — 1,030 folds each — before anything is quoted. 9.15's own rule.
+* **Exploratory, not confirmatory.** Not on the 10.3 list. Same status as 9.13 and 9.15.
+* PTG-shallow must never be compared to the 0.650 within-session ceiling, for the reason in
+  9.15.4. It consumes ~92 other subjects.
+
+#### 9.16.7 Cost, measured rather than estimated
+
+Error 24 was an 8x cost miss from carrying one architecture's timing to another, and the
+first estimate for *this* run repeated it in miniature — it scaled ShallowConvNet's
+subject-dependent per-fold time (13.2 s against `graphbp`'s 17.0 s) and concluded shallow was
+0.78x cheaper. Measured at pre-training scale it is **0.68x the throughput, i.e. slower**:
+the subject-dependent figure was dominated by `graphbp`'s graph construction, which
+ShallowConvNet does not do, not by compute.
+
+| | windows | epochs | sample-passes | measured |
+|---|---|---|---|---|
+| one source model | 144,855 (87 subjects) | 30 | 4.35 M | 8.0 min `graphbp`, ~11.8 min shallow |
+| x 20 (10 groups x 2 problems) | | | 87.0 M | 2.67 h / **3.92 h** |
+| one fine-tune fold | 1,332 (4/5 of one subject) | 30 | 0.04 M | 4.3 s `graphbp`, ~6.8 s shallow |
+| x 1,030 folds | | | 41.2 M | 1.21 h / **1.94 h** |
+
+Source models are **68 % of the sample-passes and ~70 % of the wall clock**. PTG-shallow
+≈ 5.9 h, PTC-shallow ≈ 1.9 h, **total ≈ 7.8 h**. Cheaper alternatives were considered and
+rejected: dropping to 5 groups would save 2.2 h but give ShallowConvNet's source models 82
+subjects where `graphbp`'s had 92, confounding the one comparison this run exists to make.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -3110,6 +3228,12 @@ ShallowConvNet.
 ## 18. Changelog
 
 ### 2026-09-05
+
+- **9.16 pre-registers the architecture-agnosticism test** (PTG on ShallowConvNet) before
+  the run: the difference of differences `Δ_shallow − Δ_gbp` as the primary quantity, a
+  validity check on PTC-shallow, an MDD of ~0.013–0.016, four predictions and three decision
+  rules — including the rule for the outcome in which our architecture turns out to be the
+  *worse* vehicle for the project's largest effect.
 
 - **Costed the pre-training arm properly and cached the expensive half.** The cost is
   measured from timestamp deltas in the log, not estimated — error 24 was an 8x estimate
