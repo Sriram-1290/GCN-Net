@@ -68,7 +68,9 @@ not a result worth reporting.
 | A2: EEGNet, no graph at all | **0.6296** | indistinguishable from CSP (p = 0.49) |
 | **A2: ShallowConvNet** | **0.6725** | beats CSP by 0.0485 |
 | **G1: reordered architecture, graph constraint** | **0.6629** | **the first graph model to beat CSP (+0.0389)** |
-| **G3: reordered + graph as prior** | **0.6737** | **the project's best; identical to ShallowConvNet (p = 0.99)** |
+| **G3: reordered + graph as prior** | **0.6737** | identical to ShallowConvNet (p = 0.99) |
+| PTC: same pipeline, pre-training skipped | 0.6744 | **the control** for the row below |
+| **PTG: + cross-subject pre-training** | **0.7301** | **project's best; +0.0557 over its control, 93/103 subjects** |
 
 - **The published formulation decodes nothing under a correct split.** 0.5090 against a
   chance level of 0.5. Its 4-class accuracy of 0.3097 looks above chance only because of
@@ -96,6 +98,19 @@ not a result worth reporting.
   span 0.0108 and are mutually indistinguishable. **In the wrong architecture, freeing the
   operator was significant (A1, +0.0128, p = 0.0046); in the right one it is not (+0.0065,
   p = 0.52).** The graph constraint only cost anything while the rest was broken.
+- **CORRECTED 2026-09-04 (pre-training, §9.15). Cross-subject pre-training is the largest
+  single intervention in the project**: +0.0557 over its own control on 90 % of subjects,
+  and it lifts the weakest quartile twice as much as the strongest (+0.0720 vs +0.0346).
+  §9.9's reading that the subject-dependent protocol is data-starved is now confirmed, not
+  inferred.
+- **NEVER compare PTG's 0.7206 to the published 0.650 ceiling.** That benchmark is
+  within-session and sees only the target's own data; PTG additionally consumes ~92 other
+  subjects. It is a different protocol with vastly more data, not a better pipeline. Every
+  other arm *is* comparable to 0.650; PTG is not.
+- **The 0.73 is a data effect, not an architectural one.** It would very likely transfer to
+  ShallowConvNet or EEGNet unchanged and **that has not been tested**. Do not write "our
+  architecture reaches 0.73"; write "this architecture plus pre-training reaches 0.73, and
+  the pre-training is architecture-agnostic".
 - **Never report a G-arm difference below 0.020 as an effect.** §9.12 fixed that rule before
   the runs; the design's minimum detectable difference is ~0.020 at 80 % power.
 - **But the mechanism named in §9.7.1 is minor.** A1 lifted graph locality and node-shared

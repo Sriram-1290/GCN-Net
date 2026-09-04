@@ -79,6 +79,8 @@ ARMS = {
     "G1 gbp graph":  ("G1-gbp-graph-binary", "trial_accuracy"),
     "G2 gbp free":   ("G2-gbp-free-binary", "trial_accuracy"),
     "G3 gbp + prior": ("G3-gbp-prior-binary", "trial_accuracy"),
+    "PTC control":   ("PTC-gbp-binary", "trial_accuracy"),
+    "PTG pre-trained": ("PTG-gbp-binary", "trial_accuracy"),
 }
 
 # (id, arm, reference, alternative). All two-sided: no direction was pre-declared
@@ -99,6 +101,11 @@ COMPARISONS = [
     ("gbpFree-vs-gbpGraph",   "G2 gbp free", "G1 gbp graph"),
     ("gbpPrior-vs-gbpFree",   "G3 gbp + prior", "G2 gbp free"),
     ("gbpBest-vs-shallow",    "G3 gbp + prior", "A2 ShallowNet"),
+    # 9.14: pre-training. PTG - PTC is the only contrast that isolates it, since
+    # pre-training and source-fit normalisation change together.
+    ("PTG-vs-PTC",     "PTG pre-trained", "PTC control"),
+    ("PTG-vs-shallow", "PTG pre-trained", "A2 ShallowNet"),
+    ("PTG-vs-gbp",     "PTG pre-trained", "G3 gbp + prior"),
 ]
 
 
@@ -138,19 +145,21 @@ def make_figure(arms: dict[str, dict[str, float]], out: Path) -> None:
 
     order = ["fixed graph", "A1 free spatial", "+ both", "+ attention",
              "CSP+LDA", "A2 EEGNet", "A2 ShallowNet",
-             "G1 gbp graph", "G2 gbp free", "G3 gbp + prior"]
+             "G1 gbp graph", "G2 gbp free", "G3 gbp + prior",
+             "PTC control", "PTG pre-trained"]
     order = [k for k in order if k in arms]
     vals = [np.array(list(arms[k].values())) for k in order]
     means = [v.mean() for v in vals]
     # red: the published graph formulation. green: graph-free. blue: the reordered
     # architecture, which is a graph model built the way CSP is.
     old_graph = {"fixed graph", "A1 free spatial", "+ both", "+ attention"}
-    reordered = {"G1 gbp graph", "G2 gbp free", "G3 gbp + prior"}
+    reordered = {"G1 gbp graph", "G2 gbp free", "G3 gbp + prior", "PTC control"}
     colors = ["#8A2F2A" if k in old_graph else
+              "#7A2E8F" if k == "PTG pre-trained" else
               "#1F4D8F" if k in reordered else
               "#4B4F5A" if k == "CSP+LDA" else "#1B6B4A" for k in order]
 
-    fig, ax = plt.subplots(figsize=(10, 5.2))
+    fig, ax = plt.subplots(figsize=(12, 5.4))
     for i, (v, c) in enumerate(zip(vals, colors)):
         ax.scatter(np.random.default_rng(i).normal(i, .07, len(v)), v,
                    s=9, alpha=.28, color=c, edgecolor="none")
@@ -162,12 +171,12 @@ def make_figure(arms: dict[str, dict[str, float]], out: Path) -> None:
     ax.axhline(.650, color="#1F4D8F", lw=1.2, ls="--",
                label="best of 216,714 pipelines on PhysionetMI [23]")
     ax.set_xticks(range(len(order)))
-    ax.set_xticklabels([k.replace("A2 ", "").replace("A1 ", "A1 ") for k in order],
-                       fontsize=9)
+    ax.set_xticklabels([k.replace("A2 ", "") for k in order],
+                       fontsize=8.5, rotation=25, ha="right")
     ax.set_ylabel("within-family accuracy")
     ax.set_ylim(.30, 1.0)
-    ax.set_title("Red: the published graph formulation.  Green: graph-free.  "
-                 "Blue: reordered, graph-informed\n"
+    ax.set_title("Red: published formulation.  Green: graph-free.  Blue: reordered.  "
+                 "Purple: + cross-subject pre-training\n"
                  "103 subjects, identical folds, dots are subjects", fontsize=11)
     ax.legend(fontsize=8, loc="upper left")
     fig.tight_layout()

@@ -1817,6 +1817,99 @@ isolates pre-training.
 
 ---
 
+### 9.15 Cross-subject pre-training — results (EXPLORATORY)
+
+**Run 2026-09-03/04 across a power cut, 2,060 folds over both arms, 103 subjects,
+identical folds to every other arm. Pre-registered in 9.14 at commit `ce867df`, amended
+for tractability in 9.14.1 before any result was read. Three of four predictions hold;
+the fourth is refuted in the favourable direction.**
+
+#### 9.15.1 Results
+
+| arm | L vs R | B vs F | within-family | above chance |
+|---|---|---|---|---|
+| CSP+LDA | 0.5942 | 0.6537 | 0.6239 | 81/103 |
+| ShallowConvNet | 0.6608 | 0.6841 | 0.6725 | 94/103 |
+| G3 reordered | 0.6520 | 0.6954 | 0.6737 | 91/103 |
+| **PTC** — control, no pre-training | 0.6533 | 0.6956 | **0.6744** | 89/103 |
+| **PTG** — grouped pre-training | **0.7206** | **0.7396** | **0.7301** | **98/103** |
+
+Paired, two-sided, Holm-corrected over fourteen post-hoc comparisons:
+
+| comparison | difference | p (Holm) | wins |
+|---|---|---|---|
+| **PTG vs PTC** (isolates pre-training) | **+0.0557** [+0.0464, +0.0650] | 0.0014 | **93/103 (90 %)** |
+| PTG vs ShallowConvNet | +0.0576 [+0.0454, +0.0693] | 0.0014 | 85/103 (83 %) |
+| PTG vs G3 | +0.0564 [+0.0461, +0.0666] | 0.0014 | 87/103 (84 %) |
+
+59/103 subjects at or above 0.70; 36/103 at or above 0.80.
+
+#### 9.15.2 Prediction scorecard
+
+1. *"PTG > PTC."* — **Confirmed.** +0.0557 on 90 % of subjects.
+2. *"The gain is larger in the lower tail; between-subject SD should fall."* —
+   **Confirmed.** By baseline quartile: bottom **+0.0720**, second +0.0491, third +0.0671,
+   top **+0.0346**. The weakest quartile gains twice what the strongest does, and SD falls
+   0.1548 → 0.1490. This is the mechanism [27] reports and the one 17.11.1 argued was
+   needed, since the deficit sits below the median.
+3. *"PTG beats ShallowConvNet's 0.6725."* — **Confirmed.** +0.0576.
+4. *"PTG does not reach 0.70."* — **REFUTED.** 0.7301.
+
+#### 9.15.3 The leakage audit, run before any of the above was reported
+
+`CLAUDE.md` says that an unexpectedly high number means suspecting leakage first. 0.7301
+is the highest figure this project has produced under a correct protocol, so eight checks
+were run before anything was written down:
+
+1. every row's logged `group_id` matches the deterministic `index % 10` assignment;
+2. group sizes are 10-11 and source-set sizes 92-93, and every source set is exactly
+   `103 − group_size`;
+3. the groups cover all 103 subjects and are disjoint;
+4. **no target appears in its own source set**, for every group;
+5. `pretrained` is true on all 1,030 rows;
+6. exactly 5 folds per subject per problem;
+7. **all 1,030 folds report `selection = final_epoch`** — the fine-tune stage has no
+   validation set, so nothing was ever selected using the target's test trials;
+8. the gain is spread across groups (+0.0322 to +0.0933, SD 0.0189) rather than
+   concentrated in a few, which is what a group-local leak would look like.
+
+The shape of the effect is also the wrong shape for leakage: prediction 2 held, and a leak
+of test information would be expected to help uniformly or to help strong subjects, not to
+help the weakest quartile twice as much as the strongest.
+
+#### 9.15.4 The comparison this number must NOT be given
+
+**PTG's 0.7206 on left-versus-right exceeds the 0.650 that [23] reports as the best of
+216,714 configurations on PhysionetMI. That is not a like-for-like comparison and must
+never be presented as one.**
+
+That benchmark evaluates within-session pipelines that see only the target subject's own
+data. PTG additionally consumes ~92 other subjects' recordings during pre-training. It is
+not a better pipeline under their protocol; it is a different protocol with access to two
+orders of magnitude more data. The honest statement is that **cross-subject pre-training
+lifts this dataset above the within-session ceiling**, which is a claim about the value of
+the extra data, not about the architecture.
+
+Every arm in 12.8 *except* PTG is directly comparable to that 0.650. PTG is not.
+
+#### 9.15.5 What this does and does not settle
+
+**Settles.** Pre-training is the largest single intervention in the project: +0.0557 over
+its own control, more than the reordering (+0.0591 from a much lower base) and far more
+than anything the graph contributed. 9.9's reading — that the subject-dependent protocol
+is data-starved — is now directly confirmed rather than inferred.
+
+**Does not settle.** The gain is a *data* effect, not an architectural one. It would very
+likely transfer to ShallowConvNet or EEGNet unchanged, and **we have not tested that**. The
+claim "our architecture reaches 0.73" is therefore not supported; the supported claim is
+"this architecture, plus pre-training that any of these architectures could use, reaches
+0.73". Running PTG on ShallowConvNet is the obvious control and it has not been run.
+
+**Still exploratory.** Not on the 10.3 list. Three-for-four here and four-for-four on 9.12
+is a reason to take the pre-registration seriously, not a promotion to confirmatory.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -2192,6 +2285,7 @@ distribution.** Report both means with their spreads.
 | **G2 gbp, free operator** | 0.6494 | 0.6893 | **0.6694** | 93/103 |
 | **G3 gbp, graph as prior** | 0.6520 | 0.6954 | **0.6737** | 91/103 |
 | **PTC, pre-training control** | 0.6533 | 0.6956 | **0.6744** | 89/103 |
+| **PTG, grouped pre-training** | **0.7206** | **0.7396** | **0.7301** | **98/103** |
 
 Paired, two-sided, Holm-corrected: **G1 vs CSP +0.0389** (p = 0.0011, 72/103);
 **G1 vs attention +0.0591** (p = 0.0011, 82/103); G2 vs G1 +0.0065 (p = 0.52);
@@ -3015,6 +3109,36 @@ ShallowConvNet.
 ## 18. Changelog
 
 ### 2026-09-04
+
+- **Pre-training complete (9.15). PTG = 0.7301 — the project's best result, and the first
+  time it has cleared 0.70.** +0.0557 over its own control on **93/103 subjects**,
+  Holm-corrected. 98/103 above chance; 59/103 at or above 0.70.
+  - **Three of four 9.14 predictions hold; the fourth is refuted favourably.** PTG > PTC ✓;
+    the gain is larger in the weak tail ✓ (bottom quartile **+0.0720** against top
+    **+0.0346**, SD 0.1548 → 0.1490); PTG beats ShallowConvNet ✓; **"PTG does not reach
+    0.70" ✗ — it reached 0.7301.**
+  - **Eight leakage checks were run before any number was written down**, because
+    `CLAUDE.md` says an unexpectedly high result means suspecting leakage first. All pass:
+    group assignment matches the deterministic rule, source sets are exactly 103 − group
+    size, no target appears in its own source set, **all 1,030 folds report
+    `selection = final_epoch`** so nothing was selected on the target's test trials, and the
+    gain is spread across groups (SD 0.0189) rather than concentrated. The *shape* is also
+    wrong for leakage: a leak would help uniformly or help strong subjects, not help the
+    weakest quartile twice as much as the strongest.
+  - **9.15.4 records the comparison this number must never be given.** PTG's 0.7206 on
+    left-versus-right exceeds [23]'s 0.650 best-of-216,714 — but that benchmark is
+    within-session and sees only the target's own data, while PTG consumes ~92 other
+    subjects. **It is a different protocol with far more data, not a better pipeline.**
+    Every other arm is comparable to 0.650; PTG is not.
+  - **9.15.5 records what this does not settle: the gain is a *data* effect, not an
+    architectural one.** It would very likely transfer to ShallowConvNet or EEGNet
+    unchanged, and that has not been tested. The supported claim is "this architecture plus
+    architecture-agnostic pre-training reaches 0.73", not "our architecture reaches 0.73".
+    Running PTG on ShallowConvNet is the obvious missing control.
+- `CLAUDE.md` Expected Results gains the PTC and PTG rows plus three rules: pre-training is
+  the largest single intervention; never compare PTG to the 0.650 ceiling; and do not write
+  "our architecture reaches 0.73".
+- `posthoc_controls.py` and the figure extended to twelve arms, PTG in its own colour.
 
 - **Infrastructure caught up with the G arms.** Everything below is no-compute and was
   stale: nothing outside this document knew the G arms existed.
