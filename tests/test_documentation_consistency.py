@@ -51,6 +51,10 @@ HEADLINES = {
     "A1 free spatial": ("A1-free-binary", "trial_accuracy", 0.5566),
     "A2 EEGNet":       ("A2-eegnet-binary", "trial_accuracy", 0.6296),
     "A2 ShallowConvNet": ("A2-shallow-binary", "trial_accuracy", 0.6725),
+    "G1 graph constraint": ("G1-gbp-graph-binary", "trial_accuracy", 0.6629),
+    "G2 free operator":    ("G2-gbp-free-binary", "trial_accuracy", 0.6694),
+    "G3 graph as prior":   ("G3-gbp-prior-binary", "trial_accuracy", 0.6737),
+    "PTC control":         ("PTC-gbp-binary", "trial_accuracy", 0.6744),
 }
 TOL = 5e-4
 

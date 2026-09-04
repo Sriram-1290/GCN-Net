@@ -2182,6 +2182,27 @@ Between-subject SD 0.1247 against a method gap of ~0.02-0.03: subject identity c
 methods. **H2 is a consistent per-subject effect; H4 is a thin mean over an interleaved
 distribution.** Report both means with their spreads.
 
+### 12.8 Reordered architecture and the pre-training control — 103 subjects (9.13)
+
+**Exploratory (9.12 pre-registered, 9.13 scored). All four predictions held.**
+
+| arm | L vs R | B vs F | within-family | above chance |
+|---|---|---|---|---|
+| **G1 gbp, graph constraint** | 0.6408 | 0.6850 | **0.6629** | 88/103 |
+| **G2 gbp, free operator** | 0.6494 | 0.6893 | **0.6694** | 93/103 |
+| **G3 gbp, graph as prior** | 0.6520 | 0.6954 | **0.6737** | 91/103 |
+| **PTC, pre-training control** | 0.6533 | 0.6956 | **0.6744** | 89/103 |
+
+Paired, two-sided, Holm-corrected: **G1 vs CSP +0.0389** (p = 0.0011, 72/103);
+**G1 vs attention +0.0591** (p = 0.0011, 82/103); G2 vs G1 +0.0065 (p = 0.52);
+G3 vs G2 +0.0043 (p = 0.54, **51/103 — a coin flip**); G3 vs ShallowConvNet +0.0012
+(p = 0.99, 46/103).
+
+**PTC is the pre-training control, not a result in itself.** It runs the identical
+pipeline with `--no-pretrain`, and landing at 0.6744 — indistinguishable from G3's
+0.6737 — is what makes the eventual PTG − PTC contrast interpretable: it shows the
+source-fit representation is neutral, so any difference is pre-training.
+
 ### 12.7 Resting SMR predicts a third of the between-subject variance (17.6 E2)
 
 **Exploratory. Devised after seeing 12.6; not pre-registered.**
@@ -2382,7 +2403,23 @@ for c in "0 1" "2 3"; do
         --classes $c --model $m --resume --tag "A2-$m-binary-${c// /-}"
   done
 done
-python scripts/posthoc_controls.py --figures figures   # 12.5 verdict + figure
+python scripts/posthoc_controls.py --figures figures   # 12.5/12.8 verdict + figure
+
+# 12.8 the reordered architecture (9.12 pre-registered, 9.13 scored)
+for c in "0 1" "2 3"; do
+  for v in "graph:--spatial graph" "free:--spatial free"            "prior:--spatial free --graph-smoothness 1e-4"; do
+    n=${v%%:*}; flags=${v#*:}
+    python scripts/run_subject_dependent.py --config configs/bandpass_8_30.yaml         --folds 5 --epochs 50 --lr 1e-3 --batch-size 256 --window 64 --stride 16         --classes $c --model graphbp $flags --resume         --tag "G-gbp-$n-binary-${c// /-}"
+  done
+done
+
+# 17.11.2 pre-training, grouped (9.14 + 9.14.1). --groups 10 is what makes this
+# tractable: 20 pre-trainings rather than 206 (error 24).
+for c in "0 1" "2 3"; do
+  python scripts/run_pretrain_finetune.py --config configs/bandpass_8_30.yaml       --model graphbp --spatial free --graph-smoothness 1e-4 --classes $c       --groups 10 --folds 5 --pretrain-epochs 30 --finetune-epochs 30       --window 64 --stride 16 --resume --tag "PTG-gbp-binary-${c// /-}"
+  # the control: identical pipeline, pre-training skipped. Run both or neither.
+  python scripts/run_pretrain_finetune.py --config configs/bandpass_8_30.yaml       --model graphbp --spatial free --graph-smoothness 1e-4 --classes $c       --groups 10 --folds 5 --finetune-epochs 30 --no-pretrain       --window 64 --stride 16 --resume --tag "PTC-gbp-binary-${c// /-}"
+done
 python scripts/subject_heterogeneity.py --figures figures   # 12.6, no compute
 
 # the typeset paper (PAPER.md -> GCNs-Net-Reassessed.pdf)
@@ -2978,6 +3015,29 @@ ShallowConvNet.
 ## 18. Changelog
 
 ### 2026-09-04
+
+- **Infrastructure caught up with the G arms.** Everything below is no-compute and was
+  stale: nothing outside this document knew the G arms existed.
+  - **12.8 added** — the three G arms and the PTC control in the consolidated table, with
+    the Holm-corrected contrasts. 12.8 states plainly that **PTC is a control, not a
+    result**: landing at 0.6744, indistinguishable from G3's 0.6737, is what makes the
+    eventual PTG − PTC contrast interpretable.
+  - **15 reproduction recipe** had no `graphbp` commands at all, so the G arms were not
+    reproducible from the document. Added, along with the grouped pre-training commands and
+    a comment that `--groups 10` is what makes that arm tractable.
+  - **The doc-consistency test now guards the four new headlines** (0.6629, 0.6694, 0.6737,
+    0.6744). Each is recomputed from the log and must also appear in a write-up, so a number
+    cannot drift or become orphaned. 37 checks, 272 tests overall.
+  - **`subject_heterogeneity.py` extended** to the graph-free, reordered and pre-training
+    arms — five new comparisons. E1 previously stopped at the attention arm, so the most
+    interesting per-subject contrasts did not exist.
+  - **`smr_predictor.py` extended** likewise, and now drops arms with fewer than 50 subjects
+    rather than correlating against a fragment.
+- **A guard added because the extended E1 immediately walked into error 10.** With PTG at 11
+  subjects the script cheerfully printed `pre-trained vs control +0.0596, wins 9/11` beside
+  the complete arms. Every comparison over fewer than 103 subjects is now labelled
+  **`[PARTIAL -- DO NOT QUOTE]`**, and incomplete arms are named in the header. The number
+  it printed is not recorded here and has not been read.
 
 - **Grouped pre-training implemented** (`--groups`, default 10), 5 new tests, suite 272.
   `assign_groups` partitions by `index % k`, which is deterministic, needs no seed, and

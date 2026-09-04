@@ -138,11 +138,17 @@ def main() -> int:
     print(f"  range {v.min():.2f} to {v.max():.2f} dB, median {np.median(v):.2f}")
 
     rows = [json.loads(l) for l in args.log.open(encoding="utf-8") if l.strip()]
+    # Every complete arm, so the correlation can be read across the whole ladder: if
+    # the predictor tracks a subject-level ceiling it should hold for all of them, not
+    # only the ones that existed when this was written.
     arms = {
         "GCN + attention": per_subject_accuracy(rows, "C-attention-binary", "trial_accuracy"),
         "CSP+LDA": per_subject_accuracy(rows, "C-csp", "accuracy"),
         "ShallowConvNet": per_subject_accuracy(rows, "A2-shallow-binary", "trial_accuracy"),
+        "G3 reordered": per_subject_accuracy(rows, "G3-gbp-prior-binary", "trial_accuracy"),
+        "pre-trained": per_subject_accuracy(rows, "PTG-gbp-binary", "trial_accuracy"),
     }
+    arms = {k: v for k, v in arms.items() if len(v) >= 50}
 
     print("\ncorrelation of the resting SMR predictor with per-subject accuracy")
     print("-" * 66)

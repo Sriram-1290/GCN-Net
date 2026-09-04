@@ -55,6 +55,10 @@ ARMS = {
     "learngraph": ("C-learngraph-binary", "trial_accuracy"),
     "both": ("C-both-binary", "trial_accuracy"),
     "csp": ("C-csp", "accuracy"),
+    "shallow": ("A2-shallow-binary", "trial_accuracy"),
+    "gbp": ("G3-gbp-prior-binary", "trial_accuracy"),
+    "ptg": ("PTG-gbp-binary", "trial_accuracy"),
+    "ptc": ("PTC-gbp-binary", "trial_accuracy"),
 }
 
 
@@ -109,8 +113,16 @@ def compare(name_a: str, name_b: str, arms: dict[str, dict[str, float]]) -> dict
     }
 
 
+EXPECTED_SUBJECTS = 103
+
+
 def report(res: dict, label_a: str, label_b: str) -> None:
-    print(f"\n{label_a}  vs  {label_b}      ({res['subjects']} subjects)")
+    # Error 10: an arm read 0.5774 at 35 of 100 folds and 0.5418 when finished. A
+    # comparison over a partial arm is not a small version of the real one, so it is
+    # labelled unmistakably rather than printed quietly beside the complete ones.
+    partial = ("   [PARTIAL -- DO NOT QUOTE]"
+               if res["subjects"] < EXPECTED_SUBJECTS else "")
+    print(f"\n{label_a}  vs  {label_b}      ({res['subjects']} subjects){partial}")
     print("-" * 66)
     print(f"  mean accuracy            {res['mean_a']:.4f}  vs  {res['mean_b']:.4f}   "
           f"(gap {res['gap']:+.4f})")
@@ -132,7 +144,8 @@ def make_figure(arms: dict[str, dict[str, float]], out: Path) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    net, csp = arms["attention"], arms["csp"]
+    net_key = next(k for k in ("ptg", "gbp", "attention") if k in arms)
+    net, csp = arms[net_key], arms["csp"]
     subjects = sorted(set(net) & set(csp))
     va = np.array([net[s] for s in subjects])
     vb = np.array([csp[s] for s in subjects])
@@ -193,16 +206,28 @@ def main() -> int:
     print("EXPLORATORY re-analysis of the confirmatory arms (17.6 E1).")
     print("Not a pre-registered test -- 10.3 fixed that list and this is not on it.")
     print(f"\narms found: {', '.join(f'{k} (n={len(v)})' for k, v in arms.items())}")
+    short = [k for k, v in arms.items() if len(v) < EXPECTED_SUBJECTS]
+    if short:
+        print(f"INCOMPLETE, marked PARTIAL below: {', '.join(short)} "
+              f"(expected {EXPECTED_SUBJECTS} subjects)")
 
+    # Each pair answers one question, and every pair is reported whether or not it
+    # flatters us. Arms absent from the log are skipped rather than faked.
     for a, b, la, lb in [("attention", "csp", "GCN + attention", "CSP+LDA"),
                          ("both", "csp", "GCN + both", "CSP+LDA"),
-                         ("attention", "fixed", "GCN + attention", "fixed graph")]:
+                         ("attention", "fixed", "GCN + attention", "fixed graph"),
+                         ("gbp", "csp", "G3 reordered", "CSP+LDA"),
+                         ("gbp", "attention", "G3 reordered", "GCN + attention"),
+                         ("gbp", "shallow", "G3 reordered", "ShallowConvNet"),
+                         ("ptg", "ptc", "pre-trained", "no-pretrain control"),
+                         ("ptg", "shallow", "pre-trained", "ShallowConvNet")]:
         res = compare(a, b, arms)
         if res:
             report(res, la, lb)
 
-    if "attention" in arms and "csp" in arms:
-        net, csp = arms["attention"], arms["csp"]
+    if "csp" in arms and any(k in arms for k in ("ptg", "gbp", "attention")):
+        net_key = next(k for k in ("ptg", "gbp", "attention") if k in arms)
+        net, csp = arms[net_key], arms["csp"]
         subjects = sorted(set(net) & set(csp))
         below = [s for s in subjects if max(net[s], csp[s]) <= 0.5]
         print(f"\nsubjects where BOTH methods are at or below chance: "
