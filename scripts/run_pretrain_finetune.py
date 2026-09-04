@@ -22,8 +22,9 @@ across subjects**. Variance reduction *is* lifting the weak tail.
 
 Leakage
 -------
-The target subject is excluded from pre-training **entirely** — not their trials, not
-the graph, not the normalisation statistics. Fine-tuning sees only the target's
+The target subject — and, under `--groups`, that target's whole group — is excluded from
+pre-training **entirely**: not their trials, not the graph, not the normalisation
+statistics. Fine-tuning sees only the target's
 training folds, which are the same folds `run_subject_dependent.py` uses at the same
 seed, so the comparison is paired subject by subject and fold by fold.
 
@@ -43,11 +44,21 @@ pre-training skipped**, isolating the effect of pre-training from the effect of 
 representation. Run both or neither; a comparison against the subject-dependent arm
 alone would confound the two.
 
-Cost
-----
-One pre-training per (target, problem), reused across that target's five folds: 206
-pre-trainings at roughly the cost of a LOSO fold (~1.6 min measured), plus cheap
-fine-tunes. Budget around 6-8 hours for both binary problems. `--resume` is keyed on
+Cost, and the correction that produced `--groups`
+-------------------------------------------------
+One pre-training per *target* means 206 of them, measured at **14.9 min each** — about
+51 h, not the 6-8 h originally projected. That projection took its per-fold cost from
+the LOSO runs, which use `GCNsNet`: attention pools the time axis away before the
+convolutions, whereas `graphbp` deliberately carries it *through* the spatial stage
+(9.11.2), so the spatial op runs on `N x T'` rows. On ~36 training trials that is
+invisible; on ~100 pooled subjects it dominates. Error 24 in 14.
+
+`--groups 10` pre-trains once per **group** of targets instead: 20 pre-trainings, on the
+order of 4-5 h for both problems. Each group's model excludes that entire group, so the
+leakage guarantee is unchanged and a target still draws on ~92 source subjects.
+
+The run prints each group's elapsed time. **Check the first one against the estimate
+before walking away** — that is the check error 24 skipped. `--resume` is keyed on
 (subject, fold) as everywhere else.
 """
 
