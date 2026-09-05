@@ -2028,6 +2028,90 @@ subjects where `graphbp`'s had 92, confounding the one comparison this run exist
 
 ---
 
+### 9.17 Is the pre-training gain architecture-agnostic? — results (EXPLORATORY)
+
+**Run 2026-09-05/06, 2,060 folds over two arms, 103 subjects, identical folds to every
+other arm. Pre-registered in 9.16 at commit `4f9f819` before any number existed.
+Four predictions of four hold. The eight-point audit of 9.15.3 passed on all eight
+before any figure below was read.**
+
+#### 9.17.1 Results
+
+| arm | L vs R | B vs F | within-family | above chance |
+|---|---|---|---|---|
+| PTC-gbp — control | 0.6533 | 0.6956 | 0.6744 | 89/103 |
+| **PTG-gbp** | 0.7206 | 0.7396 | **0.7301** | 98/103 |
+| PTC-shallow — control | 0.6714 | 0.7057 | 0.6886 | 92/103 |
+| **PTG-shallow** | **0.7387** | 0.7351 | **0.7369** | **101/103** |
+
+| comparison | difference | 95 % CI | wins |
+|---|---|---|---|
+| gain, graphbp (PTG − PTC) | **+0.0557** | [+0.0464, +0.0650] | 93/103 |
+| gain, shallow (PTG − PTC) | **+0.0483** | [+0.0379, +0.0590] | 82/103 |
+| **DiD: shallow − graphbp** | **−0.0073** | [−0.0204, +0.0056] | 47/103 |
+| head to head: PTG-shallow − PTG-gbp | +0.0068 | [−0.0022, +0.0155] | 59/103 |
+
+#### 9.17.2 Prediction scorecard — four of four
+
+1. *"PTC-shallow within 0.020 of ShallowConvNet's 0.6725."* — **Holds.** 0.6886, +0.0161.
+2. *"Δ_shallow > 0."* — **Holds.** +0.0483 on 82/103.
+3. *"|Δ_shallow − Δ_gbp| < 0.020."* — **Holds.** 0.0073.
+4. *"PTG-shallow > 0.70."* — **Holds.** 0.7369.
+
+#### 9.17.3 Decision rule A fires: the gains are equivalent
+
+9.16.3 fixed a floor before the run: **any |DiD| below 0.010 is reported as
+indistinguishable, not as a direction.** The DiD is **−0.0073**, its CI contains zero, and
+it wins on 47 of 103 subjects — a coin flip. **Pre-training transfers to ShallowConvNet at
+the same magnitude it transfers to the reordered graph model.**
+
+The 9.15.5 caveat is therefore **confirmed by measurement rather than asserted**. The gain
+is a property of the data, not of the architecture, and `CLAUDE.md`'s standing instruction —
+write "this architecture plus pre-training", never "our architecture reaches 0.73" — is now
+permanent rather than provisional.
+
+**The head-to-head is also a tie, and must be reported as one.** PTG-shallow's 0.7369
+exceeds PTG-gbp's 0.7301 by 0.0068, which is below the same 0.010 floor and carries a CI
+containing zero. **Do not write that ShallowConvNet is the project's best model**; the
+supported claim is that the two are indistinguishable at the top of the table. The split is
+informative: shallow wins left-versus-right (0.7387 vs 0.7206) and loses both-fists-versus-feet
+(0.7351 vs 0.7396), netting to a wash.
+
+#### 9.17.4 Two things the analysis got wrong in advance
+
+**The power estimate was optimistic.** 9.16.3 argued the two architectures' per-subject
+gains would correlate "substantially", putting the MDD at 0.013–0.016. Measured
+**ρ = +0.160** — weakly positive, so the effective MDD is near the uncorrelated 0.0190. The
+design was therefore *less* able to resolve a small interaction than pre-registered. The
+conclusion is unaffected, since a DiD of −0.0073 is inside even the optimistic floor, but a
+DiD of 0.015 would have been reported as indistinguishable when it might have been real.
+
+**The pre-run projection expected outcome C and got A.** From PTC-shallow's completed 0.6886
+it was argued that shallow needed only +0.0415 to pass PTG-gbp, against graphbp's +0.0557,
+and would therefore surpass it. Shallow did gain +0.0483 — more than the 0.0415 — and did
+land nominally ahead. But the projection treated a nominal lead as a win, and 0.0068 is not
+one. **Predicting the point estimate correctly and the verdict wrongly is exactly what the
+pre-registered floor exists to catch.**
+
+#### 9.17.5 What this settles and what it does not
+
+**Settles.** Pre-training is architecture-agnostic on this dataset, measured on two
+architectures that differ in every component except the folds they train on. The largest
+effect in this project belongs to the data, not to any model in it.
+
+**Does not settle.** Two architectures are not "any architecture" — EEGNet is untested, and
+both arms here take power after a spatial stage. Nor does it explain *why* shallow gains
+slightly less from a slightly higher baseline; the regression of gain on baseline (slope
+−0.086) is too weak to carry that, and is biased by shared noise.
+
+**Still exploratory.** Not on the 10.3 list.
+
+**The 9.15.4 prohibition extends to this arm.** PTG-shallow's 0.7387 on left-versus-right
+must never be set against [23]'s 0.650. It consumes ~92 other subjects' recordings; that
+benchmark is within-session.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -3226,6 +3310,24 @@ ShallowConvNet.
 ---
 
 ## 18. Changelog
+
+### 2026-09-06
+
+- **9.17: the pre-training gain is architecture-agnostic, and it is now measured.**
+  ShallowConvNet gains **+0.0483** from the same pre-training where the reordered graph model
+  gains +0.0557; the difference of differences is **−0.0073** [−0.0204, +0.0056] on 47/103
+  subjects. Decision rule A of 9.16.5 fires. Four of four pre-registered predictions hold and
+  the eight-point leakage audit passed before any figure was read.
+  - **PTG-shallow 0.7369 and PTG 0.7301 are tied**, not ranked: +0.0068 [−0.0022, +0.0155],
+    below the 0.010 floor 9.16.3 fixed in advance. Shallow wins L-vs-R and loses B-vs-F.
+  - **Two pre-run judgements were wrong and are recorded as such.** The power estimate
+    assumed the two architectures' gains would correlate substantially; measured ρ = +0.160,
+    so the real MDD was nearer 0.019 than the projected 0.013–0.016. And the projection
+    predicted outcome C from PTC-shallow's baseline — it got the point estimate close
+    (0.743 projected, 0.7369 measured) and the verdict wrong, by treating a nominal lead as
+    a win. The pre-registered floor is what caught it.
+  - `CLAUDE.md`'s ban on "our architecture reaches 0.73" is now **permanent rather than
+    provisional**, and the 9.15.4 prohibition extends to PTG-shallow's 0.7387.
 
 ### 2026-09-05
 

@@ -79,7 +79,9 @@ not a result worth reporting.
 | **G1: reordered architecture, graph constraint** | **0.6629** | **the first graph model to beat CSP (+0.0389)** |
 | **G3: reordered + graph as prior** | **0.6737** | identical to ShallowConvNet (p = 0.99) |
 | PTC: same pipeline, pre-training skipped | 0.6744 | **the control** for the row below |
-| **PTG: + cross-subject pre-training** | **0.7301** | **project's best; +0.0557 over its control, 93/103 subjects** |
+| **PTG: + cross-subject pre-training** | **0.7301** | **+0.0557 over its control, 93/103 subjects** |
+| PTC-shallow: ShallowConvNet, pre-training skipped | 0.6886 | **the control** for the row below |
+| **PTG-shallow: ShallowConvNet + pre-training** | **0.7369** | **tied with PTG, not ahead of it (see below)** |
 
 - **The published formulation decodes nothing under a correct split.** 0.5090 against a
   chance level of 0.5. Its 4-class accuracy of 0.3097 looks above chance only because of
@@ -116,10 +118,19 @@ not a result worth reporting.
   within-session and sees only the target's own data; PTG additionally consumes ~92 other
   subjects. It is a different protocol with vastly more data, not a better pipeline. Every
   other arm *is* comparable to 0.650; PTG is not.
-- **The 0.73 is a data effect, not an architectural one.** It would very likely transfer to
-  ShallowConvNet or EEGNet unchanged and **that has not been tested**. Do not write "our
-  architecture reaches 0.73"; write "this architecture plus pre-training reaches 0.73, and
-  the pre-training is architecture-agnostic".
+- **CONFIRMED 2026-09-06 (§9.17). The 0.73 is a data effect, not an architectural one, and
+  this is now measured rather than assumed.** ShallowConvNet gains **+0.0483** from the same
+  pre-training against graphbp's +0.0557; the difference of differences is **−0.0073**
+  [−0.0204, +0.0056] on 47/103 subjects — a coin flip. Pre-training transfers at the same
+  magnitude to an architecture sharing no component with ours. **The instruction never to
+  write "our architecture reaches 0.73" is therefore permanent, not provisional.**
+- **PTG-shallow (0.7369) and PTG (0.7301) are TIED — do not call either one the best.**
+  The head-to-head is +0.0068 [−0.0022, +0.0155], below the 0.010 floor §9.16.3 fixed in
+  advance and with a CI containing zero. Shallow wins L-vs-R (0.7387 vs 0.7206) and loses
+  B-vs-F (0.7351 vs 0.7396). **Do not write "ShallowConvNet is the project's best model"**,
+  and **never compare** PTG-shallow's 0.7387 to the 0.650 ceiling either — it is a
+  different protocol with ~92 extra subjects, and the §9.15.4 prohibition covers every
+  pre-trained arm.
 - **Never report a G-arm difference below 0.020 as an effect.** §9.12 fixed that rule before
   the runs; the design's minimum detectable difference is ~0.020 at 80 % power.
 - **But the mechanism named in §9.7.1 is minor.** A1 lifted graph locality and node-shared

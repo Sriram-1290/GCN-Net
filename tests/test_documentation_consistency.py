@@ -56,6 +56,8 @@ HEADLINES = {
     "G3 graph as prior":   ("G3-gbp-prior-binary", "trial_accuracy", 0.6737),
     "PTC control":         ("PTC-gbp-binary", "trial_accuracy", 0.6744),
     "PTG pre-trained":     ("PTG-gbp-binary", "trial_accuracy", 0.7301),
+    "PTC shallow control": ("PTC-shallow-binary", "trial_accuracy", 0.6886),
+    "PTG shallow":         ("PTG-shallow-binary", "trial_accuracy", 0.7369),
 }
 TOL = 5e-4
 
