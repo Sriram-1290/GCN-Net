@@ -2264,6 +2264,77 @@ The reference point, scaler and classifier are all fitted on training trials onl
 
 ---
 
+### 9.20 Window length (B5) — pre-registered 2026-09-06, dev set
+
+**Written and committed before the run.**
+
+#### 9.20.1 Why this is now the most interesting axis left
+
+Every raw arm in this project uses `window=64` = **0.40 s**, and that value has never been
+varied for any arm. It was inherited, not chosen. Two things make it the obvious next test:
+
+* **Neurophysiology.** ERD/ERS develops over 1-2 s and the literature analyses windows
+  around 0.5-2.5 s post-cue. 0.40 s may simply be shorter than the phenomenon. Note the
+  countervailing evidence: brief (2 s) motor imagery has been reported to yield *more*
+  informative ERS features than sustained (4 s), so longer is not automatically better --
+  which is exactly why this needs measuring rather than assuming.
+* **9.19 removed every other candidate.** Seven methods sharing almost nothing land within
+  0.0108 of each other. When four different spatial priors, a graph-free CNN and a
+  Riemannian classical method all agree on ~0.67, the thing they *share* becomes the
+  suspect -- and what they share is the 0.40 s window and the 8-30 Hz band.
+
+It also bears directly on a stated limitation: 7 records that EEGNet and ShallowConvNet were
+run far outside the 2-4 s regime their published hyperparameters assume, making their
+advantage conservative. Lengthening the window moves them toward that regime.
+
+#### 9.20.2 Design
+
+**ShallowConvNet on the development set (S001-S020), `stride=16` held fixed.** ShallowConvNet
+because 9.19 established the architecture does not matter here, so the cheapest arm is the
+right probe; the development set because this is a *sweep* to choose a value, which is
+exactly what 10.1 demoted those subjects for. `window=64` is not re-run -- the existing
+`A2-shallow-binary` rows restricted to those 20 subjects are the baseline (0.6733, against
+0.6725 on all 103, so the subset is representative).
+
+| window | seconds | windows/trial | relative cost |
+|---|---|---|---|
+| 64 (baseline, already run) | 0.40 | 37 | 1.00x |
+| **128** | 0.80 | 33 | 1.78x |
+| **256** | 1.60 | 25 | 2.70x |
+
+**Power.** The paired SD on these 20 subjects is 0.0524, giving SE 0.0117 and a
+**minimum detectable difference of 0.0328** at 80 % power -- considerably coarser than the
+0.020 available at 103 subjects. **Any dev-set difference below 0.033 must be reported as
+indistinguishable**, and this sweep can only justify a confirmatory run, never conclude one.
+
+#### 9.20.3 Predictions, fixed in advance
+
+1. **A longer window beats 0.40 s.** Directional; the mechanism is that 0.40 s truncates
+   ERD/ERS and gives ~2.5 Hz frequency resolution, ~9 bins inside 8-30 Hz.
+2. **The best window is 128 or 256, not the longest available.** The brief-MI literature
+   argues against monotonic improvement.
+3. **The gain exceeds the 0.0328 dev-set MDD**, i.e. it is not another 9.19-style tie.
+
+#### 9.20.4 Decision rules, fixed in advance
+
+**A -- a window beats 64 by more than 0.0328.** Run that window confirmatorily on all 103
+subjects, and treat every existing arm's window as a limitation rather than a choice. This
+would mean the ~0.67 ceiling in 9.19.3 is partly an artefact of the sample definition, which
+would be the most consequential finding since 9.13.
+
+**B -- all windows within 0.0328 of each other.** The 0.40 s window is not the constraint,
+the 9.19 ceiling stands, and 7's caveat about ShallowConvNet's design regime can be
+retired as measured rather than assumed.
+
+**C -- longer windows are reliably worse.** Would suggest the short window is doing useful
+implicit augmentation (37 overlapping views per trial) and that trial-level aggregation is
+carrying more than assumed.
+
+**Reporting.** Exploratory; dev-set only; no number from this sweep may be quoted as a
+result for the paper, only as a reason to run a confirmatory arm.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
