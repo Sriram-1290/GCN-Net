@@ -6,7 +6,7 @@ that decodes motor imagery when evaluated correctly.
 
 **Start here:** [`PAPER.md`](PAPER.md) is the full research paper — abstract, related
 work, methods, results, discussion and references; the typeset version is
-[`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (22 pages, rebuilt with
+[`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (25 pages, rebuilt with
 `scripts/build_paper_pdf.py`). [`RESULTS.md`](RESULTS.md) is the
 shorter writeup: the findings in publication order with figures. [`project_documentation.md`](project_documentation.md) is the living
 record: every measurement, decision and correction, plus full methods, a reproduction
@@ -32,7 +32,10 @@ reproduces that number. Evaluating the same model correctly does not.
 | **EEGNet, no graph (post-hoc)** | **0.6296** — indistinguishable from CSP, p=0.49 |
 | **ShallowConvNet, no graph (post-hoc)** | **0.6725** — beats CSP by +0.0485, 94/103 above chance |
 | **Reordered graph model, G3 (post-hoc)** | **0.6737** — beats CSP by +0.0389; ties ShallowConvNet, p=0.99 |
+| **Tangent space, tuned classical (post-hoc)** | **0.6694** — beats CSP+LDA by +0.0454; ties the deep arms |
+| CSP-initialised spatial operator (post-hoc) | 0.6686 — **−0.0008** against the graph-initialised control |
 | **+ cross-subject pre-training, PTG (post-hoc)** | **0.7301** — +0.0557 over its own control, 98/103 above chance |
+| **Same pre-training on ShallowConvNet (post-hoc)** | **0.7369** — tied with PTG; gains differ by −0.0073 |
 
 All rows except the post-hoc ones are 103 subjects x 3 seeds; the post-hoc arms are 103
 subjects at one seed on identical folds. The paired gap between the
@@ -67,17 +70,26 @@ Three findings, in order of how much they matter:
    slack in a misordered network. Post-hoc; see §9.13.
 6. **The largest single gain is data, not architecture.** Pre-training on other subjects —
    no subject ever pre-trained on their own data — adds 0.0557 over an otherwise identical
-   control on 90 % of subjects, reaching 0.7301 with 98/103 above chance, and helps the
-   weakest quartile twice as much as the strongest. Pre-training is architecture-agnostic
-   and the transfer control has not been run, so this supports "this architecture *plus*
-   pre-training reaches 0.7301", not "our architecture reaches 0.7301". Post-hoc; §9.15.
+   control on 90 % of subjects, reaching 0.7301, and helps the weakest quartile twice as much
+   as the strongest. Post-hoc; §9.15.
+7. **And that gain is architecture-agnostic, by measurement.** Run unchanged on
+   ShallowConvNet it adds 0.0483 and reaches 0.7369; the difference between the two gains is
+   −0.0073 [−0.0204, +0.0056] on 47/103. The two pre-trained arms are **tied, not ranked**.
+   This supports "this architecture *plus* pre-training reaches 0.7301", never "our
+   architecture reaches 0.7301". Post-hoc; §9.17.
+8. **~0.67 is a ceiling of the dataset, not of any model.** Four spatial priors on the same
+   operator — hard graph, graph-init, Dirichlet penalty, CSP subspace — plus a graph-free
+   CNN and a Riemannian tangent-space classifier with no network at all span **0.0108**. A
+   fourfold change in window length moves nothing, and the best window is the 0.40 s we
+   already had. Initialising the operator from CSP filters, published as worth +6 points on a
+   comparable backbone, measures **−0.0008** here. Post-hoc; §9.19, §9.21.
 
 ## Reproducing it
 
 ```bash
 pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cu132
 pip install -r requirements.txt
-pytest -q                                    # 280 tests
+pytest -q                                    # 319 tests
 ```
 
 The raw dataset (3.4 GB, 109 subjects) is not in the repository. Download the PhysioNet
@@ -113,7 +125,7 @@ models/          Chebyshev conv, GCNs-Net, learnable adjacency, temporal attenti
 evaluation/      metrics, fold assembly, trainer, experiment log
 visualization/   scalp topography, adjacency and confusion figures
 scripts/         cache building, experiment runners, analysis
-tests/           280 tests
+tests/           319 tests
 ```
 
 ## Things that will bite you
@@ -144,12 +156,19 @@ them adds nothing over attention alone; CSP+LDA remains significantly ahead by 0
 and LOSO reaches 0.6040 with 88/103 subjects above chance — *higher* than the
 subject-dependent figure, because a LOSO fold trains on ~100x more data.
 
-Four post-hoc lines of work then went beyond the pre-registered set, each with its
-predictions and decision rule fixed before any aggregate was read (§9.11, §9.13, §9.15).
-Together they establish that neither sample size nor the graph formulation was the
-limitation — the architecture around the graph was — and that cross-subject pre-training
-is worth more than every architectural change combined. They are labelled exploratory
-wherever they appear.
+Eight post-hoc lines of work then went beyond the pre-registered set, each with its
+predictions and decision rule fixed before any aggregate was read (§9.11, §9.13, §9.15,
+§9.17, §9.19, §9.21). Together they establish that neither sample size, nor the graph
+formulation, nor any competing spatial prior, nor the window length is the limitation; that
+~0.67 is a ceiling of the dataset under this protocol, reached independently by six methods
+sharing almost no components; and that the only intervention which moves it is other
+subjects' data, which works equally well with the graph removed. They are labelled
+exploratory wherever they appear.
+
+**Three of those eight refuted our own predictions**, including two interventions selected
+from the literature as the most promising available. Each was pre-registered with a decision
+rule before it ran, which is the only reason they read as results rather than as narratives
+fitted after the fact.
 
 The audit is complete and reproducible.
 

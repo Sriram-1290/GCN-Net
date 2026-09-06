@@ -2,12 +2,13 @@
 
 **A published graph convolutional network reports 93 % on four-class motor imagery.
 Reimplemented faithfully, its protocol reproduces. Evaluated correctly, the same model
-decodes nothing at all. Reordering the architecture around the *unchanged* graph makes it
-beat a classical baseline — and shows the graph itself contributes nothing either way.
-Pre-training on other subjects is worth more than every architectural change combined.**
+decodes nothing at all. Repairing it is possible — but six methods sharing almost no
+components then converge on ~0.67, and no spatial prior, architecture or window length we
+tried moves it. The one thing that does is other subjects' data, and that works just as well
+without the graph.**
 
-103 subjects · PhysioNet EEG Motor Movement/Imagery · 17,795 logged folds ·
-five pre-registered hypotheses · four post-hoc controls · 4 September 2026
+103 subjects · PhysioNet EEG Motor Movement/Imagery · 22,315 logged folds ·
+five pre-registered hypotheses · eight post-hoc controls · 7 September 2026
 
 | | value | |
 |---|---|---|
@@ -18,7 +19,9 @@ five pre-registered hypotheses · four post-hoc controls · 4 September 2026
 | Subject-independent | **0.6040** | 88 of 103 above chance |
 | ShallowConvNet (no graph) | **0.6725** | beats CSP by 0.0485 |
 | **Reordered graph model** | **0.6737** | **beats CSP by 0.0389; ties ShallowConvNet, p = 0.99** |
+| Tangent space (tuned classical) | **0.6694** | beats CSP+LDA by 0.0454 — ties the deep arms too |
 | **+ cross-subject pre-training** | **0.7301** | **+0.0557 over its own control; 98 of 103 above chance** |
+| **…the same pre-training on ShallowConvNet** | **0.7369** | **tied with the above; the gain is the finding, not the model** |
 
 ---
 
@@ -466,6 +469,100 @@ pre-training reaches 0.7301", not "this architecture reaches 0.7301".
 
 ---
 
+## R11 · A stronger classical baseline (post-hoc)
+
+R4's CSP was untuned, which we called conservative without saying by how much. A published
+benchmark of 216,714 pipelines on this dataset ranks covariance tangent-space projection and
+CSP as the two leading families, with tangent space ahead. We had never run one.
+
+| | L vs R | B vs F | Within-family | Above chance |
+|---|---|---|---|---|
+| CSP+LDA (R4) | 0.5942 | 0.6537 | 0.6239 | 81/103 |
+| **Tangent space** | 0.6550 | 0.6837 | **0.6694** | 89/103 |
+
+**+0.0454** [+0.0310, +0.0594], winning on 74 of 103 subjects — and indistinguishable from
+ShallowConvNet (−0.0031). Covariances are shrunk, projected at the Fréchet mean of the
+*training* covariances, and classified by a penalised linear model; reference, scaler and
+classifier all fitted on training trials only.
+
+**This makes every negative result here stronger.** The classical bar our own architectures
+failed to clear is 0.0454 higher than R4 reported.
+
+## R12 · Pre-training transfers to an architecture sharing nothing with ours (post-hoc)
+
+R10 claimed pre-training was architecture-agnostic. That was an assertion. The control is to
+run it unchanged on a graph-free network and compare the *gains*.
+
+| Arm | Within-family | Above chance |
+|---|---|---|
+| Control — graph model, no pre-training | 0.6744 | 89/103 |
+| **Pre-trained graph model** | **0.7301** | 98/103 |
+| Control — ShallowConvNet, no pre-training | 0.6886 | 92/103 |
+| **Pre-trained ShallowConvNet** | **0.7369** | **101/103** |
+
+| | Difference | 95 % CI | Wins |
+|---|---|---|---|
+| Gain, graph model | +0.0557 | [+0.0464, +0.0650] | 93/103 |
+| Gain, ShallowConvNet | +0.0483 | [+0.0379, +0.0590] | 82/103 |
+| **Difference of gains** | **−0.0073** | [−0.0204, +0.0056] | 47/103 |
+
+A coin flip. The controls start level (0.6744 vs 0.6886), so this cannot be a ceiling effect,
+and each gain is measured against its own control so the offset cancels.
+
+**The two pre-trained arms are tied, not ranked.** +0.0068 [−0.0022, +0.0155] — below the
+0.010 floor fixed before the run. Neither is "the best model."
+
+## R13 · No spatial prior matters, whatever it is (post-hoc)
+
+R9 found the graph inert. The obvious rejoinder is that the *electrode graph* is the wrong
+prior — and published work agrees, reporting +6.0 points on a ShallowConvNet backbone from
+initialising the spatial layer with CSP filters instead.
+
+We built a CSP basis of identical shape and scaling to the graph one. **No model code
+changed**; the arms differ only in what the learnable operator is initialised from.
+
+| Spatial operator initialised from | Within-family |
+|---|---|
+| hard Chebyshev graph constraint | 0.6629 |
+| **CSP filters** | **0.6686** |
+| the electrode graph (control) | 0.6694 |
+| *no network at all* — tangent space | 0.6694 |
+| *no graph at all* — ShallowConvNet | 0.6725 |
+| the graph as a Dirichlet penalty | 0.6737 |
+
+**CSP-init vs graph-init: −0.0008** [−0.0094, +0.0076], 49/103. The published gain does not
+transfer here.
+
+**The column is the result, not the row.** Six methods sharing almost nothing span 0.0108.
+The claim is no longer "the graph contributes nothing" but "the spatial prior does not
+matter, whatever it is."
+
+## R14 · The window is not the constraint either (post-hoc, development set)
+
+Every raw arm in this project uses a 0.40 s window, inherited and never varied — and far
+shorter than the 1–2 s over which ERD/ERS develops. If the 0.67 figure is an artefact of
+anything, this is the candidate.
+
+| Window | L vs R | B vs F | Within-family |
+|---|---|---|---|
+| **0.40 s** (inherited) | 0.6522 | 0.6944 | **0.6733** |
+| 0.80 s | 0.6356 | 0.6822 | 0.6589 |
+| 1.60 s | 0.6144 | 0.6822 | 0.6483 |
+
+Spread across a fourfold range: **0.0250**, inside the 0.0328 this 20-subject design can
+detect. The best window is the one we already had, and we had predicted the opposite.
+
+Two qualifications we state rather than bury. The 1.60 s interval excludes zero, so a
+full-scale run might find long windows reliably *worse*. And stride was held fixed, so longer
+windows also mean fewer windows per trial (37, 33, 25) — this design cannot separate "longer
+is worse" from "fewer samples is worse."
+
+**It does retire one of our caveats.** We had recorded that EEGNet and ShallowConvNet ran
+outside their 2–4 s design regime, making their advantage conservative. Inside that regime
+ShallowConvNet is *worse*. The caveat was not costing them anything.
+
+---
+
 ## A result we did not expect
 
 Graclus coarsening groups electrodes by correlation alone. No electrode position enters the
@@ -537,40 +634,49 @@ representation — band-passing to mu and beta, widening the sample to 0.4 s, an
 time by attention — produces a model that genuinely decodes, at 0.6038 within-family and
 0.6040 subject-independent.
 
-That model is still beaten by CSP+LDA, and so is every graph configuration built up to that
-point. Two controls narrowed the reason. It is not the amount of data: graph-free networks
-on identical folds and identical trial counts reach and pass the classical baseline, with
-ShallowConvNet at 0.6725. Nor is it mainly the locality constraint we first blamed: lifting
-that constraint recovers a sixth of the gap.
+That model is still beaten by the classical baselines, and so is every graph configuration
+built up to that point. Two controls narrowed the reason. It is not the amount of data:
+graph-free networks on identical folds and identical trial counts reach and pass CSP+LDA,
+with ShallowConvNet at 0.6725. Nor is it mainly the locality constraint we first blamed:
+lifting that constraint recovers a sixth of the gap.
 
 The rest of it is the architecture around the graph. Taking power *after* the spatial stage,
 with a learned temporal filter, one spatial layer and no node pooling — and the Chebyshev
 convolution left exactly as published — lifts the graph model to 0.6629 and past CSP by
-0.0389 on 70 % of subjects. The graph earns nothing by this: a hard constraint, a free
-operator and a Dirichlet prior span 0.0108 and are indistinguishable. It is not a handicap
-either, which is the opposite of what our own earlier controls implied.
+0.0389 on 70 % of subjects. The graph earns nothing by this, and neither does any competing
+prior: a hard constraint, a free operator, a Dirichlet penalty and a CSP-derived subspace
+span 0.0108 and are mutually indistinguishable.
 
-Finally, the largest single intervention in the project is not architectural at all.
-Pre-training on other subjects, under a design where no subject ever sees their own data in
-its source model, adds 0.0557 over an identical control on 90 % of subjects and reaches
-0.7301 with 98 of 103 above chance. Since the technique is architecture-agnostic and we did
-not run the transfer control, that supports "this architecture plus pre-training reaches
-0.7301", not "our architecture reaches 0.7301".
+**And there the ceiling sits.** A Riemannian classifier with no network in it reaches 0.6694.
+A graph-free CNN reaches 0.6725. A fourfold change in the analysis window moves nothing, and
+the best window is the shortest one we already had. Six methods sharing almost no components
+converge within 0.0108 — which is why we report ~0.67 as a property of this dataset under a
+subject-dependent protocol, not of any model in it.
+
+One intervention breaks it, and it is not architectural. Pre-training on other subjects,
+under a design where no subject ever sees their own data in its source model, adds 0.0557
+and reaches 0.7301. Run unchanged on ShallowConvNet it adds 0.0483 and reaches 0.7369, and
+the difference between the two gains is −0.0073 [−0.0204, +0.0056]. That supports "this
+architecture *plus* pre-training reaches 0.7301" — never "our architecture reaches 0.7301" —
+and the two pre-trained arms are tied rather than ranked.
 
 The honest summary is threefold. The reported 93 % measures a protocol rather than a
-capability. The graph-convolutional formulation was never what limited performance here,
-though it contributes nothing either — what limited it was the pipeline built around it,
-worth more than five times what the operator itself is. And on this dataset the cheapest
-remaining gain is data, not architecture.
+capability. No spatial prior we tried — graph, free, Dirichlet, or CSP — is worth anything
+here, and neither is the window length; what limited the early models was the pipeline built
+around the operator, not the operator. And the only lever that moved this dataset was other
+subjects' data, which works just as well with the graph removed.
 
-One methodological point deserves stating on its own, because we learned it twice: null
-results told us where the limitation was and misled us both times — once by a factor of six,
-once in direction. Inference from absences is not measurement.
+One methodological point deserves stating on its own. Five times we inferred a mechanism from
+a null result or a published precedent, and five times measurement contradicted us — once by
+a factor of six, once in direction, and three times by finding nothing where a published
+effect predicted six points. Each was caught because a prediction and a decision rule were
+fixed before the run. Inference from absences is not measurement, and a pre-registered null
+is worth more than an unregistered positive.
 
 ---
 
-Full methods, per-fold results and a complete record of the twenty-four errors made and
+Full methods, per-fold results and a complete record of the twenty-nine errors made and
 corrected during this work are in [`project_documentation.md`](project_documentation.md).
 Every number here traces to a row in `runs/experiments.jsonl`, which records the git commit,
-seed and full configuration for each of 17,795 folds. Reproduction commands are in the
+seed and full configuration for each of 22,315 folds. Reproduction commands are in the
 [README](README.md) and in §15 of the documentation.
