@@ -2181,6 +2181,89 @@ which would be surprising and would need a diagnostic before anything is claimed
 
 ---
 
+### 9.19 The CSP prior, and the tangent-space baseline — results (EXPLORATORY)
+
+**Run 2026-09-06. A3 is 1,030 folds, CI is 1,030 folds, both on the same 103 subjects and
+the same folds as every other arm. CI was pre-registered in 9.18 at commit `d6f21d4`
+before any number existed. One of four predictions holds, and it is the trivial one.**
+
+#### 9.19.1 Results
+
+| arm | L vs R | B vs F | within-family | above chance |
+|---|---|---|---|---|
+| CSP+LDA | 0.5942 | 0.6537 | 0.6239 | 81/103 |
+| G1 — hard graph constraint | 0.6408 | 0.6850 | 0.6629 | 88/103 |
+| **CI — CSP-initialised operator** | 0.6509 | 0.6863 | **0.6686** | 92/103 |
+| G2 — graph-initialised operator (control) | 0.6494 | 0.6893 | 0.6694 | 93/103 |
+| **A3 — cov-tgsp (new)** | 0.6550 | 0.6837 | **0.6694** | 89/103 |
+| ShallowConvNet | 0.6608 | 0.6841 | 0.6725 | 93/103 |
+| G3 — graph as Dirichlet prior | 0.6520 | 0.6954 | 0.6737 | 90/103 |
+
+| comparison | difference | 95 % CI | wins |
+|---|---|---|---|
+| **CI vs G2** (isolates the prior) | **−0.0008** | [−0.0094, +0.0076] | 49/103 |
+| CI vs G3 | −0.0051 | [−0.0134, +0.0030] | 46/103 |
+| CI vs ShallowConvNet | −0.0039 | [−0.0150, +0.0072] | 50/103 |
+| CI vs CSP+LDA | +0.0447 | [+0.0282, +0.0612] | 68/103 |
+| **A3 vs CSP+LDA** | **+0.0454** | [+0.0310, +0.0594] | 74/103 |
+| A3 vs ShallowConvNet | −0.0031 | [−0.0164, +0.0101] | 47/103 |
+
+#### 9.19.2 Prediction scorecard — one of four, and it is the trivial one
+
+1. *"CI > G2."* — **REFUTED.** −0.0008 on 49/103, a coin flip.
+2. *"The gain exceeds the 0.020 MDD."* — **REFUTED.**
+3. *"CI beats CSP+LDA by more than G2 does."* — **REFUTED.** G2 leads CSP by +0.0455,
+   CI by +0.0447.
+4. *"CI does not reach PTG's 0.7301."* — Holds, at 0.6686. Trivially.
+
+**Decision rule B fires.** CSP-Net reports +6.0 points on a ShallowConvNet backbone across
+four MI datasets from exactly this intervention, with an ablation showing it is the
+initialisation and not the added capacity. **It does not transfer to EEGMMIDB under a
+correct protocol.** 9.13 stands as written and is strengthened rather than narrowed.
+
+#### 9.19.3 What this actually establishes: a ceiling, not a prior
+
+The interesting reading is not CI alone but the column it joins. **Seven methods that share
+almost nothing now land between 0.6629 and 0.6737 — a span of 0.0108, under the 0.020 MDD:**
+
+* four different priors on the *same* learnable spatial operator — hard Chebyshev graph
+  (G1), graph initialisation (G2), Dirichlet graph penalty (G3), CSP subspace (CI);
+* a graph-free CNN (ShallowConvNet, 0.6725);
+* a Riemannian classical method with no network at all (A3, 0.6694).
+
+9.13 concluded "the graph contributes nothing". The stronger and better-supported claim is
+now that **the spatial prior does not matter at all on this data, whatever it is, and
+~0.67 is the within-subject ceiling.** Only cross-subject pre-training breaks it
+(PTG 0.7301, PTG-shallow 0.7369), and 9.17 established that is a data effect rather than an
+architectural one. Both findings point the same way: on this dataset the binding constraint
+is how much data a subject-dependent fold has, not what is built on top of it.
+
+#### 9.19.4 A3 puts a number on a caveat that has been unquantified since 14
+
+14 has recorded from the start that CSP was left untuned, making H4's negative result
+conservative, but never said by how much. **cov-tgsp beats CSP+LDA by +0.0454 on 74/103
+subjects.** This makes the paper's central comparison harder on our own methods, which is
+the correct direction for a critical paper, and it independently reproduces [23]'s family
+ranking on PhysionetMI (cov-tgsp and CSP the top two, cov-tgsp ahead) under a protocol we
+control.
+
+`scripts/run_tangent_space.py` implements the affine-invariant Frechet mean and tangent-space
+projection directly rather than adding `pyriemann`, per `CLAUDE.md`'s rule on dependencies.
+The reference point, scaler and classifier are all fitted on training trials only.
+
+#### 9.19.5 Provenance notes
+
+* **A smoke test read 0.7926 on three subjects**, above every arm in the project. Checked
+  before use: on those same subjects CSP reaches 0.700, ShallowConvNet 0.785 and PTG-shallow
+  0.830. S001 and S002 are simply easy subjects. Small-sample selection, not leakage.
+* **Nine duplicate rows** were removed from `CI-cspinit-binary-2-3`. Two processes ran the
+  same tag concurrently during a botched relaunch and, sharing a seed and folds, wrote
+  byte-identical rows — verified identical in value before deduplicating, so the removal is
+  lossless. See error 26.
+* **Exploratory, not confirmatory.** Neither arm is on the 10.3 list.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -2714,6 +2797,10 @@ process that reported success.**
 | 24 | **Under-costed the pre-training arm by ~8x** — projected 6-8 h, measured ~51 h — by carrying the LOSO timing (`GCNsNet`, which pools time before the convs) over to `graphbp` (which deliberately carries the time axis *through* the spatial stage, so its cost scales with pooled sample count far more steeply) | the arm reached 50 folds in 149 min when it should have reached ~450 | grouped pre-training reduces 206 pre-trainings to ~20; a timing probe on the actual arm would have cost three minutes |
 | 23 | `--stop-at` rolled a past time forward to **tomorrow**. Each process honoured 03:00 correctly, but the shell loop then started the next binary problem at 03:00:0x, which read its own deadline as past and scheduled itself for the *following day* — a 24-hour run from a flag meant to bound one to 50 minutes | the user asked for status at 03:02 and the processes were still alive with `-2-3` tags gaining rows | a past time now stops immediately, which is the only reading that composes under repetition |
 | 25 | **Fine-tuning results depended on how much work the process had already done.** Dropout draws from the global torch generator, and `val_pick` came from one generator advanced once per group, so skipping a completed group on resume shifted every remaining fold. The three power-cut resumes were therefore not reproducible, and the logged PTG/PTC numbers cannot be re-derived exactly by a clean run | adding a source-model cache and finding the cached run scored 0.5188 where the cold run scored 0.5110 — the cache was supposed to be result-neutral | each stage now seeds itself from its own identity (`seed_stage`), and `val_pick` is seeded per group; a resumed run now reproduces an uninterrupted one fold for fold (verified on 12 folds) |
+| 26 | **Launched the CSP-prior arm on the script's defaults** -- 100 epochs, batch 1024, lr 1e-6 -- instead of the G-arm protocol it had to match. At that learning rate the model sat at chance, and batch 1024 is the VRAM-overflow condition documented in `CLAUDE.md` the day before | the arm was running at ~4.5 min/subject against a 100 s/subject expectation, so the logged `train_config` was compared against G2's | 24 rows purged; the flags are now in `scripts/run_tonight.sh` with a comment saying they must not be dropped |
+| 27 | **Purged the bad rows by tag, and six came back.** A bash wrapper from an earlier launch was still looping and re-logging under the stale configuration; killing Python alone had simply let it spawn the next invocation | the retained rows' `train_config` was checked before they were trusted, and showed two distinct configurations | purged by configuration rather than tag; all arms now run from one sequential driver that can never hold two processes, and whose header says to kill the wrapper first |
+| 28 | **Filled the GPU by accumulating orphan processes.** Four Python processes at ~1.7 GB of CUDA reserve each filled an 8 GB card; the user reported 7.6/8.0 GB before it was noticed. The suspected cause -- batch size -- was wrong | measured allocated/reserved across five real folds: 0.07 / 1.74 GB, flat, no leak. The process list then showed the orphans | one driver, one process; a blanket `taskkill /IM python.exe` also killed an unrelated running job and is not the way to stop these |
+| 29 | **My own literature-driven recommendation did not transfer.** CSP-Net's +6.0 points was presented as the highest-value available change; measured here it is -0.0008 | 9.18 pre-registered it with a decision rule for exactly this outcome | reported as decision rule B; the null is more informative than the predicted positive would have been (9.19.3) |
 | 22 | The log's exclusive lock seeked to **EOF** before locking one byte, but `msvcrt.locking` locks relative to the *current position* — so once two processes saw different EOFs they locked different bytes and the mutual exclusion lapsed | its own regression test (for error 13) went intermittently flaky under full-suite load | lock byte fixed at offset 0, a rendezvous every process agrees on; 10/10 clean afterwards |
 
 **The recurring lesson.** A process exiting with code 0 and printing a plausible mean is
@@ -3379,6 +3466,22 @@ ShallowConvNet.
 ---
 
 ## 18. Changelog
+
+### 2026-09-06 (evening)
+
+- **9.19: the spatial prior does not matter, whatever it is.** CSP-initialising the
+  learnable spatial operator -- the intervention CSP-Net reports as worth +6.0 points on a
+  ShallowConvNet backbone -- measures **-0.0008** [-0.0094, +0.0076] against the
+  graph-initialised control, on 49/103 subjects. Decision rule B of 9.18 fires; one of four
+  pre-registered predictions holds and it is the trivial one.
+  - **Seven methods sharing almost nothing now span 0.0108** (0.6629-0.6737): four priors on
+    the same operator, a graph-free CNN, and a Riemannian classical method. That is a
+    ceiling statement, and a stronger claim than 9.13's "the graph contributes nothing".
+  - **A3 (cov-tgsp) beats CSP+LDA by +0.0454** on 74/103, putting a number on the "CSP was
+    untuned" caveat that 14 has carried unquantified since the start, and reproducing [23]'s
+    family ranking on PhysionetMI under our own protocol.
+  - Errors 26-29 recorded, including the process-management failure that filled the GPU and
+    the fact that this session's own headline recommendation was refuted by measurement.
 
 ### 2026-09-06
 

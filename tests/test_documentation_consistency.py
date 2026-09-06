@@ -58,6 +58,8 @@ HEADLINES = {
     "PTG pre-trained":     ("PTG-gbp-binary", "trial_accuracy", 0.7301),
     "PTC shallow control": ("PTC-shallow-binary", "trial_accuracy", 0.6886),
     "PTG shallow":         ("PTG-shallow-binary", "trial_accuracy", 0.7369),
+    "CI CSP-init":         ("CI-cspinit-binary", "trial_accuracy", 0.6686),
+    "A3 cov-tgsp":         ("A3-tgsp", "trial_accuracy", 0.6694),
 }
 TOL = 5e-4
 
