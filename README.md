@@ -6,7 +6,7 @@ that decodes motor imagery when evaluated correctly.
 
 **Start here:** [`PAPER.md`](PAPER.md) is the full research paper — abstract, related
 work, methods, results, discussion and references; the typeset version is
-[`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (25 pages, rebuilt with
+[`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (26 pages, rebuilt with
 `scripts/build_paper_pdf.py`). [`RESULTS.md`](RESULTS.md) is the
 shorter writeup: the findings in publication order with figures. [`project_documentation.md`](project_documentation.md) is the living
 record: every measurement, decision and correction, plus full methods, a reproduction

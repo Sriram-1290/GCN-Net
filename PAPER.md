@@ -1,6 +1,8 @@
 # A Reported 93 % on Four-Class Motor Imagery Is a Protocol, Not a Capability: Reassessing GCNs-Net
 
-*Author list and affiliations to be completed.*
+Saligram Sriram Shravan
+
+*Affiliation to be completed.*
 
 ---
 
@@ -180,12 +182,22 @@ More recent work has moved toward *adaptive* graphs. MHD-GCN [4] combines spatio
 attention with hierarchical global and local topologies constructed by community
 clustering, and SAMGCN [5] learns inter-channel relationships through channel position
 encoding and a self-attention graph embedding, updating the adjacency during training.
-Both are evaluated on BCI Competition datasets; MHD-GCN also uses PhysioNet.
+Both are evaluated on BCI Competition datasets; MHD-GCN also uses PhysioNet. **We describe
+[4] and [5] from their abstracts and metadata only**: neither full text was accessible to us,
+so we do not characterise their evaluation protocols, and in particular we make no claim
+about whether their reported accuracies were obtained under a trial-level split. Given that
+this paper's central finding is a protocol artefact, that is a limitation we prefer to state
+than to gloss.
 
 The convergent direction across this literature is that the graph should be learned rather
-than fixed. Our results speak to that directly: we find that making the adjacency learnable
-produces no measurable benefit on this task (§5.6), which suggests the limitation lies in
-the graph-convolutional formulation rather than in the particular graph.
+than fixed. Our results speak to that directly, and more broadly than an earlier draft
+claimed. Making the adjacency learnable produces no measurable benefit here (§5.6); nor does
+freeing the spatial operator from the graph entirely, imposing the graph as a soft penalty,
+or replacing the graph prior with one derived from common spatial patterns (§5.11, §5.15).
+Four priors on the same operator span 0.0108. If that generalises, the productive question is
+not which graph to learn but whether a spatial prior of any kind is where the remaining
+performance lives — though we establish this on one dataset under one protocol, and [4] and
+[5] report gains on datasets we did not test.
 
 ### 2.3 Classical motor imagery decoding
 
@@ -1132,6 +1144,12 @@ by training-set size rather than by inter-subject variability.
 - **The window sweep cannot separate two explanations.** Stride was held fixed, so longer
   windows also yield fewer training windows per trial (37, 33, 25). On a protocol we have
   shown to be data-starved, that alone could account for the observed decline.
+- **Two of the most directly related papers were read from their abstracts only.** [4]
+  MHD-GCN and [5] SAMGCN are the closest published work to the direction this paper
+  examines, and neither full text was accessible to us. We therefore do not assess their
+  evaluation protocols, and §2.2's discussion of them is correspondingly thin. Since our
+  central finding is that a headline accuracy on this dataset can be an artefact of the
+  split, the inability to check theirs is a real gap rather than a formality.
 - **The ceiling claim is a convergence argument, not a proof.** Six methods agreeing within
   0.0108 is strong evidence that ~0.67 is a property of the data under this protocol, but it
   cannot exclude an intervention nobody has tried. It is a statement about what we searched,
