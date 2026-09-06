@@ -69,6 +69,13 @@ def main() -> int:
                     help="learn the adjacency, initialised at the PCC graph so the "
                          "model starts identical to the fixed baseline")
     ap.add_argument("--learn-graph-scale", action="store_true")
+    ap.add_argument("--csp-init", action="store_true",
+                    help="--model graphbp with --spatial free: initialise the "
+                         "spatial operators from CSP filters fitted on the fold's "
+                         "TRAINING windows instead of from the electrode graph. "
+                         "Same shapes, same trainability -- the only change is the "
+                         "prior the operator starts from (9.13 showed the graph "
+                         "prior is inert; see models/csp_prior.py).")
     ap.add_argument("--model", choices=["gcn", "eegnet", "shallow", "graphbp"],
                     default="gcn",
                     help="A2 (17.2): run a graph-free CNN baseline on the SAME folds, "
@@ -172,12 +179,23 @@ def main() -> int:
             ("--graph-smoothness", bool(args.graph_smoothness)),
             ("--gbp-layers", args.gbp_layers != 1),
             ("--pool-nodes", args.pool_nodes),
+            ("--csp-init", args.csp_init),
         ] if on]
         if ignored:
             raise SystemExit(
                 f"{', '.join(ignored)} applies only to --model graphbp; got "
                 f"--model {args.model}."
             )
+    # The CSP basis replaces the graph basis as an *initialisation*, which only
+    # means anything if the operators are learnable. With spatial="graph" the
+    # basis is a fixed buffer, so a CSP basis there would silently become a hard
+    # CSP constraint -- a different experiment, and not the one this flag names.
+    if args.csp_init and args.spatial != "free":
+        raise SystemExit(
+            "--csp-init initialises a *learnable* operator and needs --spatial free; "
+            "with --spatial graph the basis is fixed, which would make it a hard "
+            "constraint rather than a prior."
+        )
     if args.model in ("eegnet", "shallow"):
         if args.window < 32:
             raise SystemExit(
@@ -309,7 +327,14 @@ def main() -> int:
                 # the model sees -- not the raw 64x64 adjacency.
                 lap = (laplacian(fold.adjacencies[0], normalized=False)
                        if args.graph_smoothness else None)
-                model = GraphBandPowerNet(fold.bases, args.window, gbp_cfg,
+                bases = fold.bases
+                if args.csp_init:
+                    # Fitted on the fold's TRAINING windows only, in the node
+                    # ordering the model sees, so it leaks no more than the graph.
+                    from models.csp_prior import csp_basis
+                    bases = [csp_basis(fold.train.X, fold.train.y,
+                                       order=gbp_cfg.order)] + list(fold.bases[1:])
+                model = GraphBandPowerNet(bases, args.window, gbp_cfg,
                                           laplacian=lap)
             else:
                 # Shape comes from the fold, not from the config, so a windowing
@@ -351,6 +376,7 @@ def main() -> int:
                 "spatial": args.spatial if args.model == "graphbp" else None,
                 "graph_smoothness": (args.graph_smoothness
                                      if args.model == "graphbp" else None),
+                "csp_init": args.csp_init if args.model == "graphbp" else None,
                 "gbp_layers": args.gbp_layers if args.model == "graphbp" else None,
                 "pool_nodes": args.pool_nodes if args.model == "graphbp" else None,
                 "learnable_graph": args.learnable_graph,

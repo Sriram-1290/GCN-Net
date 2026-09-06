@@ -2112,6 +2112,75 @@ benchmark is within-session.
 
 ---
 
+### 9.18 Is the graph the wrong prior, rather than priors being useless? (PRE-REGISTERED 2026-09-06)
+
+**Written and committed before the run. Predictions and decision rules are fixed.**
+
+#### 9.18.1 The claim under test
+
+9.13 found the electrode graph inert: hard constraint (G1 0.6629), free operator
+(G2 0.6694) and Dirichlet prior (G3 0.6737) span 0.0108 and are mutually
+indistinguishable. The natural reading is "a spatial prior buys nothing here".
+
+CSP-Net (arXiv:2411.11879) reports the opposite for a *different* prior on the *same*
+operator: initialising a CNN's spatial layer from CSP filters gains **+6.0 points** over a
+ShallowConvNet backbone averaged across four MI datasets (70.29 -> 76.26), and their
+ablation separates prior from capacity -- a randomly initialised variant barely beats the
+backbone. If that transfers, 9.13's conclusion should be narrowed from "spatial priors do
+not help" to **"the electrode graph is the wrong prior"**, which is a sharper and more
+useful claim.
+
+#### 9.18.2 Design
+
+**One variable.** `models/csp_prior.py` builds a basis of identical shape and scaling to
+the Chebyshev one -- CSP operator `P = W.T @ W` rescaled to spectrum [-1, 1], then the same
+recurrence `T0 = I`, `T1 = P`, `T2 = 2P^2 - I`. `FreeSpatialConv` copies whatever basis it
+is handed into its learnable `operators`, so **no model code changes at all**; the arms
+differ only in what the operator is initialised from.
+
+| arm | spatial operator | initialised from |
+|---|---|---|
+| **G2** (existing control) | free, learnable | the electrode graph's Chebyshev basis |
+| **CI** (new) | free, learnable | CSP filters on the fold's training windows |
+
+CSP is supervised and is fitted on **training windows only**, in the node ordering the model
+sees, exactly as the correlation graph is. `--csp-init` is rejected with `--spatial graph`,
+because a fixed CSP basis would be a hard constraint rather than a prior -- a different
+experiment.
+
+#### 9.18.3 Predictions, fixed in advance
+
+1. **CI > G2.** Directional. The prior is the only difference.
+2. **The gain exceeds the 0.020 MDD** fixed in 9.12, i.e. this is not another
+   graph-sized non-effect.
+3. **CI > CSP+LDA's 0.6239** by more than G2 does.
+4. **CI does not reach PTG's 0.7301**, since that arm additionally consumes ~92 other
+   subjects and this one does not.
+
+#### 9.18.4 Decision rules, fixed in advance
+
+**A -- CI beats G2 by more than 0.020.** 9.13's conclusion is narrowed: the graph is the
+wrong prior, not evidence that priors are useless. This becomes the paper's constructive
+finding and the natural successor experiment is CSP-init *plus* pre-training.
+
+**B -- CI and G2 are indistinguishable (|diff| < 0.020).** The spatial prior really does buy
+nothing on this dataset regardless of its source, and CSP-Net's gain does not transfer to
+EEGMMIDB under a correct protocol. 9.13 stands as written and is strengthened.
+
+**C -- CI is reliably worse.** The CSP subspace is a worse starting point than the graph,
+which would be surprising and would need a diagnostic before anything is claimed.
+
+#### 9.18.5 Conditions on reporting
+
+* Both problems complete at 1,030 folds before any figure is quoted.
+* Paired on subject against G2 at the same seed and folds; Holm-corrected within this
+  family; bootstrap CI over 10,000 resamples.
+* **Exploratory, not confirmatory.** Not on the 10.3 list.
+* The 9.15.4 prohibition applies: no comparison to the 0.650 within-session ceiling for any
+  arm that consumes other subjects. CI does not, so CI *is* comparable to it.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
