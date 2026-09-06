@@ -2335,6 +2335,75 @@ result for the paper, only as a reason to run a confirmatory arm.
 
 ---
 
+### 9.21 Window length — results (EXPLORATORY, development set)
+
+**Run 2026-09-06, 400 folds over two new windows, ShallowConvNet, S001-S020, stride 16.
+Pre-registered in 9.20 at commit `7a30d35`. Zero of three predictions hold.**
+
+#### 9.21.1 Results
+
+| window | L vs R | B vs F | within-family |
+|---|---|---|---|
+| **64 (0.40 s)** — the inherited value | 0.6522 | 0.6944 | **0.6733** |
+| 128 (0.80 s) | 0.6356 | 0.6822 | 0.6589 |
+| 256 (1.60 s) | 0.6144 | 0.6822 | 0.6483 |
+
+| comparison | difference | 95 % CI | wins |
+|---|---|---|---|
+| 128 vs 64 | −0.0144 | [−0.0300, +0.0011] | 9/20 |
+| 256 vs 64 | −0.0250 | [−0.0439, −0.0067] | 5/20 |
+
+Total spread across a **fourfold** window range: **0.0250**.
+
+#### 9.21.2 Prediction scorecard — zero of three
+
+1. *"A longer window beats 0.40 s."* — **REFUTED, and in the opposite direction.** Both
+   longer windows are numerically worse and the trend is monotone.
+2. *"The best window is 128 or 256, not the longest."* — **REFUTED.** The best is 64.
+3. *"The gain exceeds the 0.0328 dev-set MDD."* — **REFUTED.** There is no gain.
+
+**Decision rule B fires.** Every window sits within the 0.0328 threshold 9.20.2 fixed in
+advance, so all three must be reported as indistinguishable. The 0.40 s window is not what
+holds this dataset at ~0.67.
+
+**The honest tension.** The 256 comparison's CI excludes zero, and the decline is monotone
+across three points. Under the pre-registered rule that is still "indistinguishable", and it
+is reported as such — but a confirmatory run at 103 subjects, where the MDD falls to 0.020,
+might well find 1.60 s reliably *worse*. That would be decision rule C, not B.
+
+#### 9.21.3 A confound in this sweep, stated rather than buried
+
+**Stride was held at 16, so a longer window means fewer training windows per trial: 37 at
+64 samples, 33 at 128, 25 at 256 — a 32 % cut in training samples between the extremes.**
+This project has established repeatedly that the subject-dependent protocol is data-starved
+(9.9, and pre-training's +0.0557 in 9.15). A 32 % reduction in samples is therefore a
+plausible sole explanation for a 0.0250 decline, and **this design cannot separate "longer
+windows are worse" from "fewer samples are worse".**
+
+The headline is unaffected -- no window *improves* on 0.40 s, which is what the sweep was
+run to find out -- but rule C's mechanism cannot be established from these arms. Holding
+windows-per-trial constant by scaling stride with window would disentangle it, and has not
+been run.
+
+#### 9.21.4 What this settles
+
+**Settles.** The window is not the hidden constraint. Combined with 9.19, the ~0.67
+within-subject ceiling now survives: four spatial priors, three architectures, a Riemannian
+classical method, *and* a fourfold change in the sample definition. That is a much stronger
+ceiling claim than any single arm supports.
+
+**Retires a limitation.** 7 records that EEGNet and ShallowConvNet ran far outside the 2-4 s
+regime their published hyperparameters assume, and calls their advantage "conservative" on
+that basis. At 1.60 s -- inside that regime -- ShallowConvNet is *worse*, not better. The
+caveat can now be stated as measured rather than assumed, and it was not costing them
+anything.
+
+**Does not settle.** Dev set only, one architecture, and the sample-count confound above.
+No number here may be quoted as a paper result; 9.20.4 restricted this sweep to justifying a
+confirmatory run, and it does not justify one.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -3537,6 +3606,25 @@ ShallowConvNet.
 ---
 
 ## 18. Changelog
+
+### 2026-09-06 (night)
+
+- **9.21: the window is not the constraint either.** A fourfold sweep (0.40 / 0.80 / 1.60 s)
+  on the development set spans **0.0250**, all inside the pre-registered 0.0328 MDD, and the
+  best window is the inherited 0.40 s. **Zero of three predictions hold** -- both longer
+  windows are numerically worse and the trend is monotone.
+  - Combined with 9.19, the ~0.67 within-subject ceiling now survives four spatial priors,
+    three architectures, a Riemannian classical method and a fourfold change in the sample
+    definition.
+  - **Retires a limitation.** 7 calls the graph-free networks' advantage conservative because
+    they ran outside their 2-4 s design regime. Inside that regime ShallowConvNet is *worse*.
+    The caveat is now measured rather than assumed.
+  - **A confound is recorded rather than buried** (9.21.3): stride was fixed, so longer
+    windows also mean up to 32 % fewer training samples, and this design cannot separate the
+    two explanations.
+  - **Second refuted hypothesis of the day.** 9.19 refuted the CSP prior, 9.21 the window --
+    both were this session's own literature-driven recommendations, and both pre-registrations
+    are the only reason they read as results rather than as stories.
 
 ### 2026-09-06 (evening)
 
