@@ -7,8 +7,8 @@ components then converge on ~0.67, and no spatial prior, architecture or window 
 tried moves it. The one thing that does is other subjects' data, and that works just as well
 without the graph.**
 
-103 subjects · PhysioNet EEG Motor Movement/Imagery · 22,315 logged folds ·
-five pre-registered hypotheses · eight post-hoc controls · 7 September 2026
+103 subjects · PhysioNet EEG Motor Movement/Imagery · 23,345 logged folds ·
+five pre-registered hypotheses · nine post-hoc controls · 8 September 2026
 
 | | value | |
 |---|---|---|
@@ -22,6 +22,7 @@ five pre-registered hypotheses · eight post-hoc controls · 7 September 2026
 | Tangent space (tuned classical) | **0.6694** | beats CSP+LDA by 0.0454 — ties the deep arms too |
 | **+ cross-subject pre-training** | **0.7301** | **+0.0557 over its own control; 98 of 103 above chance** |
 | **…the same pre-training on ShallowConvNet** | **0.7369** | **tied with the above; the gain is the finding, not the model** |
+| …with per-subject normalisation | 0.7224 | −0.0077 — no gain (R15) |
 
 ---
 
@@ -563,6 +564,38 @@ ShallowConvNet is *worse*. The caveat was not costing them anything.
 
 ---
 
+## R15 · Per-subject normalisation does not help either (post-hoc)
+
+R13 and R14 closed off the spatial prior and the window. Both act *within* a subject. The
+remaining candidate acts *between* subjects — the axis R12 showed actually moves.
+
+Our pre-training pools ~92 subjects through a **single** batch norm, one set of statistics
+for 92 people, while R8b showed ~30 % of the between-subject variance is fixed before any
+modelling. Published work isolates this on 158 subjects and puts it at 2.4–3.9 %.
+
+Each source subject got its own statistics, everything else shared, batches drawn from one
+subject at a time.
+
+| Arm | Source normalisation | Within-family |
+|---|---|---|
+| **PTG** (control) | one BatchNorm across ~92 subjects | **0.7301** |
+| **PTD** | per-subject statistics | **0.7224** |
+
+**−0.0077** [−0.0164, +0.0013] — inside the 0.020 threshold, so indistinguishable.
+
+**But the magnitude and the direction disagree.** PTD wins on only **39 of 103** subjects,
+sign test p = 0.0176. That consistent small decrement is what the registered rule for this
+outcome anticipated: each subject supplies ~1,665 windows to estimate its own statistics
+against ~145,000 pooled, so per-domain estimates are noisier than what they replace. We
+follow the pre-specified rule, which is stated on effect size — but the honest summary is
+that this is slightly *harmful*, not neutral.
+
+Scope matters: the published gain comes from inter-session and inter-subject *transfer*,
+against a domain the model meets cold. Our fine-tuning gives every target its own labelled
+trials, which may leave less to repair.
+
+---
+
 ## A result we did not expect
 
 Graclus coarsening groups electrodes by correlation alone. No electrode position enters the
@@ -648,9 +681,11 @@ prior: a hard constraint, a free operator, a Dirichlet penalty and a CSP-derived
 span 0.0108 and are mutually indistinguishable.
 
 **And there the ceiling sits.** A Riemannian classifier with no network in it reaches 0.6694.
-A graph-free CNN reaches 0.6725. A fourfold change in the analysis window moves nothing, and
-the best window is the shortest one we already had. Six methods sharing almost no components
-converge within 0.0108 — which is why we report ~0.67 as a property of this dataset under a
+A graph-free CNN reaches 0.6725. A fourfold change in the analysis window moves nothing, the
+best window is the shortest one we already had, and per-subject normalisation moves nothing
+either. Six methods sharing almost no components converge within 0.0108, and **four separate
+interventions — each chosen because published work reported two to six points from it — each
+measured nothing.** That is why we report ~0.67 as a property of this dataset under a
 subject-dependent protocol, not of any model in it.
 
 One intervention breaks it, and it is not architectural. Pre-training on other subjects,
@@ -666,17 +701,17 @@ here, and neither is the window length; what limited the early models was the pi
 around the operator, not the operator. And the only lever that moved this dataset was other
 subjects' data, which works just as well with the graph removed.
 
-One methodological point deserves stating on its own. Five times we inferred a mechanism from
-a null result or a published precedent, and five times measurement contradicted us — once by
-a factor of six, once in direction, and three times by finding nothing where a published
-effect predicted six points. Each was caught because a prediction and a decision rule were
+One methodological point deserves stating on its own. Six times we inferred a mechanism from
+a null result or a published precedent, and six times measurement contradicted us — once by a
+factor of six, once in direction, and four times by finding nothing where a published effect
+predicted between two and six points. Each was caught because a prediction and a decision rule were
 fixed before the run. Inference from absences is not measurement, and a pre-registered null
 is worth more than an unregistered positive.
 
 ---
 
-Full methods, per-fold results and a complete record of the twenty-nine errors made and
+Full methods, per-fold results and a complete record of the thirty-one errors made and
 corrected during this work are in [`project_documentation.md`](project_documentation.md).
 Every number here traces to a row in `runs/experiments.jsonl`, which records the git commit,
-seed and full configuration for each of 22,315 folds. Reproduction commands are in the
+seed and full configuration for each of 23,345 folds. Reproduction commands are in the
 [README](README.md) and in §15 of the documentation.

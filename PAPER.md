@@ -48,8 +48,9 @@ Four different priors on that same operator — a hard graph constraint, a graph
 initialisation, the graph as a Dirichlet penalty, and a subspace derived from common spatial
 patterns — span 0.0108 and are mutually indistinguishable, as are a graph-free convolutional
 network and a Riemannian tangent-space classifier with no network at all. Varying the sample
-window over a fourfold range moves nothing either. **We therefore report ~0.67 as a
-within-subject ceiling on this dataset rather than a property of any model**: six methods
+window over a fourfold range moves nothing either, and nor does giving every subject its own
+normalisation statistics. **We therefore report ~0.67 as a within-subject ceiling on this
+dataset rather than a property of any model**: six methods
 sharing almost no components converge on it, and a resting sensorimotor-rhythm measure taken
 from a task-free baseline predicts per-subject decodability equally for a graph network
 (r = +0.547) and a classical one (r = +0.548), accounting for roughly 30 % of the
@@ -151,13 +152,15 @@ the protocol does not measure what it is taken to measure.
     rather than assumed, and the two pre-trained arms are tied rather than ranked.
 
 11. **A within-subject ceiling, established by convergence rather than by one result**
-    (§5.13, §5.15, §5.16). Four spatial priors on the same operator, a graph-free
+    (§5.13, §5.15, §5.16, §5.17). Four spatial priors on the same operator, a graph-free
     convolutional network and a Riemannian tangent-space classifier span 0.0108; a fourfold
-    change in window length moves nothing. A properly tuned classical baseline reaches
-    0.6694, beating the CSP+LDA of §5.4 by 0.0454 and raising the bar our own architectures
-    failed to clear.
+    change in window length moves nothing; nor does per-subject normalisation. **All four
+    interventions were selected because published work reports 2–6 point gains from them,
+    and all four measure nothing here.** A properly tuned classical baseline reaches 0.6694,
+    beating the CSP+LDA of §5.4 by 0.0454 and raising the bar our own architectures failed to
+    clear.
 
-All code, the full experiment log covering 22,315 folds, and a record of the twenty-nine
+All code, the full experiment log covering 23,345 folds, and a record of the thirty-one
 errors made and corrected during this work are released with the paper.
 
 ---
@@ -1003,6 +1006,44 @@ outside the 2–4 s regime their published hyperparameters assume, making their 
 conservative. At 1.60 s, inside that regime, ShallowConvNet is worse. The caveat was not
 costing them anything.
 
+### 5.17 Per-subject normalisation (exploratory)
+
+§5.15 and §5.16 closed off the spatial prior and the sample definition. Both act *within* a
+subject. The remaining candidate acts *between* subjects, and it is the axis §5.14 showed
+actually moves: pre-training breaks the ceiling by borrowing other people's data.
+
+Our pre-training pools ~92 subjects through a **single** batch normalisation — one set of
+running statistics describing 92 people whose amplitude and covariance structure differ
+substantially — while §5.10 measured that ~30 % of the between-subject variance is fixed
+before any modelling. TSMNet [21] isolates exactly this on 5 datasets and 158 subjects and
+reports that removing domain-specific normalisation costs 2.4–3.9 %.
+
+We gave every source subject its own normalisation statistics, sharing all other parameters
+including the affine scale and shift, with minibatches drawn from a single subject so that
+each set of statistics describes one person. The target receives a reserved slot seeded from
+the source mean and adapts it during fine-tuning.
+
+| Arm | Source normalisation | Within-family | Above chance |
+|---|---|---|---|
+| **PTG** (control) | one BatchNorm shared across ~92 subjects | **0.7301** | 98/103 |
+| **PTD** | one set of statistics per source subject | **0.7224** | 95/103 |
+
+**−0.0077** [−0.0164, +0.0013] — inside the 0.020 detectable difference, so we report the
+two as indistinguishable. TSMNet's effect does not transfer to this pipeline.
+
+**One tension we state rather than resolve.** The magnitude says "indistinguishable"; the
+direction does not. PTD wins on only **39 of 103** subjects, a sign test on which gives
+p = 0.0176. A small but consistent decrement is what we anticipated in the registered rule
+for this outcome: each source subject supplies ~1,665 windows to estimate its own statistics
+against ~145,000 pooled, so per-domain estimates are noisier than the quantity they replace.
+Our pre-specified rule is stated on effect size and we abide by it, but the honest summary is
+that per-subject normalisation is slightly *harmful* here rather than merely neutral.
+
+The scope difference is worth naming: TSMNet's gain is obtained in inter-session and
+inter-subject *transfer*, where the model meets an unseen domain cold. Our fine-tuning stage
+gives every target its own labelled trials, which is a friendlier setting and may leave less
+for domain-specific normalisation to repair.
+
 ## 6. Discussion
 
 **The reported figure measures a protocol.** The gap between 0.8975 under the published
@@ -1041,17 +1082,21 @@ choice of any competing spatial prior.
 **What that convergence licenses is a ceiling claim.** Four priors on the same operator, a
 graph-free convolutional network (0.6725) and a Riemannian tangent-space classifier with no
 network at all (0.6694) span 0.0108. A fourfold change in the analysis window moves nothing
-either (§5.16), and §5.10's resting-rhythm predictor already showed that ~30 % of the
-between-subject variance is fixed before any modelling choice is made. We therefore state
+either (§5.16), giving each subject its own normalisation statistics moves nothing (§5.17),
+and §5.10's resting-rhythm predictor already showed that ~30 % of the between-subject
+variance is fixed before any modelling choice is made. We therefore state
 ~0.67 as a property of this dataset under a subject-dependent protocol, not of any model in
 it. That is a stronger claim than any single negative result supports, and it is the reason
 we stopped adding architectural components.
 
-**Two of our own predictions failed here, and the pre-registrations are why we can say so.**
-Both the CSP prior and the longer window were selected from the literature as the most
-promising remaining interventions, and both were registered with decision rules before they
-ran. Both were refuted. Without those rules, a −0.0008 and a monotone 0.0250 decline could
-each have been narrated as partial support.
+**Three of our own predictions failed here, and the pre-registrations are why we can say so.**
+The CSP prior, the longer window and per-subject normalisation were each selected from the
+literature as the most promising remaining intervention at the time, each registered with a
+decision rule before it ran, and each refuted. Without those rules, a −0.0008, a monotone
+0.0250 decline and a −0.0077 could all have been narrated as partial support. §5.17 is the
+sharpest case: its point estimate is inside the noise, but the *sign* is consistent enough
+(39/103, p = 0.0176) that a differently framed analysis could have called it either a null or
+a small harm. We report the pre-specified reading and the tension alongside it.
 
 **One measurement in §5.9 was an artefact of the broken ordering.** In the unreordered
 network, freeing the spatial operator gained 0.0128 (p = 0.0046) — significant, and the
@@ -1136,11 +1181,20 @@ by training-set size rather than by inter-subject variability.
   fixed their predictions and decision rules before any aggregate was computed — four of
   four held for §5.11 and three of four for §5.12. That is a reason to take them seriously,
   not a promotion to confirmatory status.
-- **§5.13–§5.16 are exploratory.** None is on the pre-registered list. §5.15 and §5.16
-  fixed predictions and decision rules before running and **both were refuted** — the CSP
-  prior gained nothing and longer windows did not help. We report them because a
-  pre-registered null is worth more than an unregistered positive, not because they
-  succeeded.
+- **§5.13–§5.17 are exploratory.** None is on the pre-registered list. §5.15, §5.16 and
+  §5.17 fixed predictions and decision rules before running and **all three were refuted** —
+  the CSP prior gained nothing, longer windows did not help, and per-subject normalisation
+  did not help. We report them because a pre-registered null is worth more than an
+  unregistered positive, not because they succeeded.
+- **§5.17's magnitude and direction disagree.** The mean difference is inside the detectable
+  threshold, but the sign is consistent across subjects (39/103, p = 0.0176). We follow the
+  rule fixed in advance, which is stated on effect size, and report the arms as
+  indistinguishable — but a study designed around the sign rather than the mean would
+  probably find per-subject normalisation mildly harmful here.
+- **§5.17 tests one setting of a technique designed for another.** TSMNet's gain is obtained
+  in inter-session and inter-subject transfer, against a domain the model has never seen. Our
+  fine-tuning stage supplies the target's own labelled trials, so the null we report bounds
+  the technique in *our* protocol and is not evidence against it in theirs.
 - **The window sweep cannot separate two explanations.** Stride was held fixed, so longer
   windows also yield fewer training windows per trial (37, 33, 25). On a protocol we have
   shown to be data-starved, that alone could account for the observed decline.
@@ -1151,9 +1205,11 @@ by training-set size rather than by inter-subject variability.
   central finding is that a headline accuracy on this dataset can be an artefact of the
   split, the inability to check theirs is a real gap rather than a formality.
 - **The ceiling claim is a convergence argument, not a proof.** Six methods agreeing within
-  0.0108 is strong evidence that ~0.67 is a property of the data under this protocol, but it
-  cannot exclude an intervention nobody has tried. It is a statement about what we searched,
-  bounded by what we searched.
+  0.0108, plus three registered interventions that each measured nothing, is strong evidence
+  that ~0.67 is a property of the data under this protocol — but it cannot exclude an
+  intervention nobody has tried. It is a statement about what we searched, bounded by what we
+  searched, and every one of those searches was chosen because someone else had reported a
+  gain from it.
 - **The pre-training transfer was tested on one further architecture, not on "any".**
   §5.14 runs it on ShallowConvNet and finds the gains indistinguishable, but EEGNet is
   untested and both arms take power after a spatial stage. The supported statement remains
@@ -1212,12 +1268,13 @@ the largest gains in the weakest quartile. Run unchanged on a graph-free network
 on 47 of 103 subjects. Pre-training is therefore architecture-agnostic by measurement, and
 the two pre-trained arms are tied rather than ranked.
 
-Three further experiments closed off the remaining architectural explanations. Initialising
-the spatial operator from CSP filters instead of from the graph — the intervention published
-work reports as worth six points on a comparable backbone — changes nothing (−0.0008). A
-Riemannian classifier with no network in it lands in the same place. A fourfold change in the
-analysis window moves nothing either, and the best window is the shortest one we had already
-been using. Six methods sharing almost no components span 0.0108.
+Four further experiments closed off the remaining explanations. Initialising the spatial
+operator from CSP filters instead of from the graph — the intervention published work reports
+as worth six points on a comparable backbone — changes nothing (−0.0008). A Riemannian
+classifier with no network in it lands in the same place. A fourfold change in the analysis
+window moves nothing either, and the best window is the shortest one we had already been
+using. Giving every subject its own normalisation statistics, reported elsewhere as worth
+2–4 points, moves nothing (−0.0077). Six methods sharing almost no components span 0.0108.
 
 We conclude that the reported 93 % measures an evaluation protocol rather than a decoding
 capability; that the graph-convolutional formulation was never what limited performance,
@@ -1227,10 +1284,10 @@ model**, since methods sharing nothing converge on it and a resting rhythm measu
 any modelling fixes 30 % of the between-subject variance; and that the only intervention
 which moved that ceiling was other subjects' data.
 
-One methodological point stands on its own. Five times in this work we inferred a mechanism
-from a null result or a literature precedent, and five times measurement contradicted us —
-once by a factor of six, once in direction, and three times by finding nothing where a
-published effect predicted six points. Every one of those was caught because a prediction and
+One methodological point stands on its own. Six times in this work we inferred a mechanism
+from a null result or a literature precedent, and six times measurement contradicted us —
+once by a factor of six, once in direction, and four times by finding nothing where a
+published effect predicted between two and six points. Every one of those was caught because a prediction and
 a decision rule were fixed before the run. We recommend that four-class results on this
 dataset be accompanied by the within-family decomposition, and that architectural claims on
 it be accompanied by a control that could have refuted them.
@@ -1323,14 +1380,18 @@ DOI: 10.1088/1741-2552/acfe9c
 [20] X. Jiang, L. Meng, X. Chen, Y. Xu, D. Wu. "CSP-Net: Common spatial pattern empowered
 neural networks for EEG-based motor imagery classification." arXiv:2411.11879, 2024
 
+[21] R. J. Kobler, J.-i. Hirayama, Q. Zhao, M. Kawanabe. "SPD domain-specific batch
+normalization to crack interpretable unsupervised domain adaptation in EEG."
+*Advances in Neural Information Processing Systems* 35, 2022. arXiv:2206.01323
+
 ---
 
 ## Data and code availability
 
-All code, configuration files and the complete experiment log — one row per fold for 22,315
+All code, configuration files and the complete experiment log — one row per fold for 23,345
 folds, each recording the git commit, random seed and full configuration — are released
 with this paper. `project_documentation.md` contains the full methods specification, the
-pre-registration, per-experiment results, and a record of the twenty-nine errors made and
+pre-registration, per-experiment results, and a record of the thirty-one errors made and
 corrected during the work, including two that would have altered a reported conclusion had
 they not been caught. Reproduction commands are given in §15 of that document.
 
