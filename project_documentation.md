@@ -2404,6 +2404,80 @@ confirmatory run, and it does not justify one.
 
 ---
 
+### 9.22 Domain-specific batch normalisation (PRE-REGISTERED 2026-09-07)
+
+**Written and committed before the run.**
+
+#### 9.22.1 Why this, after 9.19 and 9.21 found nothing
+
+Those two closed off *spatial priors* and the *sample definition*. Both act **within** a
+subject, and both landed inside the noise. This acts **between** subjects, which is the only
+axis that has ever moved the ceiling: 9.17 showed pre-training breaks 0.67 by borrowing
+other subjects' data, and does so architecture-agnostically.
+
+9.15's pre-training pools ~92 subjects through a **single** BatchNorm — one set of running
+statistics describing 92 people whose amplitude and covariance structure differ
+substantially — while 9.10 measured that ~30 % of the between-subject variance is fixed
+before any modelling. TSMNet (arXiv:2206.01323) isolates exactly this on 5 datasets and 158
+subjects and finds removing domain-specific normalisation costs **2.4–3.9 %**, the second
+largest term in their ablation.
+
+This is a change to *how* the borrowing is done, not another prior on top of it.
+
+#### 9.22.2 Design
+
+**One variable against the existing PTG control.** Every source subject gets its own
+batch-norm statistics; **all other parameters, including the affine scale and shift, are
+shared** — which is what makes this a normalisation fix rather than 92 models. Batches
+become domain-homogeneous, since a batch mixing subjects has no single correct set of
+statistics. The target gets a reserved slot seeded from the source mean, then adapts it
+during fine-tuning.
+
+| arm | source normalisation |
+|---|---|
+| **PTG** (existing control) | one BatchNorm shared across ~92 subjects |
+| **PTD** (new) | one set of statistics per source subject |
+
+**The default path is verified untouched.** Re-running the non-DSBN smoke after the wiring
+reproduces 0.5520 ± 0.0240, bit-identical to the value measured before any of it, so every
+previously logged arm remains comparable. `--dsbn` is part of the source-model cache key, so
+a DSBN source model can never be reused for a non-DSBN run.
+
+#### 9.22.3 Predictions, fixed in advance
+
+1. **PTD > PTG.** Directional.
+2. **The gain exceeds the 0.020 MDD** of 9.12.
+3. **The gain is larger in the weakest quartile**, as pre-training's was (9.15) — if the
+   mechanism is better handling of between-subject variability, it should act where that
+   variability hurts most.
+4. **PTD stays below 0.80.** A larger jump would be the signature of a leak, not an effect.
+
+#### 9.22.4 Decision rules, fixed in advance
+
+**A — PTD beats PTG by more than 0.020.** The first architectural-side intervention in this
+project to move anything since the reordering, and it does so on the between-subject axis
+rather than the within-subject one. It would also strengthen 9.17: the pre-training effect
+would have identifiable structure rather than being a black-box data gain.
+
+**B — indistinguishable (|diff| < 0.020).** Then the ceiling survives its fourth challenger,
+and the pre-training gain is not obviously attributable to normalisation. Given 9.19 and
+9.21, this is the outcome to expect.
+
+**C — PTD reliably worse.** Would suggest 92 separate statistics fragment an estimate that
+pooling makes more robust — plausible at ~1,665 windows per subject, and worth reporting
+because it bounds how far per-domain modelling can be pushed at this sample size.
+
+#### 9.22.5 Conditions on reporting
+
+* Both problems complete at 1,030 folds before anything is quoted.
+* The eight-point leakage audit of 9.15.3 re-runs on PTD first.
+* Paired against PTG at the same seed and folds; bootstrap CI over 10,000 resamples.
+* **Exploratory, not confirmatory.** Not on the 10.3 list.
+* The 9.15.4 prohibition applies: PTD consumes ~92 other subjects and is not comparable to
+  the 0.650 within-session ceiling.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**

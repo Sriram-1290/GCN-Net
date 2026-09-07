@@ -52,6 +52,9 @@ class Samples:
     X: np.ndarray        # (n_timepoints, n_nodes, 1) float32
     y: np.ndarray        # (n_timepoints,) int64
     trial_id: np.ndarray  # (n_timepoints,) int64 — for trial-level aggregation
+    # Which source subject each sample came from, when the model normalises per
+    # domain (models.dsbn). None everywhere else, so nothing that ignores it changes.
+    domains: np.ndarray | None = None  # (n_timepoints,) int64
 
     def __len__(self) -> int:
         return len(self.X)

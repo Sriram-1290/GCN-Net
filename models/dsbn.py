@@ -93,6 +93,22 @@ def set_domain(module: nn.Module, domain: int) -> bool:
     return found
 
 
+def target_domain(module: nn.Module) -> bool:
+    """Select the reserved target slot on every DSBN layer inside ``module``.
+
+    Anything being predicted on is an unseen domain -- a held-out source subject
+    during pre-training, or the fine-tuning target -- so it must not borrow a
+    particular source subject's statistics. The last slot is reserved for exactly
+    this and is seeded from the source mean by :func:`seed_target_domain`.
+    """
+    found = False
+    for m in module.modules():
+        if isinstance(m, DomainSpecificBatchNorm1d):
+            m.set_domain(m.n_domains - 1)
+            found = True
+    return found
+
+
 def seed_target_domain(module: nn.Module, target: int) -> None:
     """Initialise the target domain's statistics from the mean of the source domains.
 

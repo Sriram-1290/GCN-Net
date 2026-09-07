@@ -21,6 +21,7 @@ import torch
 from torch import nn
 
 from .metrics import ClassificationResult, aggregate_to_trials, evaluate
+from models.dsbn import set_domain, target_domain
 from .pipeline import Fold, Samples
 
 
@@ -105,9 +106,35 @@ class Trainer:
         return loss
 
     # --------------------------------------------------------------- training
+    def _domain_batches(self, n: int, generator: torch.Generator,
+                        domains) -> list[tuple[torch.Tensor, int | None]]:
+        """Minibatches as ``(indices, domain)``, shuffled.
+
+        With no domains this is exactly the previous behaviour: one permutation cut
+        into consecutive slices, domain ``None``. With domains, every batch is drawn
+        from a single domain -- a batch mixing subjects has no one correct set of
+        normalisation statistics, so a domain-specific BatchNorm would silently
+        average over people. The batch *order* is still shuffled, so the optimiser
+        does not see all of one subject before any of the next.
+        """
+        if domains is None:
+            order = torch.randperm(n, generator=generator)
+            return [(order[i:i + self.cfg.batch_size], None)
+                    for i in range(0, n, self.cfg.batch_size)]
+
+        batches: list[tuple[torch.Tensor, int | None]] = []
+        for d in np.unique(domains):
+            idx = torch.from_numpy(np.flatnonzero(domains == d))
+            idx = idx[torch.randperm(len(idx), generator=generator)]
+            batches += [(idx[i:i + self.cfg.batch_size], int(d))
+                        for i in range(0, len(idx), self.cfg.batch_size)]
+        order = torch.randperm(len(batches), generator=generator)
+        return [batches[i] for i in order.tolist()]
+
     def fit(self, fold: Fold, checkpoint_path: Path | str | None = None) -> TrainingHistory:
         X, y = self._tensors(fold.train)
         n = len(X)
+        domains = getattr(fold.train, "domains", None)
         history = TrainingHistory()
         best_state = None
         epochs_since_best = 0
@@ -116,12 +143,12 @@ class Trainer:
         for epoch in range(1, self.cfg.epochs + 1):
             t0 = time.time()
             self.model.train()
-            order = torch.randperm(n, generator=generator)
             total_loss = 0.0
             correct = 0
 
-            for start in range(0, n, self.cfg.batch_size):
-                idx = order[start:start + self.cfg.batch_size]
+            for idx, dom in self._domain_batches(n, generator, domains):
+                if dom is not None:
+                    set_domain(self.model, dom)
                 xb = X[idx].to(self.cfg.device, non_blocking=True)
                 yb = y[idx].to(self.cfg.device, non_blocking=True)
 
@@ -185,6 +212,10 @@ class Trainer:
     @torch.no_grad()
     def predict_logits(self, samples: Samples) -> np.ndarray:
         self.model.eval()
+        # Anything predicted on is an *unseen* domain -- a held-out source subject
+        # during pre-training, or the target during fine-tuning -- so it uses the
+        # slot reserved for that rather than borrowing one subject's statistics.
+        target_domain(self.model)
         X, _ = self._tensors(samples)
         out = []
         for start in range(0, len(X), self.cfg.batch_size):

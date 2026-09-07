@@ -69,6 +69,7 @@ import hashlib
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -86,6 +87,7 @@ from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
 
 
 def build_model(name: str, prepared, n_samples: int, n_classes: int, sfreq: float,
+                n_domains: int = 0,
                 spatial: str = "graph", graph_smoothness: float = 0.0):
     """The same architectures the other runners expose, on a prepared fold."""
     if name == "gcn":
@@ -101,7 +103,8 @@ def build_model(name: str, prepared, n_samples: int, n_classes: int, sfreq: floa
         from graphs.laplacian import laplacian
         from models.graph_bandpower import GraphBandPowerConfig, GraphBandPowerNet
         cfg = GraphBandPowerConfig(n_classes=n_classes, spatial=spatial,
-                                   graph_smoothness=graph_smoothness)
+                                   graph_smoothness=graph_smoothness,
+                                   n_domains=n_domains)
         lap = (laplacian(prepared.adjacencies[0], normalized=False)
                if graph_smoothness else None)
         return GraphBandPowerNet(prepared.bases, n_samples, cfg, laplacian=lap)
@@ -152,7 +155,8 @@ def source_cache_key(args, seed: int, group_idx: int,
         "model": args.model, "spatial": args.spatial,
         "graph_smoothness": args.graph_smoothness,
         "classes": args.classes, "window": args.window, "stride": args.stride,
-        "lmax": args.lmax, "seed": seed, "n_groups": args.groups, "group": group_idx,
+        "lmax": args.lmax, "seed": seed, "n_groups": args.groups,
+        "dsbn": bool(args.dsbn), "group": group_idx,
         "epochs": args.pretrain_epochs, "lr": args.pretrain_lr,
         "batch_size": args.batch_size, "config": str(args.config),
         "source": sorted(source), "val": sorted(val_pick),
@@ -208,6 +212,12 @@ def main() -> int:
     ap.add_argument("--log", default="runs/experiments.jsonl")
     ap.add_argument("--tag", default="ptft")
     ap.add_argument("--stop-at", default=None, metavar="[YYYY-MM-DD ]HH:MM")
+    ap.add_argument("--dsbn", action="store_true",
+                    help="--model graphbp only: give every source subject its own "
+                         "batch-norm statistics during pre-training, sharing all other "
+                         "parameters (models/dsbn.py). Batches become domain-homogeneous. "
+                         "The target gets the reserved last slot, seeded from the source "
+                         "mean. TSMNet measures this at 2.4-3.9%% on 158 subjects.")
     ap.add_argument("--source-cache", default="runs/source_models",
                     help="directory of cached source models; '' disables caching. "
                          "A source model is keyed by everything that determines it "
@@ -308,6 +318,18 @@ def main() -> int:
             sfreq=sfreq, window=args.window, stride=args.stride,
             build_graph=args.model in ("gcn", "graphbp"))
 
+        # Domain labels for the source split. concat_trials preserves subject order and
+        # trial ids run 0..N-1 over it, so a per-trial domain array indexes straight
+        # through `trial_id`. The last slot (n_domains - 1) is reserved for the target.
+        n_domains = 0
+        if args.dsbn:
+            src_subjects = [x for x in source if x not in val_pick]
+            per_trial = np.repeat(np.arange(len(src_subjects)),
+                                  [len(trials[x].y) for x in src_subjects])
+            prepared = replace(prepared, train=replace(
+                prepared.train, domains=per_trial[prepared.train.trial_id]))
+            n_domains = len(src_subjects) + 1
+
         pretrained_state = None
         if not args.no_pretrain:
             cache_path = None
@@ -327,7 +349,7 @@ def main() -> int:
             else:
                 seed_stage(seed, gi, 0, 0)
                 model = build_model(args.model, prepared, args.window, n_classes, sfreq,
-                                    spatial=args.spatial,
+                                    n_domains=n_domains, spatial=args.spatial,
                                     graph_smoothness=args.graph_smoothness)
                 trainer = Trainer(model, pre_cfg, n_classes=n_classes)
                 trainer.fit(prepared)
@@ -362,10 +384,18 @@ def main() -> int:
 
                 seed_stage(seed, gi, j + 1, split.fold)
                 model = build_model(args.model, prepared, args.window, n_classes, sfreq,
-                                    spatial=args.spatial,
+                                    n_domains=n_domains, spatial=args.spatial,
                                     graph_smoothness=args.graph_smoothness)
                 if pretrained_state is not None:
                     model.load_state_dict(pretrained_state)
+                if n_domains:
+                    # The target is an unseen domain. Seed its statistics from the
+                    # source mean, then label its own windows with that slot so
+                    # fine-tuning adapts it rather than any source subject's.
+                    from models.dsbn import seed_target_domain
+                    seed_target_domain(model, n_domains - 1)
+                    ft_train = replace(ft_train, domains=np.full(
+                        len(ft_train.y), n_domains - 1, dtype=np.int64))
                 trainer = Trainer(model, ft_cfg, n_classes=n_classes)
                 # A Fold whose train/test are the target's own split, same representation.
                 ft_fold = type(prepared)(
@@ -395,6 +425,7 @@ def main() -> int:
                     "stride": args.stride,
                     "model": args.model,
                     "pretrained": not args.no_pretrain,
+                    "dsbn": bool(n_domains),
                     "n_source_subjects": len(source),
                     "n_groups": len(groups),
                     "group_id": gi,

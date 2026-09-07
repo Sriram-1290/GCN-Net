@@ -85,10 +85,14 @@ class GraphBandPowerConfig:
     dropout: float = 0.5
     weight_std: float = 0.1
     eps: float = 1e-6             # guards the log, as in ShallowConvNet
+    n_domains: int = 0            # >0 swaps BatchNorm for per-domain statistics
+                                  # (models.dsbn); the last slot is the target
 
     def __post_init__(self) -> None:
         if self.spatial not in ("graph", "free"):
             raise ValueError(f"spatial must be 'graph' or 'free', got {self.spatial!r}")
+        if self.n_domains < 0:
+            raise ValueError(f"n_domains must be >= 0, got {self.n_domains}")
         if self.n_layers < 1:
             raise ValueError(f"n_layers must be >= 1, got {self.n_layers}")
         if self.graph_smoothness < 0:
@@ -151,7 +155,12 @@ class GraphBandPowerNet(nn.Module):
             else:
                 spatial.append(ChebConv(n_in, self.cfg.n_spatial, basis,
                                         weight_std=self.cfg.weight_std))
-            norms.append(nn.BatchNorm1d(self.cfg.n_spatial))
+            if self.cfg.n_domains:
+                from models.dsbn import DomainSpecificBatchNorm1d
+                norms.append(DomainSpecificBatchNorm1d(self.cfg.n_spatial,
+                                                       self.cfg.n_domains))
+            else:
+                norms.append(nn.BatchNorm1d(self.cfg.n_spatial))
             n_in = self.cfg.n_spatial
         self.spatial = nn.ModuleList(spatial)
         self.norms = nn.ModuleList(norms)
