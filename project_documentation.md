@@ -2473,8 +2473,77 @@ because it bounds how far per-domain modelling can be pushed at this sample size
 * The eight-point leakage audit of 9.15.3 re-runs on PTD first.
 * Paired against PTG at the same seed and folds; bootstrap CI over 10,000 resamples.
 * **Exploratory, not confirmatory.** Not on the 10.3 list.
-* The 9.15.4 prohibition applies: PTD consumes ~92 other subjects and is not comparable to
-  the 0.650 within-session ceiling.
+* The 9.15.4 prohibition applies: **never compare** PTD to the 0.650 within-session
+  ceiling — it is a different protocol with ~92 extra subjects, not a better pipeline.
+
+---
+
+### 9.23 Domain-specific batch normalisation — results (EXPLORATORY)
+
+**Run 2026-09-07, 1,030 folds, 103 subjects, identical folds to PTG. Pre-registered in 9.22
+at commit `b4f75fe` before any number existed. The eight-point audit passed on all eight
+before anything below was read. One of four predictions holds, and it is the trivial one.**
+
+#### 9.23.1 Results
+
+| arm | L vs R | B vs F | within-family | above chance |
+|---|---|---|---|---|
+| PTC — no pre-training | 0.6533 | 0.6956 | 0.6744 | 89/103 |
+| **PTG — shared BatchNorm (control)** | 0.7206 | 0.7396 | **0.7301** | 98/103 |
+| **PTD — per-subject BatchNorm** | 0.7172 | 0.7277 | **0.7224** | 95/103 |
+
+| comparison | difference | 95 % CI | wins |
+|---|---|---|---|
+| **PTD vs PTG** (isolates DSBN) | **−0.0077** | [−0.0164, +0.0013] | **39/103** |
+
+#### 9.23.2 Prediction scorecard — one of four
+
+1. *"PTD > PTG."* — **REFUTED.** The point estimate is negative.
+2. *"The gain exceeds the 0.020 MDD."* — **REFUTED.** There is no gain.
+3. *"The gain is larger in the weakest quartile."* — **Not evaluable**; there is no gain to
+   distribute. For the record the by-quartile differences are +0.0073, −0.0175, −0.0062,
+   −0.0141, so the weakest quartile is the only one that is not negative — weakly consistent
+   with the mechanism, on an effect that does not exist.
+4. *"PTD stays below 0.80."* — Holds, at 0.7224. Trivially.
+
+**Decision rule B fires.** |−0.0077| is inside the 0.020 threshold 9.12 fixed, so DSBN is
+reported as indistinguishable from a shared BatchNorm. TSMNet's 2.4–3.9 % does not transfer
+to this pipeline.
+
+#### 9.23.3 The tension, stated rather than smoothed
+
+**The magnitude says "indistinguishable" and the direction says "slightly worse", and these
+disagree.** The mean difference is well inside the MDD, but PTD wins on only **39 of 103**
+subjects — a sign test gives **p = 0.0176**. A consistent small decrement is exactly what
+decision rule C anticipated: *"92 separate statistics fragment an estimate that pooling makes
+more robust — plausible at ~1,665 windows per subject."* Each source subject supplies roughly
+1,665 windows to estimate its own running statistics, against ~145,000 pooled; per-domain
+estimates are correspondingly noisier.
+
+The pre-registered rule is stated on effect size, so **B is what we report**. But the honest
+summary is that DSBN is not merely neutral here — it is very slightly and quite consistently
+harmful, and a confirmatory run designed around the sign rather than the mean would probably
+detect it.
+
+#### 9.23.4 What this settles
+
+**The ceiling survives its fourth challenger.** 9.19 closed off spatial priors, 9.21 the
+sample definition, and this closes off per-subject normalisation. All three were selected
+because published work reported gains of 2–6 points from them, and all three measured
+nothing here.
+
+**It also sharpens 9.17.** Pre-training's +0.0557 is not obviously attributable to better
+handling of between-subject variability — the most direct intervention on that axis does not
+reproduce it. Whatever pre-training buys, it is not normalisation.
+
+**Does not settle.** One architecture, one pipeline, one dataset. TSMNet's result is obtained
+in *inter-session and inter-subject transfer*, where a model is evaluated on an unseen
+domain; our fine-tuning stage gives every target its own labelled data, which is a friendlier
+setting and may leave less for domain-specific normalisation to fix.
+
+**Still exploratory.** Not on the 10.3 list. The 9.15.4 prohibition applies: **never
+compare** PTD to the 0.650 within-session ceiling — it consumes ~92 other subjects and is
+a different protocol, not a better pipeline.
 
 ---
 
@@ -3680,6 +3749,25 @@ ShallowConvNet.
 ---
 
 ## 18. Changelog
+
+### 2026-09-07
+
+- **9.23: domain-specific batch normalisation does not help.** PTD = 0.7224 against PTG's
+  0.7301: **−0.0077** [−0.0164, +0.0013], inside the 0.020 MDD, so decision rule B of 9.22
+  fires and it is reported as indistinguishable. One of four predictions holds, the trivial
+  one.
+  - **The magnitude and the direction disagree, and both are reported.** PTD wins on only
+    39/103 subjects, sign test p = 0.0176 — a consistent small decrement, which is what
+    9.22.4's rule C anticipated: ~1,665 windows per subject make per-domain statistics
+    noisier than the ~145,000-window pooled estimate.
+  - **The ceiling survives its fourth challenger**, after spatial priors (9.19), window
+    length (9.21) and the architecture-agnosticism null (9.17). All were chosen because
+    published work reported 2–6 point gains from them.
+  - **It sharpens 9.17**: whatever pre-training's +0.0557 buys, it is not normalisation —
+    the most direct intervention on the between-subject axis does not reproduce any of it.
+  - DSBN implemented in `models/dsbn.py`, wired through an optional `Samples.domains` and
+    domain-homogeneous batching. The default path is verified inert: the non-DSBN smoke
+    reproduces 0.5520 ± 0.0240 bit-identically after the wiring.
 
 ### 2026-09-06 (night)
 

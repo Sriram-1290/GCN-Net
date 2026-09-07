@@ -60,6 +60,7 @@ HEADLINES = {
     "PTG shallow":         ("PTG-shallow-binary", "trial_accuracy", 0.7369),
     "CI CSP-init":         ("CI-cspinit-binary", "trial_accuracy", 0.6686),
     "A3 cov-tgsp":         ("A3-tgsp", "trial_accuracy", 0.6694),
+    "PTD dsbn":            ("PTD-gbp-binary", "trial_accuracy", 0.7224),
 }
 TOL = 5e-4
 

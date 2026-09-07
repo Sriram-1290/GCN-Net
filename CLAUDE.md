@@ -82,6 +82,7 @@ not a result worth reporting.
 | **PTG: + cross-subject pre-training** | **0.7301** | **+0.0557 over its control, 93/103 subjects** |
 | PTC-shallow: ShallowConvNet, pre-training skipped | 0.6886 | **the control** for the row below |
 | **PTG-shallow: ShallowConvNet + pre-training** | **0.7369** | **tied with PTG, not ahead of it (see below)** |
+| PTD: PTG + domain-specific batch norm | 0.7224 | **−0.0077 against PTG — no gain; see below** |
 
 - **The published formulation decodes nothing under a correct split.** 0.5090 against a
   chance level of 0.5. Its 4-class accuracy of 0.3097 looks above chance only because of
@@ -131,6 +132,14 @@ not a result worth reporting.
   and **never compare** PTG-shallow's 0.7387 to the 0.650 ceiling either — it is a
   different protocol with ~92 extra subjects, and the §9.15.4 prohibition covers every
   pre-trained arm.
+- **CONFIRMED 2026-09-07 (§9.23). Domain-specific batch normalisation does not help.**
+  PTD = 0.7224 against PTG's 0.7301, i.e. **−0.0077** [−0.0164, +0.0013], inside the 0.020
+  MDD so reported as indistinguishable. But it wins on only **39/103** subjects (sign test
+  p = 0.0176), so the direction is consistent even though the magnitude is not resolvable:
+  DSBN is very slightly *harmful* here, most likely because ~1,665 windows per subject make
+  per-domain statistics noisier than the pooled estimate. TSMNet's 2.4–3.9 % does not
+  transfer. **Four challengers to the ~0.67→0.73 picture have now measured nothing**
+  (§9.19 spatial priors, §9.21 window length, §9.23 normalisation, plus §9.17's null DiD).
 - **Never report a G-arm difference below 0.020 as an effect.** §9.12 fixed that rule before
   the runs; the design's minimum detectable difference is ~0.020 at 80 % power.
 - **But the mechanism named in §9.7.1 is minor.** A1 lifted graph locality and node-shared
