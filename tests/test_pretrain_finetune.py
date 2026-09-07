@@ -217,6 +217,7 @@ class _Args:
         self.pretrain_lr = 1e-3
         self.batch_size = 256
         self.config = "configs/bandpass_8_30.yaml"
+        self.dsbn = False
         self.__dict__.update(over)
 
 
@@ -252,6 +253,9 @@ def test_source_cache_key_ignores_subject_list_order():
     ("pretrain_lr", 1e-2),
     ("batch_size", 512),
     ("config", "configs/default.yaml"),
+    # A DSBN source model must never be reused for a non-DSBN run: the two normalise
+    # differently, and a stale hit would silently mix the schemes within one arm.
+    ("dsbn", True),
 ])
 def test_every_hyperparameter_that_changes_the_weights_changes_the_key(field, value):
     """A stale hit would pre-train on the wrong thing — the failure this must not have."""
