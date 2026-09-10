@@ -8,11 +8,11 @@
 
 Submitted by
 
-| Student name | Roll number |
-|---|---|
-| Saligram Sriram Shravan | `<2453-23-753-0__>` |
-| `<STUDENT NAME>` | `<2453-23-753-0__>` |
-| `<STUDENT NAME>` | `<2453-23-753-0__>` |
+| S.No. | Roll No. | Student Name |
+|---|---|---|
+| 1 | 245323753054 | Saligram Sriram Shravan |
+| 2 | 245323753045 | Parcha Seetha Ramarao |
+| 3 | 245323753030 | M Priyansh |
 
 Under the guidance of
 **`<GUIDE NAME>`**, `<DESIGNATION>`
@@ -135,5 +135,5 @@ configuration behind every number reported.
   says so rather than implying a deeper reading than took place.
 - Author lists, years, venues and DOIs were verified against Crossref and the arXiv API
   rather than reconstructed from memory.
-- Fields in `<angle brackets>` must be completed before submission: the two remaining student
-  names and all three roll numbers, and the guide's name and designation.
+- The only fields still outstanding are the **guide's name and designation**, highlighted on
+  the title page. Everything else is complete.

@@ -46,9 +46,9 @@ TITLE = """
   <p class="t4">BACHELOR OF ENGINEERING<br>IN<br><strong>COMPUTER SCIENCE</strong></p>
   <p class="t5">Submitted by</p>
   <table class="students">
-    <tr><td>Saligram Sriram Shravan</td><td><span class="blank">2453-23-753-0__</span></td></tr>
-    <tr><td><span class="blank">STUDENT NAME</span></td><td><span class="blank">2453-23-753-0__</span></td></tr>
-    <tr><td><span class="blank">STUDENT NAME</span></td><td><span class="blank">2453-23-753-0__</span></td></tr>
+    <tr><td>Saligram Sriram Shravan</td><td>245323753054</td></tr>
+    <tr><td>Parcha Seetha Ramarao</td><td>245323753045</td></tr>
+    <tr><td>M Priyansh</td><td>245323753030</td></tr>
   </table>
   <p class="t5">Under the guidance of</p>
   <p class="t6"><span class="blank">GUIDE NAME</span><br><span class="blank">DESIGNATION</span></p>
