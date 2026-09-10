@@ -2,7 +2,7 @@
 
 **ON**
 
-## Dynamic Graph Convolutional Network with Temporal Attention for Subject-Independent EEG Motor Imagery Decoding
+## GBP-Net: A Graph Band-Power Network with Cross-Subject Pre-Training for EEG Motor Imagery Decoding
 
 **BACHELOR OF ENGINEERING IN COMPUTER SCIENCE**
 
@@ -119,20 +119,23 @@ untested.
 
 ### What this project does about it
 
-The project builds a **dynamic graph convolutional network with temporal attention**,
-evaluated **subject-independently under leave-one-subject-out**, and — because of gap 3.1 —
-it establishes a trustworthy baseline before claiming any improvement over one.
+The project delivers **GBP-Net**, a graph band-power network: a learned temporal filter,
+a graph convolution across electrodes, and log band power taken **after** the spatial stage
+rather than before it — the ordering [10, 15] show is what makes spatial filtering work, and
+which the graph lineage [1, 2] inverts. It is then pre-trained across subjects and fine-tuned
+per subject, addressing the data scarcity that [17, 19] identify as the real constraint.
 
-Concretely: it reimplements GCNs-Net faithfully and reproduces its published protocol, then
-re-evaluates the identical model under a trial-level split with the graph, normalisation and
-all statistics fitted on the training split alone (gap 3.1). It adds the within-family
-decomposition that separates run-family identification from genuine decoding (gap 3.2). It
-measures the learnable adjacency and the temporal attention against the fixed-graph baseline,
-and the graph itself against unconstrained and graph-free controls on identical folds
-(gap 3.3). Interventions drawn from the reviewed papers are then tested on this dataset under
-the corrected protocol (gap 3.4). Every comparison is paired on subject, with pre-registered
-predictions and decision rules fixed before each run, and a complete per-fold experiment log
-recording the git commit, seed and configuration behind every number reported.
+Because of gap 3.1, the project establishes a trustworthy baseline before claiming any
+improvement over one. It reimplements GCNs-Net faithfully, reproduces its published protocol,
+then re-evaluates the identical model under a trial-level split with the graph, normalisation
+and all statistics fitted on the training split alone. It adds the within-family decomposition
+that separates run-family identification from genuine decoding (gap 3.2). It measures each
+component — the learnable adjacency, temporal attention, the reordering, and the graph itself
+— against unconstrained and graph-free controls on identical folds (gap 3.3), and it tests
+interventions drawn from the reviewed papers on this dataset under the corrected protocol
+(gap 3.4). Every comparison is paired on subject, with pre-registered predictions and decision
+rules fixed before each run, and a complete per-fold experiment log recording the git commit,
+seed and configuration behind every number reported.
 
 ---
 
@@ -145,7 +148,12 @@ recording the git commit, seed and configuration behind every number reported.
   rather than reconstructed from memory.
 - The only field still outstanding is the guide's **designation** (Assistant Professor,
   Associate Professor, and so on), highlighted on the title page.
-- The title is the registered project title. Note that the survey's gap analysis is written to
-  support it: gaps 3.3 and 3.4 are exactly the controls needed before a *dynamic* graph or
-  temporal attention can be credited with an improvement, and gap 3.1 is why a corrected
-  baseline has to come first.
+- **The title differs from the originally registered one** ("Dynamic Graph Convolutional
+  Network with Temporal Attention for Subject-Independent EEG Motor Imagery Decoding") and
+  needs the guide's approval. The change reflects measurement, not scope: the learnable
+  adjacency proved not to contribute, and the strongest results come from cross-subject
+  pre-training with per-subject fine-tuning rather than from subject-independent evaluation.
+  The domain, dataset and method family are unchanged.
+- The survey's gap analysis supports the title directly: gap 3.1 is why a corrected baseline
+  must precede any claim of improvement, and gaps 3.3 and 3.4 are the controls that let a
+  component be credited or ruled out.
