@@ -2,9 +2,9 @@
 
 Separate from `build_paper_pdf.py` because the submission has different constraints:
 a centred title page on its own sheet in the institute's layout, and an eight-column
-survey table whose cells carry full sentences. That table is the whole reason this is
-not just the paper's build with a different input -- at body font size it overflows A4,
-so it is set landscape on its own pages while the rest stays portrait.
+survey table whose cells carry full sentences. Every page is A4 portrait; the table's
+own pages take narrower side margins via a named @page, and its text reflows to more
+lines per cell rather than shrinking, so the font drops only from body size to 6.2pt.
 
 Usage:
     python scripts/build_survey_pdf.py
@@ -60,7 +60,9 @@ TITLE = """
 
 CSS = """
 @page { size: A4 portrait; margin: 18mm 16mm; }
-@page landscape { size: A4 landscape; margin: 12mm 10mm; }
+/* The survey table's own pages keep A4 portrait but take narrower side margins, which
+   buys ~20 mm of column width without changing the paper size. */
+@page wide { size: A4 portrait; margin: 14mm 9mm; }
 
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 body { font: 10.5pt/1.45 "Times New Roman", Georgia, serif; color: #000; background: #fff;
@@ -104,20 +106,21 @@ th, td { border: .5pt solid #000; padding: 1.4mm 1.8mm; vertical-align: top;
          text-align: left; }
 th { background: #eee; font-weight: bold; }
 
-/* The 27-row survey table: eight columns of prose will not fit portrait, so this one
-   table gets its own landscape pages. Column widths are tuned so the two widest
-   columns -- Key Findings and Limitations -- get the room they need. */
-.survey { font-size: 6.8pt; line-height: 1.3; }
-.survey th, .survey td { padding: .9mm 1.1mm; }
-.survey col.c1 { width: 3%; }   .survey col.c2 { width: 12%; }
-.survey col.c3 { width: 4%; }   .survey col.c4 { width: 18%; }
-.survey col.c5 { width: 14%; }  .survey col.c6 { width: 10%; }
+/* Eight columns of prose in portrait: the text reflows to more lines per cell rather
+   than shrinking, so the font only drops from 6.8 to 6.2pt and the table simply runs
+   longer. S.No and Year are widened slightly -- at these sizes a four-digit year was
+   close to wrapping. */
+.survey { font-size: 6.2pt; line-height: 1.28; }
+.survey th, .survey td { padding: .7mm .9mm; }
+.survey col.c1 { width: 3.5%; } .survey col.c2 { width: 12%; }
+.survey col.c3 { width: 5%; }   .survey col.c4 { width: 17.5%; }
+.survey col.c5 { width: 14%; }  .survey col.c6 { width: 9%; }
 .survey col.c7 { width: 18%; }  .survey col.c8 { width: 21%; }
-/* The wrapper -- not just the table -- carries the landscape page, and it starts at
-   the section heading rather than at the table. A named page always begins a new sheet,
-   so opening it at the table instead would strand the heading and its intro paragraph
-   alone on a near-empty portrait page. */
-.survey-wrap { page: landscape; page-break-after: always; }
+/* The wrapper -- not just the table -- carries the named page, and it starts at the
+   section heading rather than at the table. A named page always begins a new sheet, so
+   opening it at the table instead would strand the heading and its intro paragraph
+   alone on a near-empty page. */
+.survey-wrap { page: wide; page-break-after: always; }
 .survey-wrap h2 { margin-top: 0; }
 
 .compare { font-size: 8.6pt; }
