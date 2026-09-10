@@ -41,9 +41,9 @@ TITLE = """
 <section class="titlepage">
   <p class="t1">LITERATURE SURVEY REPORT</p>
   <p class="t2">ON</p>
-  <p class="t3">Reassessing Graph Convolutional Networks for EEG Motor Imagery
-     Decoding: Evaluation Protocol, Architecture, and the Limits of a Benchmark</p>
+  <p class="t3">Dynamic Graph Convolutional Network with Temporal Attention for Subject-Independent EEG Motor Imagery Decoding</p>
   <p class="t4">BACHELOR OF ENGINEERING<br>IN<br><strong>COMPUTER SCIENCE</strong></p>
+  <p class="t45">Project Domain: Deep Learning &nbsp;&middot;&nbsp; Batch No.: 22</p>
   <p class="t5">Submitted by</p>
   <table class="students">
     <tr><td>Saligram Sriram Shravan</td><td>245323753054</td></tr>
@@ -51,7 +51,7 @@ TITLE = """
     <tr><td>M Priyansh</td><td>245323753030</td></tr>
   </table>
   <p class="t5">Under the guidance of</p>
-  <p class="t6"><span class="blank">GUIDE NAME</span><br><span class="blank">DESIGNATION</span></p>
+  <p class="t6">Dr. Gagan Kumar<br><span class="blank">DESIGNATION</span></p>
   <p class="t7">Department of Computer Science</p>
   <p class="t8">NEIL GOGTE INSTITUTE OF TECHNOLOGY</p>
   <p class="t9">Kachavanisingaram Village, Hyderabad, Telangana 500058.</p>
@@ -74,6 +74,7 @@ body { font: 10.5pt/1.45 "Times New Roman", Georgia, serif; color: #000; backgro
 .t2 { font-size: 11pt; }
 .t3 { font-size: 16pt; font-weight: bold; max-width: 145mm; line-height: 1.35; }
 .t4 { font-size: 12pt; line-height: 1.7; }
+.t45 { font-size: 10.5pt; margin-bottom: 7mm !important; }
 .t5 { font-size: 11pt; font-weight: bold; margin-bottom: 4mm !important; }
 .t6 { font-size: 12pt; font-weight: bold; line-height: 1.6; }
 .t7 { font-size: 11pt; margin-bottom: 2mm !important; }

@@ -2,7 +2,7 @@
 
 **ON**
 
-## Reassessing Graph Convolutional Networks for EEG Motor Imagery Decoding: Evaluation Protocol, Architecture, and the Limits of a Benchmark
+## Dynamic Graph Convolutional Network with Temporal Attention for Subject-Independent EEG Motor Imagery Decoding
 
 **BACHELOR OF ENGINEERING IN COMPUTER SCIENCE**
 
@@ -14,8 +14,10 @@ Submitted by
 | 2 | 245323753045 | Parcha Seetha Ramarao |
 | 3 | 245323753030 | M Priyansh |
 
+**Project Domain:** Deep Learning · **Batch No.:** 22
+
 Under the guidance of
-**`<GUIDE NAME>`**, `<DESIGNATION>`
+**Dr. Gagan Kumar**, `<DESIGNATION>`
 
 Department of Computer Science
 **NEIL GOGTE INSTITUTE OF TECHNOLOGY**
@@ -117,14 +119,20 @@ untested.
 
 ### What this project does about it
 
-The project reimplements GCNs-Net faithfully, reproduces its published protocol, then
+The project builds a **dynamic graph convolutional network with temporal attention**,
+evaluated **subject-independently under leave-one-subject-out**, and — because of gap 3.1 —
+it establishes a trustworthy baseline before claiming any improvement over one.
+
+Concretely: it reimplements GCNs-Net faithfully and reproduces its published protocol, then
 re-evaluates the identical model under a trial-level split with the graph, normalisation and
-all statistics fitted on the training split alone. It adds the within-family decomposition
-that separates run-family identification from genuine decoding, and it evaluates the graph's
-contribution against unconstrained and graph-free controls on identical folds. Every
-comparison is paired on subject, with pre-registered predictions and decision rules fixed
-before each run, and a complete per-fold experiment log recording the git commit, seed and
-configuration behind every number reported.
+all statistics fitted on the training split alone (gap 3.1). It adds the within-family
+decomposition that separates run-family identification from genuine decoding (gap 3.2). It
+measures the learnable adjacency and the temporal attention against the fixed-graph baseline,
+and the graph itself against unconstrained and graph-free controls on identical folds
+(gap 3.3). Interventions drawn from the reviewed papers are then tested on this dataset under
+the corrected protocol (gap 3.4). Every comparison is paired on subject, with pre-registered
+predictions and decision rules fixed before each run, and a complete per-fold experiment log
+recording the git commit, seed and configuration behind every number reported.
 
 ---
 
@@ -135,5 +143,9 @@ configuration behind every number reported.
   says so rather than implying a deeper reading than took place.
 - Author lists, years, venues and DOIs were verified against Crossref and the arXiv API
   rather than reconstructed from memory.
-- The only fields still outstanding are the **guide's name and designation**, highlighted on
-  the title page. Everything else is complete.
+- The only field still outstanding is the guide's **designation** (Assistant Professor,
+  Associate Professor, and so on), highlighted on the title page.
+- The title is the registered project title. Note that the survey's gap analysis is written to
+  support it: gaps 3.3 and 3.4 are exactly the controls needed before a *dynamic* graph or
+  temporal attention can be credited with an improvement, and gap 3.1 is why a corrected
+  baseline has to come first.
