@@ -136,24 +136,3 @@ interventions drawn from the reviewed papers on this dataset under the corrected
 (gap 3.4). Every comparison is paired on subject, with pre-registered predictions and decision
 rules fixed before each run, and a complete per-fold experiment log recording the git commit,
 seed and configuration behind every number reported.
-
----
-
-## Notes for the submitting team
-
-- **Entries [4] and [5] were read from abstracts and metadata only**; the full texts were not
-  accessible. They are the two papers closest to this project's direction, and the survey
-  says so rather than implying a deeper reading than took place.
-- Author lists, years, venues and DOIs were verified against Crossref and the arXiv API
-  rather than reconstructed from memory.
-- The only field still outstanding is the guide's **designation** (Assistant Professor,
-  Associate Professor, and so on), highlighted on the title page.
-- **The title differs from the originally registered one** ("Dynamic Graph Convolutional
-  Network with Temporal Attention for Subject-Independent EEG Motor Imagery Decoding") and
-  needs the guide's approval. The change reflects measurement, not scope: the learnable
-  adjacency proved not to contribute, and the strongest results come from cross-subject
-  pre-training with per-subject fine-tuning rather than from subject-independent evaluation.
-  The domain, dataset and method family are unchanged.
-- The survey's gap analysis supports the title directly: gap 3.1 is why a corrected baseline
-  must precede any claim of improvement, and gaps 3.3 and 3.4 are the controls that let a
-  component be credited or ruled out.

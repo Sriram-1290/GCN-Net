@@ -51,7 +51,7 @@ TITLE = """
     <tr><td>M Priyansh</td><td>245323753030</td></tr>
   </table>
   <p class="t5">Under the guidance of</p>
-  <p class="t6">Dr. Gagan Kumar<br><span class="blank">DESIGNATION</span></p>
+  <p class="t6">Dr. Gagan Kumar</p>
   <p class="t7">Department of Computer Science</p>
   <p class="t8">NEIL GOGTE INSTITUTE OF TECHNOLOGY</p>
   <p class="t9">Kachavanisingaram Village, Hyderabad, Telangana 500058.</p>
@@ -69,19 +69,26 @@ body { font: 10.5pt/1.45 "Times New Roman", Georgia, serif; color: #000; backgro
 /* ---------------------------------------------------------------- title page */
 .titlepage { height: 250mm; display: flex; flex-direction: column; align-items: center;
              justify-content: flex-start; text-align: center; page-break-after: always; }
-.titlepage p { margin: 0 0 10mm; }
-.t1 { font-size: 13pt; font-weight: bold; letter-spacing: .5px; margin-top: 22mm !important; }
-.t2 { font-size: 11pt; }
-.t3 { font-size: 16pt; font-weight: bold; max-width: 145mm; line-height: 1.35; }
-.t4 { font-size: 12pt; line-height: 1.7; }
-.t45 { font-size: 10.5pt; margin-bottom: 7mm !important; }
-.t5 { font-size: 11pt; font-weight: bold; margin-bottom: 4mm !important; }
-.t6 { font-size: 12pt; font-weight: bold; line-height: 1.6; }
-.t7 { font-size: 11pt; margin-bottom: 2mm !important; }
-.t8 { font-size: 15pt; font-weight: bold; margin-bottom: 2mm !important; }
-.t9 { font-size: 10pt; }
+/* `p { text-align: justify }` below targets the element directly and so beats the
+   centring inherited from .titlepage -- without this the title renders justified,
+   with large gaps between words. */
+.titlepage p { margin: 0 0 9mm; text-align: center; }
+.t1 { font-size: 14pt; font-weight: bold; letter-spacing: .6px;
+       margin-top: 20mm !important; margin-bottom: 8mm !important; }
+.t2 { font-size: 11.5pt; margin-bottom: 8mm !important; }
+/* The title is the one element that should dominate; text-wrap balance keeps a
+   two-line title from leaving one word stranded on the second line. */
+.t3 { font-size: 17pt; font-weight: bold; max-width: 150mm; line-height: 1.4;
+      text-wrap: balance; margin-bottom: 13mm !important; }
+.t4 { font-size: 13pt; line-height: 1.75; margin-bottom: 8mm !important; }
+.t45 { font-size: 11pt; margin-bottom: 9mm !important; }
+.t5 { font-size: 11.5pt; font-weight: bold; margin-bottom: 5mm !important; }
+.t6 { font-size: 13pt; font-weight: bold; margin-bottom: 12mm !important; }
+.t7 { font-size: 11.5pt; margin-bottom: 2mm !important; }
+.t8 { font-size: 16.5pt; font-weight: bold; margin-bottom: 2.5mm !important; }
+.t9 { font-size: 10.5pt; }
 .students { border: none; width: auto; margin: 0 auto 10mm; }
-.students td { border: none; padding: 1.5mm 8mm; font-size: 11.5pt; font-weight: bold;
+.students td { border: none; padding: 2mm 9mm; font-size: 12.5pt; font-weight: bold;
                text-align: left; }
 .blank { background: #ffef9f; padding: 0 2mm; }
 
