@@ -3755,6 +3755,28 @@ ShallowConvNet.
 
 ## 18. Changelog
 
+### 2026-09-20
+
+- **PW-1 review paper and its one-page analysis prepared** (`REVIEW_PAPER.md`,
+  `REVIEW_ANALYSIS.md`; built by `scripts/build_review_pdf.py` and
+  `scripts/make_review_figures.py`). The review covers the 27 surveyed studies plus a
+  published GNN–EEG survey [Klepl et al., IEEE TNSRE 2024] used for positioning and for the
+  required one-page analysis. It is a literature review: no result from this project's
+  experiments is reported in it; section 7 describes the proposed model and evaluation design
+  and points to the project report for results.
+  - Citations are keys numbered at build time; the build refuses to run if any key is cited
+    but undefined or defined but uncited. All 29 references verified against Crossref/arXiv
+    except the EEG-DL repository, cited as software.
+  - The methodology section describes the actual iterative, citation-tracing selection and says
+    it is not a PRISMA systematic review, rather than inventing screening counts in imitation
+    of the sample paper.
+  - The comparability argument is stated more precisely than in the survey: the benchmark's
+    0.650 is for a *binary* task, while GCNs-Net's 93.06 % is *four-class*, which makes the
+    gap larger, not smaller.
+  - An FBCSP claim ("won its competition category") was removed as not supported by the cited
+    2008 paper. Error 32 (the Blankertz effect size) was found while checking claims for this
+    document.
+
 ### 2026-09-07
 
 - **9.23: domain-specific batch normalisation does not help.** PTD = 0.7224 against PTG's
