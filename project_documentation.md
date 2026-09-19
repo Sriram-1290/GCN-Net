@@ -2959,8 +2959,10 @@ before either ran. That is about as direct a demonstration of a subject-level ce
 this dataset can supply. The 11 subjects at or below chance under both methods average
 1.70 dB less mu prominence than the rest.
 
-For external calibration, [26] reports the predictor explaining roughly 37 % of variance in
-SMR-BCI feedback accuracy; our 30 % on a different task and cohort is consistent with it.
+For external calibration, [26] reports r = 0.53 between the predictor and SMR-BCI feedback
+accuracy in 80 participants, i.e. about 28 % of variance; our 30 % on a different task and
+cohort is consistent with it. *(Corrected 2026-09-20: earlier text said ~37 %, which does not
+match the paper; see error 32.)*
 
 **Consequence.** Roughly a third of what looks like model failure on this dataset is a
 property of the participants, fixed before any modelling choice. 13 now says so with a
@@ -3086,6 +3088,7 @@ process that reported success.**
 | 29 | **My own literature-driven recommendation did not transfer.** CSP-Net's +6.0 points was presented as the highest-value available change; measured here it is -0.0008 | 9.18 pre-registered it with a decision rule for exactly this outcome | reported as decision rule B; the null is more informative than the predicted positive would have been (9.19.3) |
 | 30 | **Committed over 19 failing tests.** The suite was run as `pytest -q | tail -2`, so the shell reported `tail`'s exit code rather than pytest's, and the `&&` chain committed anyway. Adding `"dsbn"` to the source-model cache key had broken every test whose `_Args` stub predates the flag | the next full run, read without a pipe | fixed in `4dbdee1`; pytest is now redirected to a file and its exit code checked explicitly, and `dsbn` joined the parametrised list of key-changing hyperparameters |
 | 31 | **Three bugs in one wiring pass**, each caught by the next command rather than by review: `Samples` and `Fold` are frozen dataclasses so the domain array needed `dataclasses.replace`; a patch inserted `"dsbn"` into `source_cache_key`, where `n_domains` is out of scope; and that same patch's *second* assert aborted the write, leaving the first fix unapplied and the `NameError` latent | a smoke run on 6 subjects before the 4-hour arm | all three fixed before launch. The lesson is the third one: an aborted multi-edit script leaves no trace, so a failed assert must be re-read as "nothing was written", not "one edit failed" |
+| 32 | **Misquoted a cited effect size across four documents.** Blankertz et al. 2010 was cited as explaining "~37 %" of between-subject BCI performance variance. The abstract reports r = 0.53 in N = 80, i.e. r² ≈ 0.28. The wrong figure reached the paper, RESULTS, this document and the submitted literature survey | checking the claim against the abstract via NCBI E-utilities before reusing it in a fourth document, the review paper | corrected everywhere to r = 0.53 / ~28 %; the conclusion drawn from it (our 30 % is consistent) is unchanged and in fact closer. The submitted survey PDF carries the old figure |
 | 22 | The log's exclusive lock seeked to **EOF** before locking one byte, but `msvcrt.locking` locks relative to the *current position* — so once two processes saw different EOFs they locked different bytes and the mutual exclusion lapsed | its own regression test (for error 13) went intermittently flaky under full-suite load | lock byte fixed at offset 0, a rendezvous every process agrees on; 10/10 clean afterwards |
 
 **The recurring lesson.** A process exiting with code 0 and printing a plausible mean is
@@ -4166,7 +4169,7 @@ ShallowConvNet.
   here, and containing no imagery, so it cannot leak. Correlation with per-subject accuracy:
   **+0.547** for the repaired graph network, **+0.548** for CSP+LDA, +0.480 for
   ShallowConvNet. The 11 subjects at or below chance under both methods average 1.70 dB less
-  mu prominence. [26] reports ~37 % on a different task; our 30 % is consistent.
+  mu prominence. [26] reports r = 0.53 (~28 %) on a different task; our 30 % is consistent.
   - **The two headline coefficients being +0.547 and +0.548 is the finding.** Two methods
     sharing no component are predicted equally well by a property of the participant
     measured before either ran. That is a subject-level ceiling, and it bounds what any

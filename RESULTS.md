@@ -298,7 +298,7 @@ imagery, used nowhere else in this work, so it cannot leak into a decoding resul
 **+0.547 and +0.548.** A graph network and a linear method from 2000 are predicted equally
 well by a property of the participant measured before either ran. The 11 subjects at or
 below chance under both methods have 1.70 dB less mu prominence than the rest. Blankertz
-et al. report ~37 % on a different task; our 30 % is consistent.
+et al. report r = 0.53 (N = 80), about 28 %, on a different task; our 30 % is consistent.
 
 This bounds the headroom: a third of the apparent difficulty on this dataset belongs to the
 participants, not the models. The remaining 70 % is where every architectural difference in

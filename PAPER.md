@@ -744,9 +744,9 @@ The first two coefficients are +0.547 and +0.548. A graph network and a linear m
 published in 2000, sharing no component, are predicted equally well by a property of the
 participant measured before either was run — which is close to a direct demonstration of a
 subject-level ceiling. The eleven subjects at or below chance under both methods average
-1.70 dB less mu prominence than the rest. Blankertz et al. report their predictor explaining
-approximately 37 % of variance in SMR-BCI feedback accuracy; our 30 % on a different task
-and cohort is consistent with that.
+1.70 dB less mu prominence than the rest. Blankertz et al. report a correlation of r = 0.53
+between their predictor and SMR-BCI feedback accuracy in 80 participants — about 28 % of
+variance; our 30 % on a different task and cohort is consistent with that.
 
 This bounds what any architecture could recover on this dataset. It does not excuse the
 graph formulation — the remaining variance is where ShallowConvNet exceeds it by 0.1287 —
