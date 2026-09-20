@@ -63,11 +63,15 @@ Subsequent work added temporal modelling [@hou2022], multilevel dynamic graphs [
 self-adaptive graphs designed to mitigate over-smoothing [@meng2026]. A recent survey of 63
 GNN-based EEG studies found that Chebyshev spectral convolution is the most common choice in
 this literature, frequently adopted without justification, and that transfer learning is
-largely unexplored [@klepl2024].
+largely unexplored [@klepl2024]. Two adjacent surveys bound the same territory from other
+directions: a systematic review of deep learning for motor imagery decoding [@saibene2024],
+which covers our task but not the graph formulation specifically, and a review of transfer
+learning for EEG-based brain-computer interfaces [@wu2022], which surveys cross-subject
+adaptation across BCI paradigms without treating graph models as a class.
 
-That survey, like most reviews of the area, organises the literature by *architecture*. What
-it does not examine is whether the numbers being compared were obtained under comparable
-conditions. This matters because accuracy in machine-learning-based science is sensitive to
+Those three surveys organise the literature by *architecture*, by *task* and by *adaptation
+method* respectively. None of them examines whether the numbers being compared were obtained
+under comparable conditions. This matters because accuracy in machine-learning-based science is sensitive to
 how evaluation is performed: a systematic study of 294 papers across 17 fields found data
 leakage to be widespread and a frequent cause of inflated, irreproducible results
 [@kapoor2023]. Large-scale benchmarks of motor imagery decoding [@chevallier2024;

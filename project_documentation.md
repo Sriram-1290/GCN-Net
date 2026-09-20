@@ -3757,6 +3757,42 @@ ShallowConvNet.
 
 ### 2026-09-20
 
+- **Review-paper selection re-tested and documented.** The choice of Klepl, Wu & He (*IEEE
+  TNSRE* 2024) for the required one-page analysis was challenged and re-run against explicit
+  criteria rather than defended as-is. Candidates were enumerated via Crossref and screened
+  for open access with Unpaywall and Semantic Scholar:
+  - *Altaheri et al.*, "Deep learning techniques for classification of EEG motor imagery
+    signals: a review," **NCAA** 35(20):14681–14722, 2021/2023 — closest to our task, but
+    closed access with no OA copy, so the analysis table could not be filled from the full
+    text. Rejected.
+  - *Saibene, Ghaemi & Dagdevir*, "Deep learning in motor imagery EEG signal decoding: A
+    systematic review," **Neurocomputing** 610:128577, 2024 — a PRISMA-style systematic
+    review of exactly our task, and on relevance the strongest candidate. Its only OA copy
+    (a submitted-version preprint in the Milano-Bicocca repository) sits behind a bot
+    challenge and the published version is paywalled; no abstract is exposed by Crossref or
+    Semantic Scholar. **Not rejected on merit — rejected because we cannot read it.** If
+    institute library access to Elsevier becomes available, this is the paper to re-do the
+    analysis from.
+  - *Wu, Xu & Lu*, "Transfer learning for EEG-based BCIs: A review of progress made since
+    2016," **IEEE TCDS** 14(1):4–19, 2022 — full text readable (arXiv:2004.06286), but it is
+    a narrative review that states no databases, no search query and no inclusion criteria,
+    so the "databases", "keywords" and "number of papers" rows would all have read "not
+    stated". Rejected for the analysis; retained as a citation.
+  - **Klepl retained.** Decisive facts, all re-verified against the full text this session:
+    it reviews GCNs-Net itself (its ref [77]) and Hou's BiLSTM-GCN ([76]), so its conclusions
+    apply to our baseline directly; it is gold OA; and it states its databases (Google
+    Scholar, ScienceDirect), query string and search date (1 November 2022) for 63 articles.
+  - Two rows added to `REVIEW_ANALYSIS.md` — the selection rationale and the survey's own
+    limitations — and the sheet re-tuned to stay within the required single page.
+  - **Correction:** the analysis previously stated that motor imagery "accounts for only
+    about eight papers" in Klepl's Fig. 3. That count was read off a bar chart and is not
+    stated in the text; it has been replaced with the paper's own wording (motor imagery is
+    among the three most common tasks) plus the verified fact that the survey deliberately
+    does *not* break results down by task. Error 33.
+  - `REVIEW_PAPER.md` now positions itself against three surveys rather than one — Klepl
+    (by architecture), Saibene (by task) and Wu (by adaptation method) — and notes that none
+    of them examines evaluation protocol. References: 29 → 31.
+
 - **PW-1 review paper and its one-page analysis prepared** (`REVIEW_PAPER.md`,
   `REVIEW_ANALYSIS.md`; built by `scripts/build_review_pdf.py` and
   `scripts/make_review_figures.py`). The review covers the 27 surveyed studies plus a

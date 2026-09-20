@@ -125,6 +125,12 @@ REFS = {
     "klepl2024": 'D. Klepl, M. Wu, and F. He, "Graph neural network-based EEG classification: A '
                  'survey," <i>IEEE Trans. Neural Syst. Rehabil. Eng.</i>, vol. 32, pp. 493–503, '
                  '2024, doi: 10.1109/TNSRE.2024.3355750.',
+    "saibene2024": 'A. Saibene, H. Ghaemi, and E. Dagdevir, "Deep learning in motor imagery EEG '
+                   'signal decoding: A systematic review," <i>Neurocomputing</i>, vol. 610, '
+                   'art. 128577, 2024, doi: 10.1016/j.neucom.2024.128577.',
+    "wu2022": 'D. Wu, Y. Xu, and B.-L. Lu, "Transfer learning for EEG-based brain-computer '
+              'interfaces: A review of progress made since 2016," <i>IEEE Trans. Cogn. Devel. '
+              'Syst.</i>, vol. 14, no. 1, pp. 4–19, 2022, doi: 10.1109/TCDS.2020.3007453.',
     "eegdl": 'S. Jia, "EEG-DL: A deep learning library for EEG tasks (signals) classification," '
              'GitHub repository. [Online]. Available: https://github.com/SuperBruceJia/EEG-DL',
 }
@@ -229,11 +235,15 @@ def build_analysis():
     src = (ROOT / "REVIEW_ANALYSIS.md").read_text(encoding="utf-8")
     body = markdown.markdown(src, extensions=["tables", "smarty"])
     css = CSS + """
-@page { size: A4 portrait; margin: 15mm 15mm; }
-body { font-size: 9.6pt; line-height: 1.4; }
-h1 { font-size: 14pt; text-align: center; margin: 0 0 3mm; }
-table { font-size: 8.9pt; line-height: 1.35; }
-td:first-child, th:first-child { width: 24%; font-weight: bold; }
+/* The guidelines ask for a one-page analysis, so this sheet is tuned to fill exactly
+   one A4 page: narrower margins and a smaller table face than the review paper uses. */
+@page { size: A4 portrait; margin: 11mm 12mm; }
+body { font-size: 8.6pt; line-height: 1.3; }
+h1 { font-size: 12.5pt; text-align: center; margin: 0 0 2mm; }
+p { margin: 0 0 2mm; }
+table { font-size: 7.5pt; line-height: 1.26; margin: 2mm 0 0; }
+th, td { padding: .8mm 1.2mm; }
+td:first-child, th:first-child { width: 21%; font-weight: bold; }
 """
     html = (f"<!doctype html><html><head><meta charset='utf-8'>"
             f"<title>Review-Paper Analysis</title><style>{css}</style></head>"
