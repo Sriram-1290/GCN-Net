@@ -14,7 +14,9 @@ is binding and is not reinterpreted here. For a *primary* condition (iv2a, rando
 4. M1 ahead on a strict majority of subjects.
 
 The Full-montage guard: if M1 - M2 on Full is below -0.020, any would-be win is a
-**trade-off**, not a win. Everything else is **no effect**, with its direction reported.
+**trade-off**, not a win. A non-win with diff <= -0.020 and a CI wholly below zero is a
+measured **loss** (9.24.5: "reported as measured, including a loss"); everything else is
+**no effect**, with its direction reported.
 Secondary conditions get the same numbers, labelled EXPLORATORY, and no decision.
 
 Data layout (written by ``run_pretrain_finetune.py --robustness``): the clean rows of
@@ -26,8 +28,9 @@ subject.
 
 **Completeness guard.** A partial run is never quoted (CLAUDE.md; one arm once read
 0.5774 at 35 of 100 folds and 0.5418 when finished). The script refuses, with a non-zero
-exit, when M1 and M2 cover different subject sets or any required tag lacks 5 folds for
-any subject, i.e. holds fewer than 5 x n_subjects (subject, fold) rows. There is no
+exit, when M1 and M2 cover different subject sets, when the subjects found are not exactly
+the pre-registered development set (``--subjects``, default S001..S020, so 100 rows per
+tag), or when any required tag lacks 5 folds for any subject. There is no
 partial override: the point is that it cannot be talked round.
 """
 
@@ -53,6 +56,9 @@ from evaluation.metrics import (  # noqa: E402
 DEFAULT_LOG = Path("runs/experiments.jsonl")
 PROBLEMS = ("binary-0-1", "binary-2-3")
 N_FOLDS = 5
+#: The pre-registered development set (9.24.4, 9.24.8): S001..S020, 20 x 5 = 100 rows
+#: per tag. The guard demands exactly this set, not merely that M1 and M2 agree.
+DEV_SUBJECTS = tuple(f"S{i:03d}" for i in range(1, 21))
 FIELD = "trial_accuracy"
 MARGIN = 0.020          # 9.24.5 (1) and the Full guard
 ALPHA = 0.05
@@ -68,7 +74,8 @@ def condition_tag(tag: str, condition: str) -> str:
     """``"<tag>.<condition>"``, as ``evaluation.robustness.condition_tag`` writes it.
 
     Re-stated rather than imported: that module pulls in torch, and this is a
-    read-only analysis of a log. ``test_robustness_table_decision`` pins the format.
+    read-only analysis of a log. A test asserts it equals the original for every
+    condition, so the writer and reader formats cannot drift.
     """
     return f"{tag}.{condition}"
 
@@ -111,8 +118,15 @@ def _arm_tags(prefix: str) -> list[str]:
     return tags
 
 
-def _check_complete(rows: list[dict], m1: str, m2: str) -> list[str]:
-    """Subjects scored, after refusing on any gap. Raises ``IncompleteRun``."""
+def _check_complete(rows: list[dict], m1: str, m2: str,
+                    expected: tuple[str, ...]) -> list[str]:
+    """Subjects scored, after refusing on any gap. Raises ``IncompleteRun``.
+
+    Three refusals: M1 and M2 cover different subjects; the subjects found are not
+    exactly the pre-registered set (an arm that is short on *both* sides would
+    otherwise agree with itself and report a verdict on fewer than 20 subjects); any
+    required tag lacks 5 folds for any expected subject.
+    """
     def clean_subjects(prefix: str) -> set[str]:
         return {r["subject"] for r in rows
                 if r.get("tag") in {f"{prefix}-{p}" for p in PROBLEMS}}
@@ -124,7 +138,12 @@ def _check_complete(rows: list[dict], m1: str, m2: str) -> list[str]:
             f"only M2 {sorted(s2 - s1)}")
     if not s1:
         raise IncompleteRun(f"no rows for {m1!r} or {m2!r}")
-    subjects = sorted(s1)
+    subjects = sorted(expected)
+    if s1 != set(subjects):
+        raise IncompleteRun(
+            f"subjects found are not the expected {len(subjects)} "
+            f"({subjects[0]}..{subjects[-1]}): missing {sorted(set(subjects) - s1)}, "
+            f"unexpected {sorted(s1 - set(subjects))}")
     target = N_FOLDS * len(subjects)
 
     problems = []
@@ -134,7 +153,8 @@ def _check_complete(rows: list[dict], m1: str, m2: str) -> list[str]:
             per_subject: dict[str, int] = defaultdict(int)
             for subject, _ in seen:
                 per_subject[subject] += 1
-            if len(seen) != target or set(per_subject) != set(subjects)                     or any(n != N_FOLDS for n in per_subject.values()):
+            if (len(seen) != target or set(per_subject) != set(subjects)
+                    or any(n != N_FOLDS for n in per_subject.values())):
                 problems.append(f"{tag}: {len(seen)} of {target} rows")
     if problems:
         raise IncompleteRun(
@@ -167,12 +187,14 @@ def _compare(m1: np.ndarray, m2: np.ndarray) -> dict:
     }
 
 
-def robustness_table(rows: list[dict], m1_prefix: str, m2_prefix: str) -> dict:
+def robustness_table(rows: list[dict], m1_prefix: str, m2_prefix: str,
+                     subjects: tuple[str, ...] = DEV_SUBJECTS) -> dict:
     """Per-condition M1/M2 means, paired difference, CI, p, Holm p, wins, decision.
 
-    Raises ``IncompleteRun`` rather than reporting from a partial log.
+    ``subjects`` is the exact set the log must hold (default: the pre-registered
+    S001..S020). Raises ``IncompleteRun`` rather than reporting from a partial log.
     """
-    subjects = _check_complete(rows, m1_prefix, m2_prefix)
+    subjects = _check_complete(rows, m1_prefix, m2_prefix, subjects)
 
     full = _compare(_subject_scores(rows, m1_prefix, None, subjects),
                     _subject_scores(rows, m2_prefix, None, subjects))
@@ -199,10 +221,15 @@ def robustness_table(rows: list[dict], m1_prefix: str, m2_prefix: str) -> dict:
             "majority": c["wins"] > c["n"] / 2,
         }
         c["criteria"] = criteria
-        c["direction"] = "M1 ahead" if c["diff"] > 0 else (
-            "M1 behind" if c["diff"] < 0 else "level")
+        c["direction"] = "M1 ahead" if c["diff"] > _EPS else (
+            "M1 behind" if c["diff"] < -_EPS else "level")
         if all(criteria.values()):
             c["decision"] = "trade-off" if guard_fires else "win"
+        elif c["diff"] <= -MARGIN + _EPS and c["ci_hi"] < 0:
+            # 9.24.5: "everything else is reported as measured, including a loss".
+            # A detectable loss is a finding, not an absence of one. The decision
+            # rule above is unchanged; this only names the non-win.
+            c["decision"] = "loss"
         else:
             c["decision"] = "no effect"
 
@@ -227,8 +254,8 @@ def format_markdown(result: dict) -> str:
                 "guard fires" if result["guard"]["fires"] else "guard clear")]
     for name, c in result["conditions"].items():
         if c["role"] == "primary":
-            decision = c["decision"] + (f" ({c['direction']})"
-                                        if c["decision"] == "no effect" else "")
+            decision = c["decision"] + (
+                f" ({c['direction']})" if c["decision"] in ("no effect", "loss") else "")
             out.append(line(f"{name} (primary)", c, decision))
         else:
             out.append(line(f"{name} (EXPLORATORY)", c, "none (exploratory)"))
@@ -245,11 +272,15 @@ def main() -> int:
     ap.add_argument("--m1", required=True, help="M1 tag prefix, e.g. ROB1-chebrp")
     ap.add_argument("--m2", required=True, help="M2 tag prefix, e.g. ROB1-shallow")
     ap.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    ap.add_argument("--subjects", nargs="+", default=list(DEV_SUBJECTS),
+                    help="the exact subject set the log must hold (default: the "
+                         "pre-registered development set S001..S020)")
     ap.add_argument("--json", type=Path, default=None, help="also write the result here")
     args = ap.parse_args()
 
     try:
-        result = robustness_table(load(args.log), args.m1, args.m2)
+        result = robustness_table(load(args.log), args.m1, args.m2,
+                                  tuple(args.subjects))
     except IncompleteRun as e:
         print(f"refusing to report: {e}", file=sys.stderr)
         return 1

@@ -166,38 +166,52 @@ def test_completeness_guard_targets_match_the_protocol():
 
 _COND_NAMES = ["iv2a", "random25", "tentwenty", "random10", "random50",
                "cluster8", "cluster16"]
+_SUBJ = tuple(f"S{i + 1:03d}" for i in range(6))
+_M1, _M2 = "ROB1-chebrp", "ROB1-shallow"
 
 
-def _robustness_rows(n_subjects=6, gain=None, full_gain=0.0, drop=()):
-    """Synthetic log. ``gain[cond]`` is M1 - M2 on every subject; M2 varies by subject.
+def _robustness_rows(gain=None, full_gain=0.0, drop=(), subjects=_SUBJ):
+    """Synthetic log. ``gain[cond]`` is M1 - M2: a float, or ``f(i, problem, fold)``.
 
-    ``drop`` removes rows for (tag, subject, fold) so the completeness guard can be hit.
+    M2's base score differs by subject, by problem and by fold, so any aggregation that
+    ignores a problem or a fold changes the answer. ``drop`` removes (tag, subject, fold)
+    rows so the completeness guard can be hit.
     """
     gain = {"iv2a": 0.03, "random25": 0.0, **(gain or {})}
     rows = []
-    for arm, prefix in (("m1", "ROB1-chebrp"), ("m2", "ROB1-shallow")):
-        for problem in ("binary-0-1", "binary-2-3"):
+    for arm, prefix in (("m1", _M1), ("m2", _M2)):
+        for pi, problem in enumerate(("binary-0-1", "binary-2-3")):
             base_tag = f"{prefix}-{problem}"
-            for i in range(n_subjects):
+            for i, subj in enumerate(subjects):
                 for fold in range(5):
-                    m2 = 0.60 + 0.01 * i + 0.002 * fold
-                    for cond, g in [(None, full_gain)] + [
-                            (c, gain.get(c, 0.0)) for c in _COND_NAMES]:
+                    m2 = 0.55 + 0.01 * i + 0.03 * pi + 0.004 * fold
+                    for cond in [None] + _COND_NAMES:
+                        g = full_gain if cond is None else gain.get(cond, 0.0)
+                        g = g(i, pi, fold) if callable(g) else g
                         acc = m2 + (g if arm == "m1" else 0.0)
                         tag = base_tag if cond is None else f"{base_tag}.{cond}"
-                        if (tag, f"S{i:03d}", fold) in drop:
+                        if (tag, subj, fold) in drop:
                             continue
-                        rows.append({"tag": tag, "subject": f"S{i:03d}", "fold": fold,
+                        rows.append({"tag": tag, "subject": subj, "fold": fold,
                                      "trial_accuracy": acc, "accuracy": acc})
     return rows
+
+
+def _table(rr, **kw):
+    return rr.robustness_table(_robustness_rows(**kw), _M1, _M2, _SUBJ)
+
+
+def _crit(t, cond="iv2a"):
+    return t["conditions"][cond]["criteria"]
 
 
 def test_robustness_table_decision():
     rr = _load("robustness_results")
 
-    t = rr.robustness_table(_robustness_rows(), "ROB1-chebrp", "ROB1-shallow")
+    t = _table(rr)
     assert t["conditions"]["iv2a"]["decision"] == "win"
     assert t["conditions"]["iv2a"]["diff"] == pytest.approx(0.03)
+    assert all(_crit(t).values())
     assert t["conditions"]["iv2a"]["wins"] == t["n_subjects"] == 6
     assert t["conditions"]["random25"]["decision"] == "no effect"
     assert t["conditions"]["random25"]["direction"] == "level"
@@ -205,48 +219,133 @@ def test_robustness_table_decision():
     # secondary conditions are labelled exploratory and get no decision
     assert t["conditions"]["tentwenty"]["decision"] is None
     assert t["conditions"]["tentwenty"]["role"] == "exploratory"
-    assert "win" in rr.format_markdown(t)
+    md = rr.format_markdown(t).splitlines()
+    assert next(l for l in md if l.startswith("| iv2a (primary)")).endswith("| win |")
+    assert next(l for l in md if l.startswith("| random25 (primary)")
+                ).endswith("| no effect (level) |")
+    assert next(l for l in md if l.startswith("| tentwenty")).endswith(
+        "| none (exploratory) |")
 
     # Full guard: M1 trails M2 by 0.03 on the full cap -> a would-be win is a trade-off
-    t = rr.robustness_table(_robustness_rows(full_gain=-0.03),
-                            "ROB1-chebrp", "ROB1-shallow")
+    t = _table(rr, full_gain=-0.03)
     assert t["guard"]["fires"]
     assert t["conditions"]["iv2a"]["decision"] == "trade-off"
     assert t["conditions"]["random25"]["decision"] == "no effect"
-
     # a deficit inside the 0.020 guard does not fire it
-    t = rr.robustness_table(_robustness_rows(full_gain=-0.015),
-                            "ROB1-chebrp", "ROB1-shallow")
+    t = _table(rr, full_gain=-0.015)
     assert not t["guard"]["fires"] and t["conditions"]["iv2a"]["decision"] == "win"
 
-    # margin below 0.020 is no effect even when significant and unanimous
-    t = rr.robustness_table(_robustness_rows(gain={"iv2a": 0.015}),
-                            "ROB1-chebrp", "ROB1-shallow")
+
+def test_robustness_each_criterion_fails_alone():
+    """Each case violates exactly one of the four criteria, so none can be deleted."""
+    rr = _load("robustness_results")
+
+    # margin only: unanimous +0.015 is significant and on every subject, but < 0.020
+    t = _table(rr, gain={"iv2a": 0.015})
+    assert _crit(t) == {"margin": False, "ci_excludes_zero": True, "holm": True,
+                        "majority": True}
     assert t["conditions"]["iv2a"]["decision"] == "no effect"
     assert t["conditions"]["iv2a"]["direction"] == "M1 ahead"
 
-    # a mean over the margin carried by a minority of subjects is not a win
-    rows = _robustness_rows(gain={"iv2a": 0.0})
-    for r in rows:
-        if r["tag"].startswith("ROB1-chebrp") and r["tag"].endswith(".iv2a"):
-            r["trial_accuracy"] += 0.12 if r["subject"] in ("S000", "S001") else -0.001
-    t = rr.robustness_table(rows, "ROB1-chebrp", "ROB1-shallow")
-    assert t["conditions"]["iv2a"]["diff"] >= 0.020
-    assert t["conditions"]["iv2a"]["wins"] == 2
-    assert t["conditions"]["iv2a"]["decision"] == "no effect"
+    # majority only: 3 of 6 subjects at +0.08, 3 tied -> mean 0.04, CI > 0, Holm passes,
+    # but 3 wins is not a strict majority of 6
+    t = _table(rr, gain={"iv2a": lambda i, pi, f: 0.08 if i < 3 else 0.0})
+    c = t["conditions"]["iv2a"]
+    assert c["diff"] == pytest.approx(0.04) and c["wins"] == 3
+    assert _crit(t) == {"margin": True, "ci_excludes_zero": True, "holm": True,
+                        "majority": False}
+    assert c["decision"] == "no effect"
+
+    # CI (and Holm) fail while margin and majority pass: four subjects +0.12, two -0.10
+    t = _table(rr, gain={"iv2a": lambda i, pi, f: 0.12 if i < 4 else -0.10})
+    c = t["conditions"]["iv2a"]
+    assert c["diff"] == pytest.approx(0.28 / 6) and c["wins"] == 4
+    assert _crit(t)["margin"] and _crit(t)["majority"]
+    assert not _crit(t)["ci_excludes_zero"]
+    assert c["decision"] == "no effect"
+
+
+def test_robustness_measured_loss_is_labelled_a_loss():
+    rr = _load("robustness_results")
+    t = _table(rr, gain={"iv2a": -0.04})
+    c = t["conditions"]["iv2a"]
+    assert c["decision"] == "loss" and c["direction"] == "M1 behind"
+    assert next(l for l in rr.format_markdown(t).splitlines()
+                if l.startswith("| iv2a (primary)")).endswith("| loss (M1 behind) |")
+    # a small deficit is not a detectable loss: no effect, direction reported
+    c = _table(rr, gain={"iv2a": -0.015})["conditions"]["iv2a"]
+    assert c["decision"] == "no effect" and c["direction"] == "M1 behind"
+    # a beyond-margin deficit whose CI reaches zero is not a loss either
+    c = _table(rr, gain={"iv2a": lambda i, pi, f: -0.12 if i < 4 else 0.10}
+               )["conditions"]["iv2a"]
+    assert c["diff"] == pytest.approx(-0.28 / 6) and c["ci_hi"] > 0
+    assert c["decision"] == "no effect"
+
+
+def test_robustness_aggregation_is_mean_of_both_problems_over_all_folds():
+    """Problems and folds carry different gains; only the right aggregate gives 0.03.
+
+    Problem 0 gains 0.10 on fold 0 only (problem mean 0.02); problem 1 gains 0.04 on
+    every fold (mean 0.04). Mean of the two problem means = 0.03. Using one problem,
+    one fold, or dropping a fold gives something else.
+    """
+    rr = _load("robustness_results")
+
+    def gain(i, pi, fold):
+        return (0.10 if fold == 0 else 0.0) if pi == 0 else 0.04
+
+    t = _table(rr, gain={"iv2a": gain})
+    c = t["conditions"]["iv2a"]
+    assert c["diff"] == pytest.approx(0.03)
+    exp_m2 = np.mean([0.55 + 0.01 * i + 0.03 * pi + 0.004 * f
+                      for i in range(6) for pi in range(2) for f in range(5)])
+    assert c["m2"] == pytest.approx(exp_m2)
+    assert c["m1"] == pytest.approx(exp_m2 + 0.03)
 
 
 def test_robustness_table_refuses_partial_and_mismatched_runs():
     rr = _load("robustness_results")
     # one fold of one condition tag missing
-    rows = _robustness_rows(drop={("ROB1-shallow-binary-2-3.random25", "S003", 4)})
+    rows = _robustness_rows(drop={(f"{_M2}-binary-2-3.random25", "S004", 4)})
     with pytest.raises(rr.IncompleteRun, match="random25"):
-        rr.robustness_table(rows, "ROB1-chebrp", "ROB1-shallow")
+        rr.robustness_table(rows, _M1, _M2, _SUBJ)
     # M2 lacks a subject that M1 has
     rows = [r for r in _robustness_rows()
-            if not (r["tag"].startswith("ROB1-shallow") and r["subject"] == "S005")]
+            if not (r["tag"].startswith(_M2) and r["subject"] == "S006")]
     with pytest.raises(rr.IncompleteRun, match="different subjects"):
-        rr.robustness_table(rows, "ROB1-chebrp", "ROB1-shallow")
+        rr.robustness_table(rows, _M1, _M2, _SUBJ)
     # an unknown prefix is empty, not silently "complete"
     with pytest.raises(rr.IncompleteRun):
-        rr.robustness_table(_robustness_rows(), "ROB1-nope", "ROB1-shallow")
+        rr.robustness_table(_robustness_rows(), "ROB1-nope", _M2, _SUBJ)
+
+
+def test_robustness_refuses_when_both_arms_miss_the_expected_subjects():
+    """M1 and M2 agreeing with each other is not completeness: the target is fixed."""
+    rr = _load("robustness_results")
+    rows = _robustness_rows()                                    # 6 subjects, both arms
+    with pytest.raises(rr.IncompleteRun, match="not the expected 20"):
+        rr.robustness_table(rows, _M1, _M2)                      # default S001..S020
+    with pytest.raises(rr.IncompleteRun, match="unexpected"):
+        rr.robustness_table(rows, _M1, _M2, _SUBJ[:5])           # a surplus subject
+    assert rr.DEV_SUBJECTS[0] == "S001" and rr.DEV_SUBJECTS[-1] == "S020"
+    assert len(rr.DEV_SUBJECTS) == 20
+
+
+def test_robustness_condition_tag_matches_the_writer():
+    """The script restates ``condition_tag`` to avoid importing torch; keep them equal.
+
+    The writer's function is lifted from its source with ``ast`` rather than imported,
+    because ``evaluation.robustness`` imports torch and this test must not need it.
+    """
+    import ast
+    rr = _load("robustness_results")
+    from data.montage import CONDITIONS
+    src = (ROOT / "evaluation" / "robustness.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.parse(src).body
+              if isinstance(n, ast.FunctionDef) and n.name == "condition_tag")
+    ns: dict = {}
+    exec(compile(ast.Module([fn], []), "robustness.py", "exec"), ns)
+    condition_tag = ns["condition_tag"]
+    for c in CONDITIONS:
+        assert rr.condition_tag("ROB1-x-binary-0-1", c.name) == \
+            condition_tag("ROB1-x-binary-0-1", c.name)
