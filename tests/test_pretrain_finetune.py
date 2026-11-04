@@ -218,6 +218,7 @@ class _Args:
         self.batch_size = 256
         self.config = "configs/bandpass_8_30.yaml"
         self.dsbn = False
+        self.readout = "flat"
         self.__dict__.update(over)
 
 
@@ -346,3 +347,90 @@ def test_finetune_is_seeded_before_the_model_is_built():
     seed_call = src.index("seed_stage(seed, gi, j + 1, split.fold)", ft)
     build = src.index("build_model(", seed_call)
     assert seed_call < build, "seed_stage must precede build_model in the fine-tune loop"
+
+
+# ----------------------------------------- targets, source tag and region readout
+
+def _all_subjects():
+    from data.config import all_subjects, load_config
+    return all_subjects(load_config(ROOT / "configs" / "bandpass_8_30.yaml"))
+
+
+def test_shallow_cache_key_unchanged():
+    """Adding --readout must not re-key the cached ShallowConvNet source models.
+
+    Those took ~5 h to pre-train; a drifted key would silently re-run them. The
+    expected hash is read from the file name of the model the PTG-shallow run wrote.
+    """
+    files = sorted((ROOT / "runs" / "source_models").glob(
+        "src-PTG-shallow-binary-0-1-g1-*.pt"))
+    if not files:
+        pytest.skip("runs/source_models has no PTG-shallow group-1 model")
+    m = _load()
+    subjects = _all_subjects()
+    (gi, group, source), = [p for p in m.plan_groups(subjects, 10, None) if p[0] == 1]
+    val_pick = m.pick_validation(source, 42, gi, 5)
+    args = _Args(model="shallow", readout="flat")
+    key = m.source_cache_key(args, 42, gi, source, val_pick)
+    assert files[0].name == f"src-PTG-shallow-binary-0-1-g1-{key}.pt"
+
+
+def test_readout_region_changes_graphbp_key():
+    m = _load()
+    flat = _key(m, args=_Args(model="graphbp", readout="flat"))
+    region = _key(m, args=_Args(model="graphbp", readout="region"))
+    assert flat != region
+
+
+def test_flat_readout_leaves_the_key_payload_untouched():
+    """The key of a flat run must not mention the readout at all, or every cached
+    source model written before the option existed would miss."""
+    src =(ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    assert 'if args.readout != "flat"' in src
+
+
+def test_targets_keep_full_grouping():
+    m = _load()
+    subjects = [f"S{i:03d}" for i in range(1, 110)
+                if f"S{i:03d}" not in {"S088", "S089", "S092", "S100", "S104", "S106"}]
+    assert len(subjects) == 103
+    targets = [f"S{i:03d}" for i in range(1, 21)]
+    full = m.assign_groups(subjects, 10)
+    plan = m.plan_groups(subjects, 10, targets)
+    expect = [(gi, g) for gi, g in enumerate(full, 1) if set(g) & set(targets)]
+    assert [(gi, g) for gi, g, _ in plan] == expect
+    for gi, group, source in plan:
+        assert not set(source) & set(group)
+        assert set(source) | set(group) == set(subjects)
+    # no targets means every group is planned, with its own index
+    assert [gi for gi, _, _ in m.plan_groups(subjects, 10, None)] == list(range(1, 11))
+    # a single target selects only its group, keeping the group's own index
+    (gi, group, _), = m.plan_groups(subjects, 10, ["S003"])
+    assert gi == 3 and "S003" in group
+
+
+def test_unknown_target_fails_loudly():
+    m = _load()
+    with pytest.raises(ValueError, match="S999"):
+        m.plan_groups(["S001", "S002"], 10, ["S999"])
+
+
+def test_region_readout_model_is_built_from_a_subset_representation():
+    """build_model takes the (basis, regions) pair and ignores prepared.bases, which
+    is empty because the fold is prepared with build_graph=False."""
+    import torch
+    from graphs.subset import moments, subset_representation
+    m = _load()
+    names = ["Fz", "C3", "Cz", "C4", "Pz", "O1"]
+    X = np.random.default_rng(0).normal(size=(6, len(names), 200))
+    rep = subset_representation(moments(X), np.ones(len(names), dtype=bool), names)
+    prepared = prepare_fold(Trials(X=X.astype(np.float32), y=np.array([0, 1] * 3)),
+                            Trials(X=X.astype(np.float32), y=np.array([0, 1] * 3)),
+                            window=64, stride=16, build_graph=False)
+    assert prepared.bases == []
+    net = m.build_model("graphbp", prepared, 64, 2, 160.0, readout="region",
+                        region_graph=(rep.basis, rep.regions))
+    out = net(torch.zeros(3, len(names), 64))
+    assert out.shape == (3, 2)
+    with pytest.raises(ValueError, match="region_graph"):
+        m.build_model("graphbp", prepared, 64, 2, 160.0, readout="region")

@@ -79,17 +79,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from data.cache import load_subject  # noqa: E402
 from data.config import all_subjects, load_config  # noqa: E402
+from data.montage import region_vector  # noqa: E402
 from data.splits import stratified_trial_kfold  # noqa: E402
 from evaluation.experiment_log import (  # noqa: E402
     completed_keys, describe_resume, log_experiment, set_seed)
 from evaluation.pipeline import Samples, Trials, concat_trials, prepare_fold  # noqa: E402
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
+from graphs.subset import Moments, moments, subset_representation  # noqa: E402
 
 
 def build_model(name: str, prepared, n_samples: int, n_classes: int, sfreq: float,
                 n_domains: int = 0,
-                spatial: str = "graph", graph_smoothness: float = 0.0):
-    """The same architectures the other runners expose, on a prepared fold."""
+                spatial: str = "graph", graph_smoothness: float = 0.0,
+                readout: str = "flat", region_graph=None):
+    """The same architectures the other runners expose, on a prepared fold.
+
+    ``readout="region"`` (``graphbp`` only) has no coarsened graph to read from the
+    prepared fold, because the fold is built with ``build_graph=False`` so the data
+    stay in montage order. ``region_graph`` is then the ``(basis, node_regions)``
+    pair from :func:`graphs.subset.subset_representation`, in that same order.
+    """
     if name == "gcn":
         from models.gcns_net import GCNsNet, GCNsNetConfig
         cfg = GCNsNetConfig(n_classes=n_classes, in_features=n_samples,
@@ -104,9 +113,15 @@ def build_model(name: str, prepared, n_samples: int, n_classes: int, sfreq: floa
         from models.graph_bandpower import GraphBandPowerConfig, GraphBandPowerNet
         cfg = GraphBandPowerConfig(n_classes=n_classes, spatial=spatial,
                                    graph_smoothness=graph_smoothness,
-                                   n_domains=n_domains)
+                                   n_domains=n_domains, readout=readout)
         lap = (laplacian(prepared.adjacencies[0], normalized=False)
                if graph_smoothness else None)
+        if readout == "region":
+            if region_graph is None:
+                raise ValueError("readout='region' needs region_graph=(basis, regions)")
+            basis, regions = region_graph
+            return GraphBandPowerNet([basis], n_samples, cfg, laplacian=lap,
+                                     node_regions=regions)
         return GraphBandPowerNet(prepared.bases, n_samples, cfg, laplacian=lap)
     raise ValueError(f"unknown model {name!r}")
 
@@ -126,6 +141,47 @@ def assign_groups(subjects: list[str], n_groups: int) -> list[list[str]]:
     for i, s in enumerate(subjects):
         groups[i % n_groups].append(s)
     return [g for g in groups if g]
+
+
+def plan_groups(subjects: list[str], n_groups: int,
+                targets: list[str] | None) -> list[tuple[int, list[str], list[str]]]:
+    """``(group index, group, source subjects)`` for every group to be run.
+
+    Groups are always assigned over **all** ``subjects``, never over the targets
+    alone: a group's source set and its index (which seeds the validation pick and
+    every fine-tune stage) must not depend on which subjects were asked for, or a
+    ``--targets`` run would not reproduce the full run's numbers. Groups holding no
+    target are dropped entirely, pre-training included.
+    """
+    if targets is not None:
+        unknown = sorted(set(targets) - set(subjects))
+        if unknown:
+            raise ValueError(f"--targets {unknown} are not among the {len(subjects)} "
+                             f"subjects being run")
+    plan = []
+    for gi, group in enumerate(assign_groups(subjects, n_groups), 1):
+        if targets is not None and not set(group) & set(targets):
+            continue
+        plan.append((gi, group, [s for s in subjects if s not in group]))
+    return plan
+
+
+def sum_moments(parts: list[Moments]) -> Moments:
+    """Pool per-subject moments; the sum is the moments of the pooled data."""
+    total = parts[0]
+    for part in parts[1:]:
+        total = total + part
+    return total
+
+
+def pick_validation(source: list[str], seed: int, gi: int, n: int) -> list[str]:
+    """Source subjects held out to select the pre-training checkpoint.
+
+    Drawn from a generator seeded by this group alone: on a resumed run the
+    skipped groups must not shift which subjects validate this one.
+    """
+    val_rng = np.random.default_rng([seed, gi])
+    return list(val_rng.choice(source, size=min(n, len(source) - 1), replace=False))
 
 
 def seed_stage(seed: int, *parts: int) -> None:
@@ -151,16 +207,26 @@ def source_cache_key(args, seed: int, group_idx: int,
     make impossible. Anything that changes the fitted weights must change the key,
     so the source and validation subject lists are hashed by name.
     """
-    payload = json.dumps({
+    fields = {
         "model": args.model, "spatial": args.spatial,
         "graph_smoothness": args.graph_smoothness,
         "classes": args.classes, "window": args.window, "stride": args.stride,
         "lmax": args.lmax, "seed": seed, "n_groups": args.groups,
-        "dsbn": bool(args.dsbn), "group": group_idx,
+        "group": group_idx,
         "epochs": args.pretrain_epochs, "lr": args.pretrain_lr,
         "batch_size": args.batch_size, "config": str(args.config),
         "source": sorted(source), "val": sorted(val_pick),
-    }, sort_keys=True)
+    }
+    # "dsbn" and "readout" are added only when set. The ShallowConvNet source models
+    # (5 h of pre-training) were keyed before either option existed, and a key that
+    # gained a field for the default value would silently miss every one of them
+    # (commit b4f75fe did exactly that with `"dsbn": false`, which the pinned test
+    # test_shallow_cache_key_unchanged caught). A dsbn run keeps its `"dsbn": true`.
+    if args.dsbn:
+        fields["dsbn"] = True
+    if args.readout != "flat":
+        fields["readout"] = args.readout
+    payload = json.dumps(fields, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -179,6 +245,23 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default="configs/bandpass_8_30.yaml")
     ap.add_argument("--subjects", nargs="*", default=None)
+    ap.add_argument("--targets", nargs="+", default=None, metavar="SUBJECT",
+                    help="subjects to fine-tune and evaluate (default: all). Groups are "
+                         "still assigned over every subject, so each target keeps the "
+                         "same source set, validation pick and seeds as in a full run; "
+                         "groups with no target are skipped, pre-training included")
+    ap.add_argument("--source-tag", default=None,
+                    help="tag used in the source-model cache FILENAME (default: --tag). "
+                         "Lets a run with a new --tag reuse another run's pre-trained "
+                         "models; the hashed key still guards that they are identical")
+    ap.add_argument("--readout", choices=["flat", "region"], default="flat",
+                    help="--model graphbp only. 'region' pools to 9 anatomical regions, "
+                         "so the model does not depend on the electrode count. The graph "
+                         "and regions then come from the no-reference cache "
+                         "(--noref-config) over the source TRAINING subjects")
+    ap.add_argument("--noref-config", default="configs/bandpass_8_30_noref.yaml",
+                    help="config of the no-reference cache; read only with "
+                         "--readout region")
     ap.add_argument("--model", choices=["gcn", "eegnet", "shallow", "graphbp"],
                     default="shallow")
     ap.add_argument("--spatial", choices=["graph", "free"], default="graph")
@@ -234,6 +317,15 @@ def main() -> int:
     seed = args.seed if args.seed is not None else cfg.seed
     seed_info = set_seed(seed)
     subjects = args.subjects or all_subjects(cfg)
+    if args.readout == "region" and args.model != "graphbp":
+        ap.error("--readout region applies to --model graphbp only")
+    if args.readout == "region" and (args.spatial != "graph" or args.graph_smoothness
+                                     or args.lmax == 0):
+        ap.error("--readout region needs --spatial graph, no --graph-smoothness and "
+                 "a fixed --lmax")
+    plan = plan_groups(subjects, args.groups, args.targets)
+    target_set = set(args.targets) if args.targets is not None else set(subjects)
+    source_tag = args.source_tag or args.tag
     lmax = None if args.lmax == 0 else args.lmax
     n_classes = 2 if args.classes else len(cfg.class_names)
 
@@ -263,6 +355,31 @@ def main() -> int:
         trials[s] = Trials(X=X, y=y)
     sfreq = ep.sfreq
 
+    # Region readout: the graph is fit on NO-REFERENCE data so that it can be rebuilt
+    # for any electrode subset later (graphs.subset). Per-subject moments are taken
+    # once, one subject at a time, and only the moments are kept: the whole
+    # no-reference cache never sits in memory. Each group's graph is then the sum over
+    # exactly the subjects whose data fit the graph on the existing path
+    # (source minus the validation pick).
+    subject_moments: dict[str, Moments] = {}
+    ch_names = list(ep.ch_names)
+    if args.readout == "region":
+        noref_cfg = load_config(args.noref_config)
+        print(f"moments of {len(subjects)} subjects from {noref_cfg.dataset.cache_dir}",
+              flush=True)
+        for s in subjects:
+            nr = load_subject(s, noref_cfg.dataset.cache_dir)
+            if list(nr.ch_names) != ch_names:
+                raise RuntimeError(f"{s}: no-reference cache channel order differs "
+                                   f"from the referenced cache")
+            Xn, yn = nr.X, nr.y
+            if args.classes:
+                Xn = Xn[np.isin(yn, args.classes)]
+            if len(Xn) != len(trials[s].y):
+                raise RuntimeError(f"{s}: no-reference cache holds {len(Xn)} trials, "
+                                   f"referenced cache {len(trials[s].y)}")
+            subject_moments[s] = moments(Xn)
+
     pre_cfg = TrainConfig(epochs=args.pretrain_epochs, batch_size=args.batch_size,
                           learning_rate=args.pretrain_lr, verbose=False)
     ft_cfg = TrainConfig(epochs=args.finetune_epochs, batch_size=args.batch_size,
@@ -270,7 +387,7 @@ def main() -> int:
 
     print(f"model {args.model}  classes {args.classes}  "
           f"window {args.window} stride {args.stride}")
-    groups = assign_groups(subjects, args.groups)
+    groups = [g for _, g, _ in plan]
     n_src = len(subjects) - max(len(g) for g in groups)
     print("PRE-TRAIN " + ("SKIPPED (control arm)" if args.no_pretrain else
                           f"{args.pretrain_epochs} epochs @ {args.pretrain_lr}, "
@@ -281,13 +398,14 @@ def main() -> int:
 
     done = completed_keys(args.log, args.tag) if args.resume else set()
     if args.resume:
-        print(describe_resume(done, len(subjects) * args.folds, args.tag))
+        print(describe_resume(done, len(target_set) * args.folds, args.tag))
 
     per_subject: list[float] = []
     t0 = time.time()
 
-    for gi, group in enumerate(groups, 1):
-        if all((t, f) in done for t in group for f in range(args.folds)):
+    for gi, group, source in plan:
+        if all((t, f) in done for t in group if t in target_set
+               for f in range(args.folds)):
             continue
         if deadline is not None and dt.datetime.now() >= deadline:
             print(f"\nreached --stop-at {args.stop_at}; stopping cleanly before "
@@ -297,13 +415,8 @@ def main() -> int:
         # ---------------------------------------------------------- pre-train
         # The whole GROUP is excluded, so every target in it is absent from its own
         # source set: not their trials, not the graph, not the standardiser.
-        source = [s for s in subjects if s not in group]
-        # Drawn from a generator seeded by this group alone: on a resumed run the
-        # skipped groups must not shift which subjects validate this one.
-        val_rng = np.random.default_rng([seed, gi])
-        val_pick = list(val_rng.choice(source,
-                                       size=min(args.val_subjects, len(source) - 1),
-                                       replace=False))
+        # (`source` comes from plan_groups: every subject outside the group.)
+        val_pick = pick_validation(source, seed, gi, args.val_subjects)
         src_train = concat_trials([trials[s] for s in source if s not in val_pick])
         src_val = concat_trials([trials[s] for s in val_pick])
 
@@ -316,7 +429,19 @@ def main() -> int:
         prepared = prepare_fold(
             src_train, concat_trials(group_trials), src_val, lmax=lmax, seed=seed,
             sfreq=sfreq, window=args.window, stride=args.stride,
-            build_graph=args.model in ("gcn", "graphbp"))
+            build_graph=(args.model == "gcn"
+                         or (args.model == "graphbp" and args.readout == "flat")))
+
+        # Region readout: basis and regions from the source TRAINING subjects' moments
+        # (source minus the validation pick), in montage order -- the order the data
+        # are in because build_graph=False left them unpermuted.
+        region_graph = None
+        if args.readout == "region":
+            m_src = sum_moments([subject_moments[x] for x in source if x not in val_pick])
+            rep_all = subset_representation(
+                m_src, np.ones(len(ch_names), dtype=bool), ch_names, lmax=args.lmax)
+            assert np.array_equal(rep_all.regions, region_vector(ch_names))
+            region_graph = (rep_all.basis, rep_all.regions)
 
         # Domain labels for the source split. concat_trials preserves subject order and
         # trial ids run 0..N-1 over it, so a per-trial domain array indexes straight
@@ -337,7 +462,7 @@ def main() -> int:
                 cache_dir = Path(args.source_cache)
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 key = source_cache_key(args, seed, gi, source, list(val_pick))
-                cache_path = cache_dir / f"src-{args.tag}-g{gi}-{key}.pt"
+                cache_path = cache_dir / f"src-{source_tag}-g{gi}-{key}.pt"
 
             if cache_path is not None and cache_path.exists():
                 pretrained_state = torch.load(cache_path, map_location="cpu",
@@ -350,7 +475,8 @@ def main() -> int:
                 seed_stage(seed, gi, 0, 0)
                 model = build_model(args.model, prepared, args.window, n_classes, sfreq,
                                     n_domains=n_domains, spatial=args.spatial,
-                                    graph_smoothness=args.graph_smoothness)
+                                    graph_smoothness=args.graph_smoothness,
+                                    readout=args.readout, region_graph=region_graph)
                 trainer = Trainer(model, pre_cfg, n_classes=n_classes)
                 trainer.fit(prepared)
                 pretrained_state = {k: v.detach().clone()
@@ -366,6 +492,10 @@ def main() -> int:
                           f"subjects [{time.time() - t0:.0f}s elapsed]", flush=True)
 
         for j, target in enumerate(group):
+            # j stays the member's index in the FULL group: it seeds the fine-tune
+            # stage and locates the target's span in the group's concatenation.
+            if target not in target_set:
+                continue
             if all((target, f) in done for f in range(args.folds)):
                 continue
             # This target's trials are a contiguous span of the concatenated group.
@@ -385,7 +515,8 @@ def main() -> int:
                 seed_stage(seed, gi, j + 1, split.fold)
                 model = build_model(args.model, prepared, args.window, n_classes, sfreq,
                                     n_domains=n_domains, spatial=args.spatial,
-                                    graph_smoothness=args.graph_smoothness)
+                                    graph_smoothness=args.graph_smoothness,
+                                    readout=args.readout, region_graph=region_graph)
                 if pretrained_state is not None:
                     model.load_state_dict(pretrained_state)
                 if n_domains:
