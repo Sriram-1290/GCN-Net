@@ -2550,7 +2550,8 @@ a different protocol, not a better pipeline.
 ### 9.24 Montage robustness — pre-registration (written before any result)
 
 **Written 2026-11-04, about 23:25 local, with zero `ROB` rows in `runs/experiments.jsonl`
-(`grep -c '"tag": "ROB' runs/experiments.jsonl` prints 0).** The commit hash recorded here,
+(`grep -c '"tag": "ROB' runs/experiments.jsonl` prints 0). The commit timestamp of the
+pre-registration commit is authoritative; the clock time here is approximate.** The commit hash recorded here,
 `9d1ba9c`, is the HEAD the section was written on top of; the commit that *contains* this
 section (message "Pre-register the montage-robustness experiment") is the pre-registration
 commit, and every `ROB` run starts after it. Design: `docs/superpowers/specs/2026-11-04-montage-robustness-design.md`.
@@ -2693,7 +2694,7 @@ for both models.
 
 | condition (log name) | electrodes available | role |
 |---|---|---|
-| **Full** (`full`) | all 64 | reference; measures what the region readout costs |
+| **Full** (no `<tag>.full` row) | all 64 | reference; measures what the region readout costs; scored by the tag's clean row, from the referenced cache exactly as in PTG |
 | **IV-2a montage** (`iv2a`) | the 22 channels listed above | **Primary 1** |
 | **Random 25 %** (`random25`) | 48 of 64 (16 removed) | **Primary 2** |
 | 10-20 montage (`tentwenty`) | the 19 channels listed above | secondary |
@@ -2720,12 +2721,14 @@ unaffected: each is scored on its own masks against the other model's identical 
 
 **Re-referencing.** The standard cache is average-referenced over all 64 channels, so masking
 afterwards would leave every surviving channel carrying the absent ones through the
-reference. Every condition therefore re-references the test trials over the electrodes
-present, from a no-reference cache (`data/cache_bp830_noref`, fingerprint
-`881699d2fa46d9e3`). Average referencing and band-pass filtering commute, and this is
-checked: re-referencing that cache over all 64 channels reproduces the referenced cache for
-**103 of 103** subjects (`scripts/check_noref_cache.py`: same trials, order, labels and
-channel names).
+reference. Every non-Full condition therefore re-references the test trials over the
+electrodes present, from a no-reference cache (`data/cache_bp830_noref`, fingerprint
+`881699d2fa46d9e3`). Full is not re-scored from that cache: it is the tag's clean row, from
+the referenced cache, and there is no `<tag>.full` row. Average referencing and band-pass
+filtering commute, and this is checked: re-referencing the no-reference cache over all 64
+channels reproduces the referenced cache for **103 of 103** subjects
+(`scripts/check_noref_cache.py`: same trials, order, labels and channel names), which is
+the equivalence for Full.
 
 #### 9.24.4 Arms
 
@@ -2747,7 +2750,9 @@ published path. M2's Full score must keep reproducing PTG-shallow's logged per-f
 for every development subject.
 
 Secondary arms M1-interp (M1 with interpolation instead of node dropping) and M2-zero (M2
-with zero-filled channels) are context only and never part of the win decision.
+with zero-filled channels), if run (the spec leaves their timing open, and M2-zero is needed
+in Phase 2), are context only in Phase 1 and never part of the Phase 1 win decision. In
+Phase 2 M2's better repair, interpolation or zero-fill, counts (9.24.7).
 
 #### 9.24.5 Decision rule (verbatim from the spec, section 6)
 
@@ -2826,6 +2831,12 @@ four previous challengers were.
   context, not part of the rule.
 * A null is an acceptable outcome and would be the fifth measured challenger to the ~0.73
   picture (9.19, 9.21, 9.23, 9.17); it is written up as such.
+
+*Clarifications made on 2026-11-04, before any `ROB` row existed (the log still held
+zero): the scope of "never part of the win decision" for M2-zero and M1-interp (9.24.4),
+the scoring of Full by the clean row rather than a `full` condition row (9.24.3), the
+"if run" status of the secondary arms (9.24.4), and the authority of the commit
+timestamp over the clock time above. None changes a prediction, a threshold or a rule.*
 
 ---
 
