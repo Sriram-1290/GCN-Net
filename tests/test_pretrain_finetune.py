@@ -509,6 +509,27 @@ def test_prepare_fold_without_train_samples_changes_nothing_else():
     assert lean.train.X.shape[1:] == full.train.X.shape[1:]   # what build_model reads
 
 
+def test_pretraining_refuses_a_fold_without_source_windows():
+    """Fix round 1: an empty source set must never be 'pre-trained' and cached under
+    a valid key -- that would poison the cache for every later run."""
+    m = _load()
+    src = concat_trials([_trials(seed=2), _trials(seed=3)])
+    lean = prepare_fold(src, _trials(seed=1), window=64, stride=16, build_graph=False,
+                        train_samples=False)
+    with pytest.raises(RuntimeError, match="source windows"):
+        m.require_source_windows(lean)
+    m.require_source_windows(prepare_fold(src, _trials(seed=1), window=64, stride=16,
+                                          build_graph=False))
+
+
+def test_cache_hit_is_decided_once_and_pretraining_is_guarded():
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    assert src.count("cache_path.exists()") == 1
+    fit = src.index("trainer.fit(prepared)")
+    guard = src.rfind("require_source_windows(prepared)", 0, fit)
+    assert guard != -1 and fit - guard < 600
+
+
 def test_shallow_model_builds_identically_from_a_lean_fold():
     import torch
     m = _load()

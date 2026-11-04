@@ -294,6 +294,62 @@ def test_condition_row_keeps_every_clean_field_and_replaces_the_metrics():
     assert clean["tag"] == "ROB-x" and clean["accuracy"] == 0.9   # not mutated
 
 
+def test_condition_row_records_the_noref_cache_it_read():
+    """Fix round 1 (Important): every condition row is computed from the no-reference
+    cache, so the row must name it, including for the shallow model, whose clean row
+    does not mention that cache at all."""
+    clean = {"tag": "ROB-x", "subject": "S001", "fold": 0, "model": "shallow"}
+    score = {"accuracy": 0.6, "per_draw": [0.6], "n_draws": 1, "timepoint_accuracy": 0.5,
+             "confusion": [[1, 0], [0, 1]], "per_class": [1.0, 1.0], "kappa": 1.0,
+             "macro_f1": 1.0}
+    prov = {"noref_config": "configs/bandpass_8_30_noref.yaml",
+            "noref_fingerprint": "881699d2fa46d9e3"}
+    row = rob.condition_row(clean, "iv2a", score, provenance=prov)
+    assert row["noref_config"] == prov["noref_config"]
+    assert row["noref_fingerprint"] == prov["noref_fingerprint"]
+    assert "noref_config" not in clean and "noref_fingerprint" not in clean
+
+
+def test_noref_provenance_reads_the_cache_manifest(tmp_path):
+    m = _load_runner()
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"config_fingerprint": "abc123"}), encoding="utf-8")
+    assert m.noref_provenance("configs/x_noref.yaml", tmp_path) == {
+        "noref_config": "configs/x_noref.yaml", "noref_fingerprint": "abc123"}
+
+
+def test_runner_passes_the_noref_provenance_to_every_condition_row():
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    call = src[src.index("condition_row(row"):]
+    assert "provenance=noref_prov" in call[:200]
+
+
+# ------------------------------------------- fix round 1: the scored trials' data
+
+def test_same_trials_accepts_the_rereferenced_noref_trials():
+    m = _load_runner()
+    test = _noref(n=4, t=50, seed=3)
+    m.check_same_trials(test.X, common_average(test.X), "S001 fold 0")
+
+
+def test_same_trials_rejects_other_trials_with_the_same_labels():
+    """Binary labels match by chance far too often to identify trials; the data
+    must match too."""
+    m = _load_runner()
+    test = _noref(n=4, t=50, seed=3)
+    other = _noref(n=4, t=50, seed=4)
+    assert np.array_equal(test.y, other.y)
+    with pytest.raises(RuntimeError, match="S001 fold 0"):
+        m.check_same_trials(test.X, common_average(other.X), "S001 fold 0")
+
+
+def test_runner_checks_the_data_of_the_scored_trials():
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    body = src[src.index("if args.robustness:\n                    #"):]
+    body = body[:body.index("evaluate_conditions(")]
+    assert "check_same_trials(" in body
+
+
 # ------------------------------------------------- runner: the no-reference trials
 
 def _load_runner():

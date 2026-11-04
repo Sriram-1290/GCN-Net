@@ -77,9 +77,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from data.cache import load_subject  # noqa: E402
+from data.cache import load_subject, read_manifest  # noqa: E402
 from data.config import all_subjects, load_config  # noqa: E402
-from data.montage import CONDITIONS, region_vector  # noqa: E402
+from data.montage import CONDITIONS, common_average, region_vector  # noqa: E402
 from data.splits import stratified_trial_kfold  # noqa: E402
 from evaluation.experiment_log import (  # noqa: E402
     completed_keys, describe_resume, log_experiment, set_seed)
@@ -218,6 +218,44 @@ def load_noref(subject: str, cache_dir, classes, ref: Trials,
         raise RuntimeError(f"{subject}: no-reference labels differ from the referenced "
                            f"cache's; the trials are not the same or not in order")
     return Trials(X=X, y=y)
+
+
+def check_same_trials(noref_X: np.ndarray, ref_X: np.ndarray, where: str) -> None:
+    """Fail unless the no-reference trials, re-referenced, ARE the referenced trials.
+
+    Review Focus 5. Equal labels prove little for a binary problem, so the data of
+    exactly the trials being scored are compared: CAR over all 64 channels must
+    reproduce the referenced cache to ``1e-3 * median |X|``, the tolerance
+    ``scripts/check_noref_cache.py`` verified for every subject.
+    """
+    rebuilt = common_average(noref_X)
+    if rebuilt.shape != ref_X.shape:
+        raise RuntimeError(f"{where}: no-reference trials {rebuilt.shape} vs "
+                           f"referenced {ref_X.shape}")
+    scale = float(np.median(np.abs(ref_X)))
+    worst = float(np.abs(rebuilt - ref_X).max())
+    if not worst <= 1e-3 * scale:
+        raise RuntimeError(f"{where}: re-referenced no-reference trials differ from the "
+                           f"referenced ones by {worst:.3e} (> 1e-3 x median|X| = "
+                           f"{1e-3 * scale:.3e}); not the same trials")
+
+
+def noref_provenance(noref_config, noref_dir) -> dict:
+    """Fields naming the no-reference cache a condition row was computed from."""
+    return {"noref_config": str(noref_config),
+            "noref_fingerprint": read_manifest(Path(noref_dir))["config_fingerprint"]}
+
+
+def require_source_windows(prepared) -> None:
+    """Refuse to pre-train on a fold built without source windows.
+
+    A fold prepared with ``train_samples=False`` (source-cache hit) has an empty
+    training set. Fitting on it and writing the result to the cache under a valid
+    key would poison every later run that hits that key.
+    """
+    if len(prepared.train) == 0:
+        raise RuntimeError("pre-training would run with no source windows (the fold "
+                           "was prepared for a cache hit); refusing to fit and cache it")
 
 
 def resume_keys(log, tag: str, robustness: bool) -> set:
@@ -451,6 +489,10 @@ def main() -> int:
     elif args.robustness:
         for s in sorted(target_set):
             noref_targets[s] = load_noref(s, noref_dir, args.classes, trials[s], ch_names)
+    # Condition rows name the cache they were computed from (the clean row, for
+    # ShallowConvNet, never reads it and so does not).
+    noref_prov = (noref_provenance(args.noref_config, noref_dir)
+                  if args.robustness else None)
 
     pre_cfg = TrainConfig(epochs=args.pretrain_epochs, batch_size=args.batch_size,
                           learning_rate=args.pretrain_lr, verbose=False)
@@ -518,8 +560,10 @@ def main() -> int:
         # host memory, building them was enough to make CUDA initialisation fail. The
         # graph and standardiser are still fit on the full source trials, so the target
         # windows are bit-identical. DSBN labels the source windows, so it keeps them.
-        source_windows = not (cache_path is not None and cache_path.exists()
-                              and not args.dsbn)
+        # Decided ONCE: re-checking the file later could see it vanish in between and
+        # pre-train on a fold built without source windows (guarded below too).
+        cache_hit = cache_path is not None and cache_path.exists()
+        source_windows = not (cache_hit and not args.dsbn)
         prepared = prepare_fold(
             src_train, concat_trials(group_trials), src_val if source_windows else None,
             lmax=lmax, seed=seed, sfreq=sfreq, window=args.window, stride=args.stride,
@@ -554,7 +598,7 @@ def main() -> int:
 
         pretrained_state = None
         if not args.no_pretrain:
-            if cache_path is not None and cache_path.exists():
+            if cache_hit:
                 pretrained_state = torch.load(cache_path, map_location="cpu",
                                               weights_only=True)
                 if not args.quiet:
@@ -562,6 +606,7 @@ def main() -> int:
                           f"({cache_path.name}) [{time.time() - t0:.0f}s elapsed]",
                           flush=True)
             else:
+                require_source_windows(prepared)
                 seed_stage(seed, gi, 0, 0)
                 model = build_model(args.model, prepared, args.window, n_classes, sfreq,
                                     n_domains=n_domains, spatial=args.spatial,
@@ -673,14 +718,16 @@ def main() -> int:
 
                 if args.robustness:
                     # The same test trials, from the no-reference cache. Same order as
-                    # the referenced cache (checked per subject at load), and the
-                    # labels are checked again on exactly the trials being scored.
+                    # the referenced cache (checked per subject at load), and labels
+                    # AND data are checked again on exactly the trials being scored.
                     test_idx = np.asarray(split.test)
                     nr = noref_targets[target]
                     test_noref = Trials(X=nr.X[test_idx], y=nr.y[test_idx])
                     if not np.array_equal(test_noref.y, y_target[test_idx]):
                         raise RuntimeError(f"{target} fold {split.fold}: no-reference "
                                            f"test labels differ from the referenced ones")
+                    check_same_trials(test_noref.X, trials[target].X[test_idx],
+                                      f"{target} fold {split.fold}")
                     pending = tuple(c for c in ROBUSTNESS_CONDITIONS
                                     if (target, split.fold) not in cond_done[c.name])
                     scores = evaluate_conditions(
@@ -689,7 +736,8 @@ def main() -> int:
                         rep_all, target, split.fold, pending, args.window, args.stride,
                         lmax=args.lmax)
                     for c in pending:
-                        log_experiment(condition_row(row, c.name, scores[c.name]),
+                        log_experiment(condition_row(row, c.name, scores[c.name],
+                                                     provenance=noref_prov),
                                        path=args.log)
                     if not args.quiet:
                         print(f"    {target} fold {split.fold}: clean "

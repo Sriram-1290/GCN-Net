@@ -141,14 +141,20 @@ def _summarise(results: list[dict]) -> dict:
     }
 
 
-def condition_row(clean_row: dict, condition: str, score: dict) -> dict:
+def condition_row(clean_row: dict, condition: str, score: dict,
+                  provenance: dict | None = None) -> dict:
     """The log row of one condition: every field of the clean row, metrics replaced.
 
     The fold's identity, configuration and fine-tuning history are the clean row's,
     because it is the same fine-tuned model. Every metric is replaced by the
     condition's, so no clean number can be read off a condition row by mistake.
+
+    ``provenance`` is added to the condition row only -- the runner passes the
+    no-reference cache it read (config path and manifest fingerprint), which every
+    condition is computed from but the clean row, for ShallowConvNet, never names.
     """
     row = dict(clean_row)
+    row.update(provenance or {})
     row.update({
         "tag": condition_tag(clean_row["tag"], condition),
         "condition": condition,
