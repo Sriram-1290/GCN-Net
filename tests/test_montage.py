@@ -7,6 +7,7 @@ import pytest
 
 from data.montage import (
     CONDITIONS,
+    Condition,
     IV2A_CHANNELS,
     PRIMARY,
     REGION_NAMES,
@@ -168,3 +169,50 @@ def test_cluster_and_random_masks_keep_every_region():
     for name in ("random10", "random50", "cluster8", "cluster16"):
         for m in available_masks(_cond(name), ch_names, "S003", 2):
             assert set(regions[m].tolist()) == set(range(9)), name
+
+
+# Synthetic cap that makes rejection frequent: eight regions hold a single
+# electrode each and left-frontal holds eight. Removing one channel at random
+# (1/16, so fraction 0.0625) empties a region whenever a singleton is hit, i.e.
+# with probability 1/2 per attempt. No cache needed, so these never skip.
+_SPARSE = [
+    "F1", "F3", "F5", "F7", "FC1", "FC3", "FC5", "AF3",  # left-frontal (8)
+    "Fz", "F2", "C3", "Cz", "C4", "P3", "Pz", "P4",      # one each (8)
+]
+_REMOVE_ONE = Condition("sparse", "random", 1 / 16)
+
+
+def _attempt0_mask(subject: str, fold: int, draw: int) -> np.ndarray:
+    """The mask a draw would return if its first attempt were accepted."""
+    from data.montage import _seed_hash
+
+    rng = np.random.default_rng([_seed_hash(subject), fold, draw, 0])
+    keep = np.ones(len(_SPARSE), dtype=bool)
+    keep[rng.permutation(len(_SPARSE))[:1]] = False
+    return keep
+
+
+def test_rejected_draws_are_redrawn_to_an_occupied_mask():
+    regions = region_vector(_SPARSE)
+    masks = available_masks(_REMOVE_ONE, _SPARSE, "S001", 0, n_draws=40)
+    rejected = 0
+    for draw, mask in enumerate(masks):
+        assert int(mask.sum()) == 15
+        assert set(regions[mask].tolist()) == set(range(9))
+        first = _attempt0_mask("S001", 0, draw)
+        if set(regions[first].tolist()) != set(range(9)):
+            rejected += 1  # attempt 0 would have emptied a region
+            assert not np.array_equal(mask, first)
+    # With p = 1/2 per draw, 40 draws with no rejection has probability 2**-40;
+    # the draw is deterministic, so this also pins that the path was exercised.
+    assert rejected >= 5
+
+
+def test_exhausted_attempts_raise(monkeypatch):
+    import data.montage as montage
+
+    # Nine singleton regions: removing any channel always empties one.
+    nine = ["F3", "Fz", "F4", "C3", "Cz", "C4", "P3", "Pz", "P4"]
+    monkeypatch.setattr(montage, "_MAX_ATTEMPTS", 5)
+    with pytest.raises(RuntimeError, match="no pattern occupying all 9 regions in 5"):
+        available_masks(Condition("impossible", "random", 1 / 9), nine, "S001", 0, n_draws=1)
