@@ -166,6 +166,20 @@ def plan_groups(subjects: list[str], n_groups: int,
     return plan
 
 
+def provenance_fields(args) -> dict:
+    """Log-row fields for the options this run changed from their defaults.
+
+    Added only when non-default so that default-path rows keep exactly their old keys.
+    """
+    extra = {}
+    if args.readout != "flat":
+        extra["readout"] = args.readout
+        extra["noref_config"] = str(args.noref_config)
+    if args.source_tag and args.source_tag != args.tag:
+        extra["source_tag"] = args.source_tag
+    return extra
+
+
 def sum_moments(parts: list[Moments]) -> Moments:
     """Pool per-subject moments; the sum is the moments of the pooled data."""
     total = parts[0]
@@ -226,6 +240,9 @@ def source_cache_key(args, seed: int, group_idx: int,
         fields["dsbn"] = True
     if args.readout != "flat":
         fields["readout"] = args.readout
+        # The region basis is built from this cache, so a different or regenerated
+        # one is a different source model.
+        fields["noref_config"] = str(args.noref_config)
     payload = json.dumps(fields, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
@@ -387,7 +404,9 @@ def main() -> int:
 
     print(f"model {args.model}  classes {args.classes}  "
           f"window {args.window} stride {args.stride}")
-    groups = [g for _, g, _ in plan]
+    # The FULL assignment: the count that is logged and shown in progress lines is the
+    # grouping used, not the number of groups a --targets run happens to visit.
+    groups = assign_groups(subjects, args.groups)
     n_src = len(subjects) - max(len(g) for g in groups)
     print("PRE-TRAIN " + ("SKIPPED (control arm)" if args.no_pretrain else
                           f"{args.pretrain_epochs} epochs @ {args.pretrain_lr}, "
@@ -578,6 +597,7 @@ def main() -> int:
                     "trial_kappa": result["trial"].kappa,
                     "trial_macro_f1": result["trial"].macro_f1,
                     "history": history.as_dict(),
+                    **provenance_fields(args),
                 }, path=args.log)
 
             if fold_accs:

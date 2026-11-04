@@ -219,6 +219,7 @@ class _Args:
         self.config = "configs/bandpass_8_30.yaml"
         self.dsbn = False
         self.readout = "flat"
+        self.noref_config = "configs/bandpass_8_30_noref.yaml"
         self.__dict__.update(over)
 
 
@@ -434,3 +435,55 @@ def test_region_readout_model_is_built_from_a_subset_representation():
     assert out.shape == (3, 2)
     with pytest.raises(ValueError, match="region_graph"):
         m.build_model("graphbp", prepared, 64, 2, 160.0, readout="region")
+
+
+# ------------------------------------------------ fix round 1: provenance in the log
+
+def test_region_key_depends_on_the_noref_config():
+    """The region basis is built from the no-reference cache, so the key must see it."""
+    m = _load()
+    a = _key(m, args=_Args(model="graphbp", readout="region",
+                           noref_config="configs/bandpass_8_30_noref.yaml"))
+    b = _key(m, args=_Args(model="graphbp", readout="region",
+                           noref_config="configs/other_noref.yaml"))
+    assert a != b
+
+
+def test_flat_key_ignores_the_noref_config():
+    """A flat run never reads that cache, so its key must not depend on the option."""
+    m = _load()
+    assert _key(m, args=_Args(noref_config="a.yaml")) ==            _key(m, args=_Args(noref_config="b.yaml"))
+
+
+def test_provenance_fields_only_for_non_default_options():
+    m = _load()
+    default = _Args(tag="T", source_tag=None, noref_config="n.yaml")
+    assert m.provenance_fields(default) == {}
+    same = _Args(tag="T", source_tag="T", noref_config="n.yaml")
+    assert m.provenance_fields(same) == {}
+    tagged = _Args(tag="T", source_tag="S", noref_config="n.yaml")
+    assert m.provenance_fields(tagged) == {"source_tag": "S"}
+    region = _Args(tag="T", source_tag=None, readout="region", noref_config="n.yaml")
+    assert m.provenance_fields(region) == {"readout": "region", "noref_config": "n.yaml"}
+
+
+def test_targets_run_logs_the_full_group_count(tmp_path):
+    """A --targets run still uses 4 groups here; the log must say 4, not 1."""
+    import json
+    import subprocess
+    subs = [f"S{i:03d}" for i in range(1, 13)]
+    if not all((ROOT / "data" / "cache_bp830" / f"{s}.npz").exists() for s in subs):
+        pytest.skip("preprocessed cache absent")
+    log = tmp_path / "log.jsonl"
+    out = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "run_pretrain_finetune.py"),
+         "--classes", "0", "1", "--model", "shallow", "--subjects", *subs,
+         "--groups", "4", "--targets", "S002", "--no-pretrain", "--finetune-epochs", "1",
+         "--folds", "2", "--val-subjects", "2", "--source-cache", "",
+         "--source-tag", "OTHER", "--tag", "T", "--log", str(log)],
+        capture_output=True, text=True, timeout=600, cwd=ROOT)
+    assert out.returncode == 0, out.stderr[-2000:]
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 2 and all(r["subject"] == "S002" for r in rows)
+    assert all(r["n_groups"] == 4 and r["group_id"] == 2 for r in rows)
+    assert all(r["source_tag"] == "OTHER" and "readout" not in r for r in rows)
