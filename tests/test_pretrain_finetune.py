@@ -543,3 +543,16 @@ def test_shallow_model_builds_identically_from_a_lean_fold():
     b = m.build_model("shallow", full, 64, 2, 160.0)
     sa, sb = a.state_dict(), b.state_dict()
     assert sa.keys() == sb.keys() and all(torch.equal(sa[k], sb[k]) for k in sa)
+
+
+def test_group_loop_releases_its_data_before_the_next_group():
+    """The second group of a process crashed for host memory because the previous
+    group's windows were still referenced while the next group's were built."""
+    src = (ROOT / "scripts" / "run_pretrain_finetune.py").read_text(encoding="utf-8")
+    loop = src.index("for gi, group, source in plan:")
+    release = src.index("release_host_memory()", loop)
+    assert src.index("prepared = model = trainer = pretrained_state = None", loop) < release
+    assert src.index("nothing to do; every subject", loop) > release  # after the loop body
+    assert "\n        release_host_memory()\n" in src  # at loop-body depth, not after it
+    helper = src[src.index("def release_host_memory"):src.index("def build_model")]
+    assert "gc.collect()" in helper and "torch.cuda.empty_cache()" in helper

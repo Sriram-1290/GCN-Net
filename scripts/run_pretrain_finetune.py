@@ -65,6 +65,7 @@ before walking away** — that is the check error 24 skipped. `--resume` is keye
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import sys
@@ -88,6 +89,13 @@ from evaluation.robustness import (  # noqa: E402
     completed_with_conditions, condition_row, condition_tag, evaluate_conditions)
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
 from graphs.subset import Moments, moments, subset_representation  # noqa: E402
+
+
+def release_host_memory() -> None:
+    """Collect garbage and return cached GPU blocks; changes no computed value."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def build_model(name: str, prepared, n_samples: int, n_classes: int, sfreq: float,
@@ -755,6 +763,17 @@ def main() -> int:
                 per_subject.append(float(np.mean(fold_accs)))
                 if not args.quiet:
                     print(f"  {target}: trial {per_subject[-1]:.4f}", flush=True)
+
+        # Release this group's data BEFORE the next group builds its own. Python frees
+        # these only when the names are rebound, which otherwise happens after the next
+        # group's windows already exist, so the peak was two groups and the second group
+        # of a process died allocating in fit_standardizer. Rebinding (not del) because
+        # some names are unbound when a group's targets were all skipped. Nothing here
+        # is read again: every value is rebuilt from its inputs at the top of the loop.
+        prepared = model = trainer = pretrained_state = None
+        ft_train = ft_test = ft_fold = history = result = None
+        scores = test_noref = nr = m_src = rep_all = region_graph = None
+        release_host_memory()
 
     print("\n" + "=" * 64)
     if not per_subject:
