@@ -160,3 +160,93 @@ def test_completeness_guard_targets_match_the_protocol():
                             "A2 EEGNet", "A2 ShallowNet"}
     for cid, arm, ref in pc.COMPARISONS:
         assert arm in pc.ARMS and ref in pc.ARMS, f"{cid} names an unknown arm"
+
+
+# ------------------------------------------------- montage robustness (9.24.5)
+
+_COND_NAMES = ["iv2a", "random25", "tentwenty", "random10", "random50",
+               "cluster8", "cluster16"]
+
+
+def _robustness_rows(n_subjects=6, gain=None, full_gain=0.0, drop=()):
+    """Synthetic log. ``gain[cond]`` is M1 - M2 on every subject; M2 varies by subject.
+
+    ``drop`` removes rows for (tag, subject, fold) so the completeness guard can be hit.
+    """
+    gain = {"iv2a": 0.03, "random25": 0.0, **(gain or {})}
+    rows = []
+    for arm, prefix in (("m1", "ROB1-chebrp"), ("m2", "ROB1-shallow")):
+        for problem in ("binary-0-1", "binary-2-3"):
+            base_tag = f"{prefix}-{problem}"
+            for i in range(n_subjects):
+                for fold in range(5):
+                    m2 = 0.60 + 0.01 * i + 0.002 * fold
+                    for cond, g in [(None, full_gain)] + [
+                            (c, gain.get(c, 0.0)) for c in _COND_NAMES]:
+                        acc = m2 + (g if arm == "m1" else 0.0)
+                        tag = base_tag if cond is None else f"{base_tag}.{cond}"
+                        if (tag, f"S{i:03d}", fold) in drop:
+                            continue
+                        rows.append({"tag": tag, "subject": f"S{i:03d}", "fold": fold,
+                                     "trial_accuracy": acc, "accuracy": acc})
+    return rows
+
+
+def test_robustness_table_decision():
+    rr = _load("robustness_results")
+
+    t = rr.robustness_table(_robustness_rows(), "ROB1-chebrp", "ROB1-shallow")
+    assert t["conditions"]["iv2a"]["decision"] == "win"
+    assert t["conditions"]["iv2a"]["diff"] == pytest.approx(0.03)
+    assert t["conditions"]["iv2a"]["wins"] == t["n_subjects"] == 6
+    assert t["conditions"]["random25"]["decision"] == "no effect"
+    assert t["conditions"]["random25"]["direction"] == "level"
+    assert not t["guard"]["fires"]
+    # secondary conditions are labelled exploratory and get no decision
+    assert t["conditions"]["tentwenty"]["decision"] is None
+    assert t["conditions"]["tentwenty"]["role"] == "exploratory"
+    assert "win" in rr.format_markdown(t)
+
+    # Full guard: M1 trails M2 by 0.03 on the full cap -> a would-be win is a trade-off
+    t = rr.robustness_table(_robustness_rows(full_gain=-0.03),
+                            "ROB1-chebrp", "ROB1-shallow")
+    assert t["guard"]["fires"]
+    assert t["conditions"]["iv2a"]["decision"] == "trade-off"
+    assert t["conditions"]["random25"]["decision"] == "no effect"
+
+    # a deficit inside the 0.020 guard does not fire it
+    t = rr.robustness_table(_robustness_rows(full_gain=-0.015),
+                            "ROB1-chebrp", "ROB1-shallow")
+    assert not t["guard"]["fires"] and t["conditions"]["iv2a"]["decision"] == "win"
+
+    # margin below 0.020 is no effect even when significant and unanimous
+    t = rr.robustness_table(_robustness_rows(gain={"iv2a": 0.015}),
+                            "ROB1-chebrp", "ROB1-shallow")
+    assert t["conditions"]["iv2a"]["decision"] == "no effect"
+    assert t["conditions"]["iv2a"]["direction"] == "M1 ahead"
+
+    # a mean over the margin carried by a minority of subjects is not a win
+    rows = _robustness_rows(gain={"iv2a": 0.0})
+    for r in rows:
+        if r["tag"].startswith("ROB1-chebrp") and r["tag"].endswith(".iv2a"):
+            r["trial_accuracy"] += 0.12 if r["subject"] in ("S000", "S001") else -0.001
+    t = rr.robustness_table(rows, "ROB1-chebrp", "ROB1-shallow")
+    assert t["conditions"]["iv2a"]["diff"] >= 0.020
+    assert t["conditions"]["iv2a"]["wins"] == 2
+    assert t["conditions"]["iv2a"]["decision"] == "no effect"
+
+
+def test_robustness_table_refuses_partial_and_mismatched_runs():
+    rr = _load("robustness_results")
+    # one fold of one condition tag missing
+    rows = _robustness_rows(drop={("ROB1-shallow-binary-2-3.random25", "S003", 4)})
+    with pytest.raises(rr.IncompleteRun, match="random25"):
+        rr.robustness_table(rows, "ROB1-chebrp", "ROB1-shallow")
+    # M2 lacks a subject that M1 has
+    rows = [r for r in _robustness_rows()
+            if not (r["tag"].startswith("ROB1-shallow") and r["subject"] == "S005")]
+    with pytest.raises(rr.IncompleteRun, match="different subjects"):
+        rr.robustness_table(rows, "ROB1-chebrp", "ROB1-shallow")
+    # an unknown prefix is empty, not silently "complete"
+    with pytest.raises(rr.IncompleteRun):
+        rr.robustness_table(_robustness_rows(), "ROB1-nope", "ROB1-shallow")
