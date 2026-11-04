@@ -9,7 +9,7 @@ Usage:
     # then render with any Chromium (Edge is what the dev machine has):
     #   msedge --headless=new --disable-gpu --no-pdf-header-footer \
     #          --virtual-time-budget=25000 \
-    #          --print-to-pdf=GCNs-Net-Reassessed.pdf build/paper_print.html
+    #          --print-to-pdf=docs/GCNs-Net-Reassessed.pdf build/paper_print.html
 """
 import base64
 import re
@@ -21,11 +21,11 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "build" / "paper_print.html"
 OUT.parent.mkdir(exist_ok=True)
 
-src = (ROOT / "PAPER.md").read_text(encoding="utf-8")
+src = (ROOT / "docs" / "PAPER.md").read_text(encoding="utf-8")
 body = markdown.markdown(src, extensions=["tables", "attr_list", "sane_lists", "smarty"])
 
-for m in set(re.findall(r'src="(figures/[^"]+)"', body)):
-    data = base64.b64encode((ROOT / m).read_bytes()).decode("ascii")
+for m in set(re.findall(r'src="(\.\./figures/[^"]+)"', body)):
+    data = base64.b64encode((ROOT / "docs" / m).read_bytes()).decode("ascii")
     body = body.replace(f'src="{m}"', f'src="data:image/png;base64,{data}"')
 
 # Mark caption paragraphs explicitly: the whole paragraph is a single <em>.

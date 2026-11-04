@@ -487,7 +487,7 @@ The model identifies the run family 11 points above chance and discriminates wit
 family at chance. **Under correct evaluation, the published architecture and sample
 definition decode no motor imagery.**
 
-![Pooled trial confusion matrices](figures/confusion_decomposition.png)
+![Pooled trial confusion matrices](../figures/confusion_decomposition.png)
 
 *Figure 1. Pooled trial confusion, 103 subjects; red lines divide the run families. Left:
 the published formulation — mass concentrates within the diagonal blocks while cells inside
@@ -581,7 +581,7 @@ aggregation:
 Individual trials are strongly peaked but at *different* moments, so averaging flattens the
 profile. This is the behaviour a signal with variable onset latency requires.
 
-![Attention profiles and decodability over the trial](figures/attention_analysis.png)
+![Attention profiles and decodability over the trial](../figures/attention_analysis.png)
 
 *Figure 2. Left: individual attention profiles (thin) against their mean (bold). Right:
 decoding accuracy by window position within the trial, peaking at 0.60 s after cue onset —
@@ -662,7 +662,7 @@ dataset under a matched left-versus-right protocol reports 0.650 for its best si
 configuration and 0.605 and 0.604 for the tangent-space and CSP families respectively [17];
 our untuned CSP reaches 0.5942 and ShallowConvNet exceeds the reported best.
 
-![Accuracy by architecture, with per-subject spread](figures/posthoc_controls.png)
+![Accuracy by architecture, with per-subject spread](../figures/posthoc_controls.png)
 
 *Figure 3. All seven arms over 103 subjects on identical folds; each dot is a subject. Every
 arm left of CSP+LDA is a graph model and every arm right of it is not. The dashed line is
@@ -696,7 +696,7 @@ that it is not.
 | GCN + both vs CSP+LDA (H4) | 34/103 (33 %) | +0.831 | −0.0263 | −0.033 |
 | GCN + attention vs fixed graph (H2) | 82/103 (80 %) | +0.823 | +0.0600 | +0.056 |
 
-![Per-subject accuracy, network against classical baseline](figures/subject_heterogeneity.png)
+![Per-subject accuracy, network against classical baseline](../figures/subject_heterogeneity.png)
 
 *Figure 4. Left: per-subject accuracy of the repaired model against CSP+LDA, which track the
 identity line closely. Right: the same differences sorted, showing the mean sitting inside a
@@ -735,7 +735,7 @@ result.
 | CSP+LDA | **+0.548** | **30 %** |
 | ShallowConvNet | +0.480 | 23 % |
 
-![Resting mu prominence against per-subject decodability](figures/smr_predictor.png)
+![Resting mu prominence against per-subject decodability](../figures/smr_predictor.png)
 
 *Figure 5. The resting SMR predictor against within-family accuracy for three methods.
 Predictor range 16.32–30.10 dB over 103 subjects.*

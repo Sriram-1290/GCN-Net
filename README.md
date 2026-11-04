@@ -4,11 +4,11 @@ A PyTorch reimplementation and audit of **GCNs-Net** (Hou et al., *IEEE TNNLS* 3
 on the PhysioNet EEG Motor Movement/Imagery dataset, plus an attempt to build a version
 that decodes motor imagery when evaluated correctly.
 
-**Start here:** [`PAPER.md`](PAPER.md) is the full research paper — abstract, related
+**Start here:** [`PAPER.md`](docs/PAPER.md) is the full research paper — abstract, related
 work, methods, results, discussion and references; the typeset version is
-[`GCNs-Net-Reassessed.pdf`](GCNs-Net-Reassessed.pdf) (27 pages, rebuilt with
-`scripts/build_paper_pdf.py`). [`RESULTS.md`](RESULTS.md) is the
-shorter writeup: the findings in publication order with figures. [`project_documentation.md`](project_documentation.md) is the living
+[`GCNs-Net-Reassessed.pdf`](docs/GCNs-Net-Reassessed.pdf) (27 pages, rebuilt with
+`scripts/build_paper_pdf.py`). [`RESULTS.md`](docs/RESULTS.md) is the
+shorter writeup: the findings in publication order with figures. [`project_documentation.md`](docs/project_documentation.md) is the living
 record: every measurement, decision and correction, plus full methods, a reproduction
 recipe, and the ranked roadmap of what to do next (§17). [`CLAUDE.md`](CLAUDE.md) holds the project rules.
 
@@ -134,7 +134,7 @@ tests/           337 tests
 
 ## Things that will bite you
 
-These cost real time to find. They are documented in full in `project_documentation.md`.
+These cost real time to find. They are documented in full in `docs/project_documentation.md`.
 
 - **The class label is `f(run_number, T-code)`, never the T-code alone.** T1 means *left
   fist* in runs 4/8/12 and *both fists* in runs 6/10/14. Mapping `T1 -> class` silently

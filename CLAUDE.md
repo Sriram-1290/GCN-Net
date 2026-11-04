@@ -41,7 +41,7 @@ These are the highest-risk failure modes in this project. Violating any of them 
 ## Dataset Rules
 
 - **Exclude corrupted subjects:** S088, S089, S092, S100, S104, S106 — inconsistent sampling rates / trial lengths. Drop them and log that they were dropped.
-  - *Corrected 2026-08-31:* this list previously read **S090**, which is verifiably clean (all 14 runs at 160 Hz, 30 annotations in every imagery run, profile identical to S091). The subject that actually carries a defect is **S089** (R03 is 181 s instead of 123 s). Evidence in `project_documentation.md` §3.5. N = 103 either way.
+  - *Corrected 2026-08-31:* this list previously read **S090**, which is verifiably clean (all 14 runs at 160 Hz, 30 annotations in every imagery run, profile identical to S091). The subject that actually carries a defect is **S089** (R03 is 181 s instead of 123 s). Evidence in `docs/project_documentation.md` §3.5. N = 103 either way.
   - Only **S088, S092, S100** are unusable on the imagery runs themselves (128 Hz *and* wrong trial counts). S089 and S106 are defective only in execution runs we never load; S104 loses 4 trials from R08. The 6-subject list is a **comparability convention, not a data-driven necessity** — describe it that way when defending the work.
 - **Use imagery runs only.** PhysioNet contains both executed-movement and imagery runs. Imagery runs are 4, 6, 8, 10, 12, 14. Including movement runs inflates accuracy and invalidates comparison with the paper.
 - **The class label is `f(run_number, T-code)` — never the T-code alone.** Runs 4/8/12: T1 = left fist, T2 = right fist. Runs 6/10/14: T1 = both fists, T2 = both feet. T0 = rest in all runs. Mapping `T1 -> class` without consulting the run number silently merges *left fist* with *both fists*. Assert on it.
@@ -56,7 +56,7 @@ These are the highest-risk failure modes in this project. Violating any of them 
 *Rewritten 2026-09-02, replacing predicted targets with measured values. The previous
 version predicted ~90-93% subject-dependent and 60-70% LOSO; both came from the published
 literature and both are contradicted by measurement. Full detail and CIs in
-`project_documentation.md` §9.8-9.10.*
+`docs/project_documentation.md` §9.8-9.10.*
 
 **These are measurements, not targets.** The old numbers were goals to hit, which is
 precisely the wrong framing — it invites tuning until the number appears. What follows is
@@ -164,7 +164,7 @@ not a result worth reporting.
 ## DO
 
 - **Build end-to-end first, optimize later.** A rough pipeline (load → train → evaluate → print metric) working badly is more valuable than one perfect component. Get the full loop running before improving any part.
-- **Keep `project_documentation.md` current.** It is the living record of what was done, what was decided, and why. Update it as work proceeds — new findings, decisions, results — and add a dated changelog entry. Append; don't rewrite history.
+- **Keep `docs/project_documentation.md` current.** It is the living record of what was done, what was decided, and why. Update it as work proceeds — new findings, decisions, results — and add a dated changelog entry. Append; don't rewrite history.
 - **Log every experiment** to a persistent CSV/JSONL: timestamp, git commit, config/hyperparameters, split type, seed, accuracy, notes. One row per run.
 - **Set and log random seeds** for torch, numpy, and Python random. Results must be reproducible.
 - **Checkpoint models** during training. Save best-by-validation, not just final epoch.
@@ -186,7 +186,7 @@ not a result worth reporting.
 - **Don't skip the baseline reproduction** and jump straight to the improved model. Without a verified baseline, no comparison is meaningful.
 - **Don't optimize for VRAM/speed.** The model is tiny; complexity here is wasted effort.
 - **Don't add dependencies casually.** Stick to the declared stack unless there's a clear need.
-- **Don't port the TensorFlow reference (`SuperBruceJia/EEG-DL`) faithfully.** Local checkout at `D:\projects\EEG-DL`. It is a fork of Defferrard's `cnn_graph` carrying **three leakage paths**, verified against the source and documented in `project_documentation.md` §4.3–4.4: (1) each sample is a single timepoint and the split is `randperm` over timepoints, so the same trial lands in train and test; (2) BatchNorm is hardcoded to `training=True` in `b1relu`/`b2relu`/`fc`, so test batches normalise on their own statistics; (3) the adjacency `A = |P| - I` is computed over the whole pooled dataset before splitting. Its published numbers are not a trustworthy baseline.
+- **Don't port the TensorFlow reference (`SuperBruceJia/EEG-DL`) faithfully.** Local checkout at `D:\projects\EEG-DL`. It is a fork of Defferrard's `cnn_graph` carrying **three leakage paths**, verified against the source and documented in `docs/project_documentation.md` §4.3–4.4: (1) each sample is a single timepoint and the split is `randperm` over timepoints, so the same trial lands in train and test; (2) BatchNorm is hardcoded to `training=True` in `b1relu`/`b2relu`/`fc`, so test batches normalise on their own statistics; (3) the adjacency `A = |P| - I` is computed over the whole pooled dataset before splitting. Its published numbers are not a trustworthy baseline.
   - It does apply **Common Average Reference** (`make_dataset.m` line 22 — that line is CAR, not dataset-wide mean centring) and **no filtering** (the bandpass/notch calls are commented out). Match both.
   - Use `b2relu` (bias `[1, M, F]`), which is what `main-GCN.py` configures — not `b1relu`.
   - Its four classes are **left fist / right fist / both feet / resting-state**, not the L/R/B/F the paper names: both-fists is discarded and the fourth class is random windows from the eyes-open baseline run.

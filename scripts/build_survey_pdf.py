@@ -10,7 +10,7 @@ Usage:
     python scripts/build_survey_pdf.py
     # then, with any Chromium:
     #   msedge --headless=new --disable-gpu --no-pdf-header-footer \
-    #          --print-to-pdf=Literature-Survey-Report.pdf build/survey_print.html
+    #          --print-to-pdf=docs/Literature-Survey-Report.pdf build/survey_print.html
 """
 from pathlib import Path
 
@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "build" / "survey_print.html"
 OUT.parent.mkdir(exist_ok=True)
 
-src = (ROOT / "LITERATURE_SURVEY.md").read_text(encoding="utf-8")
+src = (ROOT / "docs" / "LITERATURE_SURVEY.md").read_text(encoding="utf-8")
 
 # The title block is hand-laid rather than rendered from Markdown: the institute format
 # is a specific centred layout, and Markdown gives no control over vertical placement.

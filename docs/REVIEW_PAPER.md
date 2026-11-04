@@ -148,9 +148,9 @@ methodology (3); and neurophysiology and datasets (4). Sixteen of the 27 were pu
 or later (Fig. 2). Within and across these categories, each study is further characterised on
 the four axes of RQ1–RQ4.
 
-![Fig. 1. Classification of the 27 reviewed studies into seven categories.](figures/review/fig1_taxonomy.png)
+![Fig. 1. Classification of the 27 reviewed studies into seven categories.](../figures/review/fig1_taxonomy.png)
 
-![Fig. 2. Publication years of the reviewed studies by category.](figures/review/fig2_years.png)
+![Fig. 2. Publication years of the reviewed studies by category.](../figures/review/fig2_years.png)
 
 ## 3. Background
 
@@ -271,7 +271,7 @@ layers over a dense correlation graph invites over-smoothing, in which node repr
 converge; SAMGCN's motivation is direct evidence that the lineage has encountered this
 [@meng2026].
 
-![Fig. 3. Two orderings of spatial and spectral processing. In (a), power is computed per electrode before channels are combined, so sign and phase relations between electrodes are lost. In (b), channels are combined while still signed and power is computed afterwards — the ordering shared by CSP, FBCSP, ShallowConvNet and FBCNet, and adopted by the proposed GBP-Net.](figures/review/fig3_ordering.png)
+![Fig. 3. Two orderings of spatial and spectral processing. In (a), power is computed per electrode before channels are combined, so sign and phase relations between electrodes are lost. In (b), channels are combined while still signed and power is computed afterwards — the ordering shared by CSP, FBCSP, ShallowConvNet and FBCNet, and adopted by the proposed GBP-Net.](../figures/review/fig3_ordering.png)
 
 ### 4.4 Riemannian geometry and learned spatial priors
 
@@ -504,7 +504,7 @@ Comparisons are paired by subject, with predictions and decision rules fixed bef
 experiment is run. The experimental results of this evaluation are reported separately in the
 project report.
 
-![Fig. 4. The proposed GBP-Net. Stage 1 pre-trains on source subjects that exclude the target's own group, with the graph and normalisation fitted on source data only. Stage 2 fine-tunes on the target subject's training folds, computing band power after the graph convolution.](figures/review/fig4_gbpnet.png)
+![Fig. 4. The proposed GBP-Net. Stage 1 pre-trains on source subjects that exclude the target's own group, with the graph and normalisation fitted on source data only. Stage 2 fine-tunes on the target subject's training folds, computing band power after the graph convolution.](../figures/review/fig4_gbpnet.png)
 
 ## 8. Limitations and Future Scope
 

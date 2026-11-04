@@ -3755,6 +3755,40 @@ ShallowConvNet.
 
 ## 18. Changelog
 
+### 2026-11-04
+
+- **All documents moved into `docs/`.** Papers, review deliverables, speech guides, decks,
+  PDFs and this file now live in `docs/`; only `README.md` and `CLAUDE.md` stay at the
+  root. Image links in the moved Markdown now read `../figures/...` so they still render in
+  previews. Every build script reads its source from and writes its output to `docs/`, and
+  resolves figures relative to the document. `tests/test_documentation_consistency.py`
+  resolves figure links the same way. Verified: 337 tests pass, all seven document builds
+  dry-run cleanly up to the Edge print step, no image link is unresolved.
+- **Backfill: PW-1 Review-1 deliverables, produced 2026-09-20 → 2026-10 and not logged
+  here until now.** The detail is in `tasks/todo.md`; in summary:
+  - `REVIEW_PAPER_2.md` / `Review-Paper-2.pdf` (36 references, adds a leakage-audit figure
+    and §7.4 with the pre-training results) and the one-page `REVIEW_ANALYSIS_2.md`.
+  - `PW-1_Review-1_Presentation.pptx` (12 slides) and `PRESENTATION_SPEECH.md` /
+    `PW-1_Presentation_Speech.pdf` (3-speaker script, 54 viva questions).
+  - A "no implementation" (NIP) variant of all four, removing every internal result, made
+    because the Review-1 circular scopes that review to survey and design.
+- **Open issues found while auditing those deliverables — not yet fixed.** They predate this
+  entry and matter before the review paper is submitted for Review-2:
+  1. **The 0.650 comparison prohibited by 9.15.4 is made repeatedly.** The speech guide
+     (Slide 12 script, Q-answers), `build_presentation.py` (Slides 2 and 12) and Figure 4
+     in `figures/review_2/` present the pre-trained 73.01 % as "surpassing the 65.0 %
+     Vasques ceiling". PTG sees ~92 extra subjects; that comparison is not like-for-like.
+     The automated guard missed it because it searches for `0.7206`/`0.650`, not
+     `73.01 %`/`65.0 %`.
+  2. **GBP-Net is called a "breakthrough architecture"** in both review papers (abstract,
+     contributions, §7 heading) and the speech guides. 9.17 measured the pre-training
+     gain as architecture-agnostic (ShallowConvNet gains the same), so the 0.73 cannot be
+     attributed to the architecture.
+  3. **"93 % → 50.9 %, a 42-point collapse"** sets a four-class subject-level figure against
+     a binary within-family one. The 2026-09-20 entry already notes the comparable form
+     for the 0.650 benchmark; the same care is missing here.
+  4. Nothing since commit `f596cca` (2026-09-20) is committed.
+
 ### 2026-09-20
 
 - **Review-paper selection re-tested and documented.** The choice of Klepl, Wu & He (*IEEE

@@ -128,7 +128,7 @@ The model identifies *which pair of runs a trial came from* eleven points above 
 and discriminates *within* a pair at chance. **Evaluated correctly, the published
 architecture and sample definition decode no motor imagery.**
 
-![Pooled trial confusion matrices for 103 subjects, divided into run-family quadrants](figures/confusion_decomposition.png)
+![Pooled trial confusion matrices for 103 subjects, divided into run-family quadrants](../figures/confusion_decomposition.png)
 
 *Pooled trial confusion, 103 subjects. Red lines divide the run families. Left: the
 published formulation — mass concentrates inside the blocks, but the cells within each
@@ -246,7 +246,7 @@ weighted moment — but they peak at *different* moments, so averaging across sa
 the profile. Attention is adaptive per trial, which is exactly what a signal with variable
 onset requires.
 
-![Individual attention profiles against their flat mean, and decoding accuracy by window position](figures/attention_analysis.png)
+![Individual attention profiles against their flat mean, and decoding accuracy by window position](../figures/attention_analysis.png)
 
 *Left: individual attention profiles (thin) against their mean (bold). The mean is nearly
 uniform; the individuals are not. Plotting only the mean supports exactly the wrong
@@ -293,7 +293,7 @@ imagery, used nowhere else in this work, so it cannot leak into a decoding resul
 | CSP+LDA | **+0.548** | **30 %** |
 | ShallowConvNet | +0.480 | 23 % |
 
-![Resting mu prominence against decodability](figures/smr_predictor.png)
+![Resting mu prominence against decodability](../figures/smr_predictor.png)
 
 **+0.547 and +0.548.** A graph network and a linear method from 2000 are predicted equally
 well by a property of the participant measured before either ran. The 11 subjects at or
@@ -333,7 +333,7 @@ both are post-hoc.**
 | **EEGNet** (no graph) | 0.6296 | +0.0858 | **107 %** |
 | **ShallowConvNet** (no graph) | **0.6725** | +0.1287 | **161 %** |
 
-![Accuracy by architecture with per-subject spread](figures/posthoc_controls.png)
+![Accuracy by architecture with per-subject spread](../figures/posthoc_controls.png)
 
 *Every arm left of CSP is a graph model; every arm right of it is not. Each dot is a
 subject. The dashed line is the best single configuration from a 216,714-pipeline search on
@@ -602,7 +602,7 @@ Graclus coarsening groups electrodes by correlation alone. No electrode position
 pipeline at any point. The clusters it produces are nonetheless anatomically adjacent pairs:
 AF7+F7, CP2+CP4, FC5+C5, Oz+Iz, F1+Fz.
 
-![Coarsening clusters drawn on the scalp, and node strength in the correlation graph](figures/montage_recovery.png)
+![Coarsening clusters drawn on the scalp, and node strength in the correlation graph](../figures/montage_recovery.png)
 
 *The graph recovers scalp topography unprompted. Mean cluster edge length is **0.045**
 against **0.109** for a random pairing — clusters are about 2.4 times more local than
@@ -714,4 +714,4 @@ Full methods, per-fold results and a complete record of the thirty-one errors ma
 corrected during this work are in [`project_documentation.md`](project_documentation.md).
 Every number here traces to a row in `runs/experiments.jsonl`, which records the git commit,
 seed and full configuration for each of 23,345 folds. Reproduction commands are in the
-[README](README.md) and in §15 of the documentation.
+[README](../README.md) and in §15 of the documentation.

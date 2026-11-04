@@ -37,7 +37,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "runs" / "experiments.jsonl"
-DOCS = ("PAPER.md", "RESULTS.md", "README.md", "CLAUDE.md", "project_documentation.md")
+DOCS = ("docs/PAPER.md", "docs/RESULTS.md", "README.md", "CLAUDE.md",
+        "docs/project_documentation.md")
 
 # Headline numbers that appear across the write-ups, with how to recompute each from the
 # log. Tolerance is 5e-4: the documents quote four decimal places.
@@ -164,7 +165,7 @@ def _first_number(cell: str) -> float | None:
 
 # --------------------------------------------- 3. documents are intact
 
-@pytest.mark.parametrize("doc", ("PAPER.md", "project_documentation.md"))
+@pytest.mark.parametrize("doc", ("docs/PAPER.md", "docs/project_documentation.md"))
 def test_section_numbering_is_contiguous(doc):
     """No gaps in the top-level numbering — error 21 deleted a whole heading."""
     text = (ROOT / doc).read_text(encoding="utf-8")
@@ -180,12 +181,12 @@ def test_section_numbering_is_contiguous(doc):
 @pytest.mark.parametrize("doc", DOCS)
 def test_referenced_figures_exist(doc):
     text = (ROOT / doc).read_text(encoding="utf-8")
-    missing = [m for m in re.findall(r"\((figures/[^)]+)\)", text)
-               if not (ROOT / m).exists()]
+    missing = [m for m in re.findall(r"\(((?:\.\./)?figures/[^)]+)\)", text)
+               if not ((ROOT / doc).parent / m).exists()]
     assert not missing, f"{doc} references missing figures: {missing}"
 
 
-@pytest.mark.parametrize("doc", ("PAPER.md",))
+@pytest.mark.parametrize("doc", ("docs/PAPER.md",))
 def test_every_citation_resolves(doc):
     """Every [n] in the body is defined, and every definition is cited."""
     text = (ROOT / doc).read_text(encoding="utf-8")

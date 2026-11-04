@@ -14,8 +14,8 @@ Usage:
     python scripts/build_review_pdf.py
     # then, with any Chromium:
     #   msedge --headless=new --disable-gpu --no-pdf-header-footer \
-    #          --print-to-pdf=Review-Paper.pdf build/review_print.html
-    #   msedge ... --print-to-pdf=Review-Paper-Analysis.pdf build/review_analysis_print.html
+    #          --print-to-pdf=docs/Review-Paper.pdf build/review_print.html
+    #   msedge ... --print-to-pdf=docs/Review-Paper-Analysis.pdf build/review_analysis_print.html
 """
 import base64
 import re
@@ -163,7 +163,7 @@ def embed_figures(html: str) -> str:
     """`![caption](src)` -> a captioned figure with the image inlined."""
     def repl(m):
         alt, src = m.group(1), m.group(2)
-        data = base64.b64encode((ROOT / src).read_bytes()).decode("ascii")
+        data = base64.b64encode((ROOT / "docs" / src).read_bytes()).decode("ascii")
         return (f'<figure><img src="data:image/png;base64,{data}" alt="">'
                 f'<figcaption>{alt}</figcaption></figure>')
     html = re.sub(r'<p><img alt="([^"]*)" src="([^"]+)" ?/?></p>', repl, html)
@@ -202,7 +202,7 @@ figcaption { font-size: 8.8pt; text-align: justify; margin-top: 1.5mm; }
 
 
 def build_paper():
-    src = (ROOT / "REVIEW_PAPER.md").read_text(encoding="utf-8")
+    src = (ROOT / "docs" / "REVIEW_PAPER.md").read_text(encoding="utf-8")
     fm, body = re.match(r"^---\n(.*?)\n---\n(.*)$", src, re.S).groups()
     title = re.search(r'title:\s*"(.*)"', fm).group(1)
     authors = re.findall(r"^\s*-\s*(.+)$", fm, re.M)
@@ -232,7 +232,7 @@ def build_paper():
 
 
 def build_analysis():
-    src = (ROOT / "REVIEW_ANALYSIS.md").read_text(encoding="utf-8")
+    src = (ROOT / "docs" / "REVIEW_ANALYSIS.md").read_text(encoding="utf-8")
     body = markdown.markdown(src, extensions=["tables", "smarty"])
     css = CSS + """
 /* The guidelines ask for a one-page analysis, so this sheet is tuned to fill exactly
