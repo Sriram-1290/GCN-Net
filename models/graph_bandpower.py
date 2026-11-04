@@ -87,6 +87,9 @@ class GraphBandPowerConfig:
     eps: float = 1e-6             # guards the log, as in ShallowConvNet
     n_domains: int = 0            # >0 swaps BatchNorm for per-domain statistics
                                   # (models.dsbn); the last slot is the target
+    readout: str = "flat"         # "flat": Linear(M * F), welded to one montage;
+                                  # "region": mean log-power per anatomical region
+    n_regions: int = 9            # 3 columns x 3 rows, see data.montage.REGION_NAMES
 
     def __post_init__(self) -> None:
         if self.spatial not in ("graph", "free"):
@@ -97,6 +100,18 @@ class GraphBandPowerConfig:
             raise ValueError(f"n_layers must be >= 1, got {self.n_layers}")
         if self.graph_smoothness < 0:
             raise ValueError("graph_smoothness must be >= 0")
+        if self.readout not in ("flat", "region"):
+            raise ValueError(f"readout must be 'flat' or 'region', got {self.readout!r}")
+        if self.readout == "region":
+            if self.spatial != "graph" or self.n_layers != 1 or self.pool_nodes:
+                raise ValueError(
+                    "readout='region' needs spatial='graph', n_layers=1 and "
+                    "pool_nodes=False: the region map is defined on the input nodes, "
+                    "so deepening or coarsening the node axis would make it "
+                    "meaningless, and a 'free' operator is welded to one node count."
+                )
+            if self.n_regions < 1:
+                raise ValueError(f"n_regions must be >= 1, got {self.n_regions}")
         if self.graph_smoothness and self.spatial == "graph":
             raise ValueError(
                 "graph_smoothness applies the graph as a *prior* on an unconstrained "
@@ -121,13 +136,30 @@ class GraphBandPowerNet(nn.Module):
             uniform spatial pattern would be penalised, which is not the prior we
             mean. Required when ``graph_smoothness > 0``.
         n_samples: ``T``, needed to size the temporal kernel and validate input.
+        node_regions: ``(M,)`` integer region id of each node, in the same order as
+            the basis. Required when ``cfg.readout == "region"``, refused otherwise.
+
+    **Why a region readout.** The Chebyshev convolution shares its weights across
+    nodes and the BatchNorm normalises over spatial filters, so both already work
+    for any node count; only ``Linear(M * F)`` ties the model to 64 channels. The
+    region readout replaces it with the mean log band-power inside each anatomical
+    region, so the classifier sees ``n_regions * F`` features whatever montage is
+    present, and :meth:`set_graph` can then swap in a subset's basis at test time.
+    Pooling is per region, not over all nodes, because left-vs-right imagery is a
+    location signal: a global mean would discard exactly the contrast to be decoded.
     """
 
     def __init__(self, bases: list[np.ndarray], n_samples: int,
                  cfg: GraphBandPowerConfig | None = None,
-                 laplacian: np.ndarray | None = None) -> None:
+                 laplacian: np.ndarray | None = None,
+                 node_regions: np.ndarray | None = None) -> None:
         super().__init__()
         self.cfg = cfg or GraphBandPowerConfig()
+        if (node_regions is not None) != (self.cfg.readout == "region"):
+            raise ValueError(
+                "node_regions is required with readout='region' and meaningless "
+                f"with readout={self.cfg.readout!r}"
+            )
         if len(bases) < self.cfg.n_layers:
             raise ValueError(
                 f"need {self.cfg.n_layers} graph bases, got {len(bases)}"
@@ -170,7 +202,14 @@ class GraphBandPowerNet(nn.Module):
             else self.n_nodes
 
         self.drop = nn.Dropout(self.cfg.dropout)
-        self.classifier = nn.Linear(n_nodes_out * self.cfg.n_spatial, self.cfg.n_classes)
+        if self.cfg.readout == "region":
+            self.register_buffer(
+                "region_onehot", self._region_matrix(node_regions, self.n_nodes))
+            self.classifier = nn.Linear(self.cfg.n_regions * self.cfg.n_spatial,
+                                        self.cfg.n_classes)
+        else:
+            self.classifier = nn.Linear(n_nodes_out * self.cfg.n_spatial,
+                                        self.cfg.n_classes)
 
         if self.cfg.graph_smoothness:
             if laplacian is None:
@@ -208,7 +247,57 @@ class GraphBandPowerNet(nn.Module):
         # estimate, taken AFTER the spatial combination, which is the ordering CSP
         # and ShallowConvNet share and the one 9.6 did not test.
         h = (h * h).mean(dim=1).clamp_min(self.cfg.eps).log()
+        if self.cfg.readout == "region":
+            # (R, M) x (N, M, F) -> (N, R, F): mean log-power over each region's nodes.
+            h = torch.einsum("rm,nmf->nrf", self.region_onehot, h)
         return self.classifier(self.drop(h.flatten(1)))
+
+    # ---------------------------------------------------------- swapping graphs
+    def _region_matrix(self, node_regions: np.ndarray, n_nodes: int) -> torch.Tensor:
+        """``(R, M)`` averaging matrix: row r holds ``1 / count_r`` on region r's nodes.
+
+        Counts are clamped to at least 1, so a region with no nodes in the present
+        montage is an all-zero row and contributes zero features rather than NaN.
+        """
+        regions = np.asarray(node_regions)
+        if regions.shape != (n_nodes,) or not np.issubdtype(regions.dtype, np.integer):
+            raise ValueError(
+                f"node_regions must be an integer vector of length {n_nodes}, "
+                f"got shape {regions.shape} dtype {regions.dtype}")
+        if regions.size and (regions.min() < 0 or regions.max() >= self.cfg.n_regions):
+            raise ValueError(
+                f"node_regions values must lie in [0, {self.cfg.n_regions}), "
+                f"got range [{regions.min()}, {regions.max()}]")
+        onehot = torch.zeros(self.cfg.n_regions, n_nodes)
+        onehot[torch.as_tensor(regions, dtype=torch.long), torch.arange(n_nodes)] = 1.0
+        return onehot / onehot.sum(dim=1, keepdim=True).clamp_min(1.0)
+
+    def set_graph(self, basis: np.ndarray, node_regions: np.ndarray) -> None:
+        """Swap in another montage's Chebyshev basis and region map, keeping all weights.
+
+        Only the region readout can do this: every learned tensor (temporal filter,
+        Chebyshev weights, BatchNorm, classifier) is independent of the node count,
+        and the only montage-specific state is the basis and the region matrix. Both
+        are replaced together so they cannot disagree about node order. The caller
+        must restore the full graph before scoring another condition.
+
+        Args:
+            basis: ``(K, S, S)`` basis of the subset graph, with the same K as built.
+            node_regions: ``(S,)`` region id per node, in the basis's node order.
+        """
+        if self.cfg.readout != "region":
+            raise ValueError("set_graph is only defined for readout='region'")
+        conv = self.spatial[0]
+        basis = np.asarray(basis)
+        if basis.ndim != 3 or basis.shape[1] != basis.shape[2] or basis.shape[0] != conv.K:
+            raise ValueError(f"basis must be ({conv.K}, S, S), got {basis.shape}")
+        n_nodes = basis.shape[1]
+        region_onehot = self._region_matrix(node_regions, n_nodes)   # validate first
+        device = conv.basis.device
+        conv.basis = torch.as_tensor(basis, dtype=torch.float32, device=device)
+        conv.n_nodes = n_nodes
+        self.region_onehot = region_onehot.to(device)
+        self.n_nodes = n_nodes
 
     # ------------------------------------------------------------- penalties
     def l2_penalty(self) -> torch.Tensor:

@@ -191,3 +191,138 @@ def test_it_is_small_enough_that_gains_are_not_capacity(graph_bits):
     bases, _ = graph_bits
     n = GraphBandPowerNet(bases, 64, GraphBandPowerConfig()).n_parameters()
     assert n < 100_000, f"{n} parameters is too many for ~45 trials"
+
+
+# ------------------------------------------------------- region-pooled readout
+#
+# The flat classifier is Linear(M * F) and so is welded to one montage. The region
+# readout averages the log band-power inside each of 9 anatomical regions, which makes
+# the classifier's input size independent of how many electrodes are present, while
+# keeping left and right apart (left-vs-right imagery is a *location* signal, so
+# pooling over all nodes would erase it).
+
+from graphs.laplacian import chebyshev_basis, rescale_laplacian  # noqa: E402
+
+
+def _synthetic_basis(m, seed=0):
+    """A random symmetric adjacency turned into the same (K=2, M, M) basis the models use."""
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(size=(m, m))
+    a = (a + a.T) / 2
+    np.fill_diagonal(a, 0.0)
+    return chebyshev_basis(rescale_laplacian(laplacian(a, normalized=True), lmax=2.0), 2)
+
+
+def _regions(m, seed=0, n_regions=9):
+    """Every region populated whenever m >= n_regions."""
+    rng = np.random.default_rng(seed)
+    r = np.concatenate([np.arange(n_regions), rng.integers(0, n_regions, size=m - n_regions)])
+    return rng.permutation(r).astype(np.int64)
+
+
+def _region_net(m=64, regions=None, n_samples=64, seed=0, basis=None):
+    torch.manual_seed(seed)
+    regions = _regions(m) if regions is None else regions
+    basis = _synthetic_basis(m) if basis is None else basis
+    cfg = GraphBandPowerConfig(readout="region")
+    return GraphBandPowerNet([basis], n_samples, cfg, node_regions=regions).eval()
+
+
+def test_region_readout_shapes():
+    net = _region_net(64)
+    assert net.classifier.in_features == 9 * net.cfg.n_spatial
+    with torch.no_grad():
+        assert net(torch.randn(5, 64, 64)).shape == (5, 2)
+
+    net.set_graph(_synthetic_basis(22, seed=3), _regions(22, seed=3))
+    with torch.no_grad():
+        out = net(torch.randn(5, 22, 64))
+    assert out.shape == (5, 2) and torch.isfinite(out).all()
+    # the old node count is now refused: forward follows the current basis
+    with pytest.raises(ValueError, match="expected"):
+        net(torch.randn(5, 64, 64))
+
+
+def test_region_readout_is_order_invariant():
+    """Review Focus 2: node order must not matter if basis, regions and data agree."""
+    m = 30
+    basis, regions = _synthetic_basis(m, seed=4), _regions(m, seed=4)
+    perm = np.random.default_rng(9).permutation(m)
+
+    net = _region_net(m, regions, basis=basis)
+    x = torch.randn(4, m, 64)
+    with torch.no_grad():
+        ref = net(x)
+        net.set_graph(basis[:, perm][:, :, perm], regions[perm])
+        permuted = net(x[:, torch.as_tensor(perm)])
+    assert torch.allclose(ref, permuted, atol=1e-5)
+
+
+def test_empty_region_gives_zero_features():
+    m = 12
+    regions = np.array([0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3], dtype=np.int64)  # no 8
+    net = _region_net(m, regions)
+    seen = {}
+    net.classifier.register_forward_hook(lambda mod, inp, out: seen.update(f=inp[0]))
+    with torch.no_grad():
+        net(torch.randn(3, m, 64))
+    feats = seen["f"].reshape(3, 9, net.cfg.n_spatial)
+    assert torch.all(feats[:, 8] == 0)
+    assert torch.any(feats[:, 7] != 0)
+
+
+def test_set_graph_rejects_bad_region_maps():
+    net = _region_net(20)
+    with pytest.raises(ValueError, match="node_regions"):
+        net.set_graph(_synthetic_basis(10), _regions(20)[:5])          # wrong length
+    with pytest.raises(ValueError, match="node_regions"):
+        net.set_graph(_synthetic_basis(10), np.full(10, 9, np.int64))  # out of range
+
+
+def test_set_graph_is_for_the_region_readout_only(graph_bits):
+    bases, _ = graph_bits
+    net = GraphBandPowerNet(bases, 64, GraphBandPowerConfig())
+    with pytest.raises(ValueError, match="region"):
+        net.set_graph(_synthetic_basis(22), _regions(22))
+
+
+def test_set_graph_keeps_the_learned_weights():
+    net = _region_net(64)
+    before = {k: v.clone() for k, v in net.state_dict().items()
+              if k not in ("spatial.0.basis", "region_onehot")}
+    net.set_graph(_synthetic_basis(22), _regions(22))
+    after = net.state_dict()
+    for k, v in before.items():
+        assert torch.equal(v, after[k]), k
+
+
+def test_region_requires_graph_single_layer():
+    with pytest.raises(ValueError, match="region"):
+        GraphBandPowerConfig(readout="region", spatial="free")
+    with pytest.raises(ValueError, match="region"):
+        GraphBandPowerConfig(readout="region", n_layers=2)
+    with pytest.raises(ValueError, match="region"):
+        GraphBandPowerConfig(readout="region", pool_nodes=True)
+    with pytest.raises(ValueError, match="readout must be"):
+        GraphBandPowerConfig(readout="mean")
+
+
+def test_region_readout_needs_node_regions():
+    with pytest.raises(ValueError, match="node_regions"):
+        GraphBandPowerNet([_synthetic_basis(20)], 64, GraphBandPowerConfig(readout="region"))
+
+
+def test_flat_readout_unchanged(graph_bits):
+    """The flat path is what every cached pre-trained model was built from."""
+    bases, _ = graph_bits
+    net = GraphBandPowerNet(bases, 64, GraphBandPowerConfig())
+    assert GraphBandPowerConfig().readout == "flat"
+    assert list(net.state_dict().keys()) == [
+        "temporal.weight", "spatial.0.weight", "spatial.0.basis",
+        "norms.0.weight", "norms.0.bias", "norms.0.running_mean",
+        "norms.0.running_var", "norms.0.num_batches_tracked",
+        "classifier.weight", "classifier.bias",
+    ]
+    assert net.classifier.in_features == 64 * 40
+    with pytest.raises(ValueError, match="region"):
+        GraphBandPowerNet(bases, 64, GraphBandPowerConfig(), node_regions=_regions(64))
