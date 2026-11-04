@@ -487,3 +487,38 @@ def test_targets_run_logs_the_full_group_count(tmp_path):
     assert len(rows) == 2 and all(r["subject"] == "S002" for r in rows)
     assert all(r["n_groups"] == 4 and r["group_id"] == 2 for r in rows)
     assert all(r["source_tag"] == "OTHER" and "readout" not in r for r in rows)
+
+
+# ------------------------------------- task 7: no source windows on a cache hit
+
+def test_prepare_fold_without_train_samples_changes_nothing_else():
+    """On a source-cache hit the runner skips the ~2.2 GiB of source-train windows,
+    which feed only pre-training. The standardiser (fit on the full source trials),
+    the target windows and the per-window shape must be exactly as before."""
+    src = concat_trials([_trials(seed=2), _trials(seed=3)])
+    tgt = _trials(seed=1)
+    full = prepare_fold(src, tgt, window=64, stride=16, build_graph=False)
+    lean = prepare_fold(src, tgt, window=64, stride=16, build_graph=False,
+                        train_samples=False)
+    assert np.array_equal(lean.standardizer.mean, full.standardizer.mean)
+    assert np.array_equal(lean.standardizer.std, full.standardizer.std)
+    assert lean.standardizer.n_trials_fit == full.standardizer.n_trials_fit
+    assert np.array_equal(lean.test.X, full.test.X)
+    assert np.array_equal(lean.test.trial_id, full.test.trial_id)
+    assert len(lean.train) == 0
+    assert lean.train.X.shape[1:] == full.train.X.shape[1:]   # what build_model reads
+
+
+def test_shallow_model_builds_identically_from_a_lean_fold():
+    import torch
+    m = _load()
+    src = concat_trials([_trials(seed=2), _trials(seed=3)])
+    lean = prepare_fold(src, _trials(seed=1), window=64, stride=16, build_graph=False,
+                        train_samples=False)
+    full = prepare_fold(src, _trials(seed=1), window=64, stride=16, build_graph=False)
+    torch.manual_seed(0)
+    a = m.build_model("shallow", lean, 64, 2, 160.0)
+    torch.manual_seed(0)
+    b = m.build_model("shallow", full, 64, 2, 160.0)
+    sa, sb = a.state_dict(), b.state_dict()
+    assert sa.keys() == sb.keys() and all(torch.equal(sa[k], sb[k]) for k in sa)

@@ -126,7 +126,8 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
                  window: int = 1, stride: int | None = None,
                  features: str = "raw",
                  bands: str | tuple[tuple[float, float], ...] = "mu_beta",
-                 leaky: bool = False, build_graph: bool = True) -> Fold:
+                 leaky: bool = False, build_graph: bool = True,
+                 train_samples: bool = True) -> Fold:
     """Build graph, statistics and tensors for one fold.
 
     Args:
@@ -148,6 +149,12 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
             unchanged, which is the point of routing those arms through this
             function rather than a parallel one: the leakage-sensitive operations
             stay in a single audited place for every arm.
+        train_samples: ``False`` still fits the graph and the standardiser on the
+            training trials but does not window them: ``Fold.train`` is then an
+            empty :class:`Samples` with the usual per-sample shape. For callers that
+            only score a fitted model, such as the pre-train/fine-tune runner on a
+            source-model cache hit, where the source windows (~2.2 GiB) feed only
+            the pre-training that is skipped. Everything else is unchanged.
 
     Returns:
         A :class:`Fold` with everything the trainer needs.
@@ -211,7 +218,14 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
             return to_window_samples(X, split.y, window, step, trial_offset=offset)
 
     # Distinct trial-id ranges per split so aggregated ids never collide.
-    train_s = convert(train, 0)
+    if train_samples:
+        train_s = convert(train, 0)
+    else:
+        if features != "raw":
+            raise ValueError("train_samples=False supports raw features only")
+        # Zero trials through the same conversion, so the per-sample shape that
+        # model factories read is exactly what the full conversion would give.
+        train_s = convert(Trials(X=train.X[:0], y=train.y[:0]), 0)
     val_s = convert(val, 100_000) if val is not None else None
     test_s = convert(test, 200_000)
 

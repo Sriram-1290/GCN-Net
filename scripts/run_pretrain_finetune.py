@@ -79,11 +79,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from data.cache import load_subject  # noqa: E402
 from data.config import all_subjects, load_config  # noqa: E402
-from data.montage import region_vector  # noqa: E402
+from data.montage import CONDITIONS, region_vector  # noqa: E402
 from data.splits import stratified_trial_kfold  # noqa: E402
 from evaluation.experiment_log import (  # noqa: E402
     completed_keys, describe_resume, log_experiment, set_seed)
 from evaluation.pipeline import Samples, Trials, concat_trials, prepare_fold  # noqa: E402
+from evaluation.robustness import (  # noqa: E402
+    completed_with_conditions, condition_row, condition_tag, evaluate_conditions)
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
 from graphs.subset import Moments, moments, subset_representation  # noqa: E402
 
@@ -186,6 +188,49 @@ def sum_moments(parts: list[Moments]) -> Moments:
     for part in parts[1:]:
         total = total + part
     return total
+
+
+#: Conditions scored by ``--robustness``. "full" is not among them: the clean row IS
+#: the full-montage score, from the referenced cache exactly as in PTG.
+ROBUSTNESS_CONDITIONS = tuple(c for c in CONDITIONS if c.name != "full")
+
+
+def load_noref(subject: str, cache_dir, classes, ref: Trials,
+               ch_names: list[str]) -> Trials:
+    """One subject's no-reference trials, filtered and labelled like ``ref``.
+
+    Review Focus 5: the two caches must hold the same trials in the same order with
+    the same channels, or the wrong trials are scored. Channel order, trial count and
+    every label are checked against the referenced trials before anything is used.
+    """
+    nr = load_subject(subject, Path(cache_dir))
+    if list(nr.ch_names) != list(ch_names):
+        raise RuntimeError(f"{subject}: no-reference cache channel order differs "
+                           f"from the referenced cache")
+    X, y = nr.X, nr.y
+    if classes:
+        mask = np.isin(y, classes)
+        X, y = X[mask], (y[mask] == classes[1]).astype(np.int64)
+    if len(X) != len(ref.y):
+        raise RuntimeError(f"{subject}: no-reference cache holds {len(X)} trials, "
+                           f"referenced cache {len(ref.y)}")
+    if not np.array_equal(y, ref.y):
+        raise RuntimeError(f"{subject}: no-reference labels differ from the referenced "
+                           f"cache's; the trials are not the same or not in order")
+    return Trials(X=X, y=y)
+
+
+def resume_keys(log, tag: str, robustness: bool) -> set:
+    """``(subject, fold)`` pairs a resumed run may skip.
+
+    With ``--robustness`` a fold counts as done only when its clean row AND every
+    condition row are logged (Review Focus 4), so a fold cut off mid-evaluation is
+    re-run.
+    """
+    if robustness:
+        return completed_with_conditions(log, tag,
+                                         [c.name for c in ROBUSTNESS_CONDITIONS])
+    return completed_keys(log, tag)
 
 
 def pick_validation(source: list[str], seed: int, gi: int, n: int) -> list[str]:
@@ -325,6 +370,12 @@ def main() -> int:
                          "batch, window, stride, seed, config), so a hit is exact. "
                          "Pre-training is ~70%% of this script's cost and is otherwise "
                          "re-paid in full whenever a run is resumed.")
+    ap.add_argument("--robustness", action="store_true",
+                    help="after each fold's clean evaluation, score the fine-tuned model "
+                         "on every montage condition (evaluation.robustness) and log one "
+                         "row per condition under '<tag>.<condition>'. --model shallow "
+                         "(interpolation repair) or --model graphbp --readout region "
+                         "(subset graph). Reads the no-reference cache (--noref-config)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
@@ -340,6 +391,11 @@ def main() -> int:
                                      or args.lmax == 0):
         ap.error("--readout region needs --spatial graph, no --graph-smoothness and "
                  "a fixed --lmax")
+    if args.robustness and not (args.model == "shallow"
+                                or (args.model == "graphbp" and args.readout == "region")):
+        ap.error("--robustness needs --model shallow or --model graphbp --readout region")
+    if args.robustness and args.dsbn:
+        ap.error("--robustness is not defined for --dsbn")
     plan = plan_groups(subjects, args.groups, args.targets)
     target_set = set(args.targets) if args.targets is not None else set(subjects)
     source_tag = args.source_tag or args.tag
@@ -380,22 +436,21 @@ def main() -> int:
     # (source minus the validation pick).
     subject_moments: dict[str, Moments] = {}
     ch_names = list(ep.ch_names)
+    # --robustness: the no-reference trials of the TARGETS only, for the test-time
+    # conditions. Source subjects enter only through their moments.
+    noref_targets: dict[str, Trials] = {}
+    if args.readout == "region" or args.robustness:
+        noref_dir = load_config(args.noref_config).dataset.cache_dir
     if args.readout == "region":
-        noref_cfg = load_config(args.noref_config)
-        print(f"moments of {len(subjects)} subjects from {noref_cfg.dataset.cache_dir}",
-              flush=True)
+        print(f"moments of {len(subjects)} subjects from {noref_dir}", flush=True)
         for s in subjects:
-            nr = load_subject(s, noref_cfg.dataset.cache_dir)
-            if list(nr.ch_names) != ch_names:
-                raise RuntimeError(f"{s}: no-reference cache channel order differs "
-                                   f"from the referenced cache")
-            Xn, yn = nr.X, nr.y
-            if args.classes:
-                Xn = Xn[np.isin(yn, args.classes)]
-            if len(Xn) != len(trials[s].y):
-                raise RuntimeError(f"{s}: no-reference cache holds {len(Xn)} trials, "
-                                   f"referenced cache {len(trials[s].y)}")
-            subject_moments[s] = moments(Xn)
+            nr_trials = load_noref(s, noref_dir, args.classes, trials[s], ch_names)
+            subject_moments[s] = moments(nr_trials.X)
+            if args.robustness and s in target_set:
+                noref_targets[s] = nr_trials
+    elif args.robustness:
+        for s in sorted(target_set):
+            noref_targets[s] = load_noref(s, noref_dir, args.classes, trials[s], ch_names)
 
     pre_cfg = TrainConfig(epochs=args.pretrain_epochs, batch_size=args.batch_size,
                           learning_rate=args.pretrain_lr, verbose=False)
@@ -415,7 +470,13 @@ def main() -> int:
     print(f"FINE-TUNE {args.finetune_epochs} epochs @ {args.finetune_lr} "
           f"on the target's training folds\n")
 
-    done = completed_keys(args.log, args.tag) if args.resume else set()
+    done = resume_keys(args.log, args.tag, args.robustness) if args.resume else set()
+    # Per tag as well, so a fold re-run after a partial write logs only the rows that
+    # are missing and never duplicates one (find_duplicates would flag it).
+    clean_done = completed_keys(args.log, args.tag) if args.resume else set()
+    cond_done = {c.name: (completed_keys(args.log, condition_tag(args.tag, c.name))
+                          if args.resume else set())
+                 for c in ROBUSTNESS_CONDITIONS} if args.robustness else {}
     if args.resume:
         print(describe_resume(done, len(target_set) * args.folds, args.tag))
 
@@ -445,16 +506,33 @@ def main() -> int:
         # so each target occupies a known contiguous span of trial ids.
         group_trials = [trials[t] for t in group]
         offsets = np.cumsum([0] + [len(t) for t in group_trials])
+
+        cache_path = None
+        if not args.no_pretrain and args.source_cache:
+            cache_dir = Path(args.source_cache)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            key = source_cache_key(args, seed, gi, source, list(val_pick))
+            cache_path = cache_dir / f"src-{source_tag}-g{gi}-{key}.pt"
+        # The source windows (~2.2 GiB for ~87 subjects) feed only pre-training. On a
+        # cache hit nothing reads them, so they are not built: on a machine short of
+        # host memory, building them was enough to make CUDA initialisation fail. The
+        # graph and standardiser are still fit on the full source trials, so the target
+        # windows are bit-identical. DSBN labels the source windows, so it keeps them.
+        source_windows = not (cache_path is not None and cache_path.exists()
+                              and not args.dsbn)
         prepared = prepare_fold(
-            src_train, concat_trials(group_trials), src_val, lmax=lmax, seed=seed,
-            sfreq=sfreq, window=args.window, stride=args.stride,
+            src_train, concat_trials(group_trials), src_val if source_windows else None,
+            lmax=lmax, seed=seed, sfreq=sfreq, window=args.window, stride=args.stride,
             build_graph=(args.model == "gcn"
-                         or (args.model == "graphbp" and args.readout == "flat")))
+                         or (args.model == "graphbp" and args.readout == "flat")),
+            train_samples=source_windows)
+        del src_train, src_val
 
         # Region readout: basis and regions from the source TRAINING subjects' moments
         # (source minus the validation pick), in montage order -- the order the data
         # are in because build_graph=False left them unpermuted.
         region_graph = None
+        m_src = rep_all = None
         if args.readout == "region":
             m_src = sum_moments([subject_moments[x] for x in source if x not in val_pick])
             rep_all = subset_representation(
@@ -476,13 +554,6 @@ def main() -> int:
 
         pretrained_state = None
         if not args.no_pretrain:
-            cache_path = None
-            if args.source_cache:
-                cache_dir = Path(args.source_cache)
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                key = source_cache_key(args, seed, gi, source, list(val_pick))
-                cache_path = cache_dir / f"src-{source_tag}-g{gi}-{key}.pt"
-
             if cache_path is not None and cache_path.exists():
                 pretrained_state = torch.load(cache_path, map_location="cpu",
                                               weights_only=True)
@@ -557,7 +628,7 @@ def main() -> int:
                 result = trainer.evaluate_samples(ft_test)
                 fold_accs.append(result["trial"].accuracy)
 
-                log_experiment({
+                row = {
                     "experiment": "pretrain_finetune",
                     "tag": args.tag,
                     "subject": target,
@@ -598,7 +669,39 @@ def main() -> int:
                     "trial_macro_f1": result["trial"].macro_f1,
                     "history": history.as_dict(),
                     **provenance_fields(args),
-                }, path=args.log)
+                }
+
+                if args.robustness:
+                    # The same test trials, from the no-reference cache. Same order as
+                    # the referenced cache (checked per subject at load), and the
+                    # labels are checked again on exactly the trials being scored.
+                    test_idx = np.asarray(split.test)
+                    nr = noref_targets[target]
+                    test_noref = Trials(X=nr.X[test_idx], y=nr.y[test_idx])
+                    if not np.array_equal(test_noref.y, y_target[test_idx]):
+                        raise RuntimeError(f"{target} fold {split.fold}: no-reference "
+                                           f"test labels differ from the referenced ones")
+                    pending = tuple(c for c in ROBUSTNESS_CONDITIONS
+                                    if (target, split.fold) not in cond_done[c.name])
+                    scores = evaluate_conditions(
+                        trainer, "graph" if args.readout == "region" else "shallow",
+                        test_noref, base, ch_names, m_src, prepared.standardizer,
+                        rep_all, target, split.fold, pending, args.window, args.stride,
+                        lmax=args.lmax)
+                    for c in pending:
+                        log_experiment(condition_row(row, c.name, scores[c.name]),
+                                       path=args.log)
+                    if not args.quiet:
+                        print(f"    {target} fold {split.fold}: clean "
+                              f"{result['trial'].accuracy:.4f}  " + "  ".join(
+                                  f"{c.name} {scores[c.name]['accuracy']:.4f}"
+                                  for c in pending), flush=True)
+
+                # The clean row goes LAST: once it is in the log, every condition row
+                # of this fold is too. It is not written twice when a fold is re-run
+                # only because a condition row was missing.
+                if (target, split.fold) not in clean_done:
+                    log_experiment(row, path=args.log)
 
             if fold_accs:
                 per_subject.append(float(np.mean(fold_accs)))
