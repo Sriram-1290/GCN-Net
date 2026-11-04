@@ -9,11 +9,7 @@ affiliation: "Department of Computer Science, Neil Gogte Institute of Technology
 ---
 
 <div class="abstract">
-<strong>Abstract</strong> — Decoding imagined movement from the electroencephalogram (EEG) is the foundational challenge of motor imagery (MI) brain–computer interfaces (BCIs). Graph neural networks (GNNs), which treat electrodes as nodes embedded in a functional or physical graph, have emerged as a compelling paradigm to exploit non-Euclidean spatial geometries, with several prominent studies reporting accuracies exceeding 90 % on the benchmark PhysioNet EEG Motor Movement/Imagery Database (EEGMMIDB). Anchored on the core 25–27 motor-imagery decoding studies investigated in the Phase-1 (PW-1) Literature Survey Report and contextualized by 9 foundational, methodological, and benchmarking standards (36 total referenced works in IEEE format), this critical review spans graph convolutional networks, classical spatial filtering, compact convolutional architectures, Riemannian geometry, learned spatial priors, cross-subject transfer, and evaluation methodology. Rather than summarizing architectures in isolation, we evaluate the literature along four structural axes: (1) the mathematical ordering of spatial and spectral operations; (2) the topological priors constraining the spatial operator; (3) the mechanisms used to address per-subject sample scarcity; and (4) the integrity of the evaluation protocol. 
-
-Four decisive findings emerge. First, reported accuracies on identical datasets vary by over 40 percentage points; we trace this divergence not to model capacity, but to widespread data leakage—specifically timepoint-level random shuffling, transductive graph construction, and evaluation-time batch normalization artifacts—compounded by an unaddressed class–run structural confound in EEGMMIDB. Second, successful classical and shallow deep decoders strictly preserve a <em>spatial-combination-first, then power</em> pipeline; inverting this sequence by extracting per-electrode spectral features before graph convolution destroys the phase and sign relationships required for destructive spatial cancellation. Third, the spatial graph prior has rarely been isolated against matched graph-free controls under identical splits. Fourth, data scarcity remains the governing operational bottleneck. 
-
-To overcome these structural limitations, we propose <strong>GBP-Net</strong> (Graph Band-Power Network), a breakthrough architecture that unifies Chebyshev spectral graph convolution with a neurophysiologically aligned spatial-then-power sequence and cross-subject pre-training, evaluated under a strictly audited, leakage-free protocol.
+<strong>Abstract</strong> — Graph neural networks (GNNs), which treat EEG electrodes as nodes of a graph, have been reported to decode motor imagery (MI) with accuracies above 90 % on the PhysioNet EEG Motor Movement/Imagery Database (EEGMMIDB), while large leakage-controlled benchmarks on the same dataset report a best binary accuracy of 0.650. This review examines that discrepancy. Drawing on 34 works identified by citation tracing and targeted searches, it compares graph convolutional networks with classical spatial filtering, compact convolutional networks, Riemannian methods, learned spatial priors and cross-subject transfer along four axes: the order in which spatial combination and power extraction are applied, the prior placed on the spatial operator, the response to per-subject data scarcity, and the evaluation protocol. Three observations follow. First, the public code associated with GCNs-Net, a widely used spectral graph model, draws train and test samples from the same trials, normalises test batches with their own statistics and builds the graph from all data before splitting, so its reported accuracy is not comparable with trial-disjoint benchmarks. Second, the dataset assigns each pair of classes to separate recording runs, so four-class accuracy can be earned by identifying the run rather than the imagined movement; within-family accuracy removes this confound. Third, the methods that perform best under valid protocols combine channels while the signal is still signed and take power afterwards, an ordering many graph models invert. We derive five research gaps and propose GBP-Net, a design that places a graph-constrained spatial stage inside this ordering and adds subject-disjoint cross-subject pre-training, together with an evaluation plan that isolates the contribution of each component.
 </div>
 
 <div class="keywords">
@@ -22,280 +18,278 @@ To overcome these structural limitations, we propose <strong>GBP-Net</strong> (G
 
 ## 1. Introduction
 
-A brain–computer interface (BCI) establishes a direct communication pathway between the human central nervous system and an external device [@schalk2004]. Among non-invasive paradigms, motor imagery (MI)—the mental rehearsal of movement without overt muscular contraction—is uniquely attractive for neurorehabilitation and assistive robotics because it activates primary sensorimotor networks endogenously [@pfurtscheller1999]. Imagining movements of the left hand, right hand, or feet induces localized, frequency-specific power suppressions termed event-related desynchronization (ERD) in the sensorimotor mu (8–13 Hz) and beta (14–30 Hz) rhythms, followed by post-task rebound or event-related synchronization (ERS) [@pfurtscheller1999]. A successful MI decoder must therefore extract weak, non-stationary signal components distributed across the scalp and resolve *where* and *in which frequency band* power modulations occur.
+A brain–computer interface (BCI) establishes a direct communication pathway between the human central nervous system and an external device [@schalk2004]. Among non-invasive paradigms, motor imagery (MI)—the mental rehearsal of movement without overt muscular contraction—is attractive for neurorehabilitation and assistive control because it engages sensorimotor cortex without external stimulation [@pfurtscheller1999]. Imagining movements of the left hand, right hand or feet induces localized, frequency-specific power decreases termed event-related desynchronization (ERD) in the mu (8–13 Hz) and beta (14–30 Hz) rhythms, followed by a post-movement increase, event-related synchronization (ERS) [@pfurtscheller1999]. A decoder must therefore resolve *where* on the scalp and *in which band* power changes.
 
-For more than two decades, the standard approach has relied on linear spatial filtering. Common Spatial Patterns (CSP) learns spatial projections that maximize the variance ratio between two task conditions [@ramoser2000]. Regularized CSP [@blankertz2008] and Filter Bank CSP (FBCSP) [@ang2008] extended this framework by introducing automated frequency sub-band selection. Compact deep learning architectures subsequently unified temporal filtering and spatial combination into end-to-end differentiable networks: EEGNet [@lawhern2018] utilized depthwise and separable convolutions, ShallowConvNet [@schirrmeister2017] mirrored FBCSP’s operational sequence, and FBCNet [@mane2021] incorporated multi-view spectro-spatial variance layers.
+For more than two decades the standard approach has been linear spatial filtering. Common Spatial Patterns (CSP) learns projections that maximize the variance ratio between two conditions [@ramoser2000]; regularized CSP [@blankertz2008] and Filter Bank CSP (FBCSP) [@ang2008] added robust estimation and sub-band selection. Compact deep networks later learned temporal and spatial filters jointly: EEGNet [@lawhern2018] with depthwise and separable convolutions, ShallowConvNet [@schirrmeister2017] as a differentiable counterpart of FBCSP, and FBCNet [@mane2021] with per-band spatial filtering followed by a variance layer.
 
-Graph neural networks (GNNs) offer a conceptually distinct approach. Treating electrodes as nodes embedded in a graph whose edges capture anatomical proximity or functional connectivity allows spectral graph convolutions [@defferrard2016] to operate on non-Euclidean scalp geometries. GCNs-Net [@hou2024] popularized this concept for MI decoding on the PhysioNet EEGMMIDB dataset [@goldberger2000], applying Chebyshev polynomial filters over an absolute Pearson correlation graph with Graclus coarsening [@dhillon2007], and reporting a four-class subject-level accuracy of 93.06 %. Subsequent developments introduced temporal modeling via recurrent attention [@hou2022], dynamic adjacency learning via DGCNN [@song2020], topological regularization via RGNN [@zhong2020], fused spatio-temporal graph convolutions in ST-GCN [@sun2021], fused graph-temporal convolutional networks in GCN-TCNet [@musallam2021], multi-level hierarchical dynamic topologies in MHD-GCN [@deng2025], and self-adaptive graphs in SAMGCN [@meng2026].
+Graph neural networks offer a different inductive bias. Treating electrodes as nodes whose edges encode anatomical proximity or functional connectivity lets spectral graph convolutions [@defferrard2016] operate on the scalp's non-Euclidean geometry. GCNs-Net [@hou2024] applied Chebyshev graph filters over an absolute Pearson-correlation graph with Graclus coarsening [@dhillon2007] to EEGMMIDB [@goldberger2000] and reported a four-class accuracy of 93.06 %. Related work added attention-based recurrent temporal modelling [@hou2022], learnable adjacency (DGCNN) [@song2020], regularized graph learning (RGNN) [@zhong2020], adaptive spatiotemporal graphs [@sun2021], multi-level hierarchical dynamic graphs [@deng2025] and self-adaptive multilevel graphs [@meng2026].
 
-A recent survey of 63 EEG-GNN studies observed that Chebyshev spectral graph convolution is the predominant choice across the literature, yet it is routinely adopted without comparative justification, and cross-subject transfer learning remains largely unexplored [@klepl2024]. Two adjacent surveys examine deep learning for motor imagery [@saibene2024] and transfer learning across BCIs [@wu2022], but neither evaluates whether reported accuracies were obtained under valid, comparable evaluation protocols. In machine-learning-based science, empirical accuracy is exquisitely sensitive to data partitioning: a systematic audit across 17 scientific fields revealed that data leakage is pervasive and routinely inflates performance [@kapoor2023]. Large-scale reproducible benchmarks, such as MOABB [@chevallier2024], Eder et al. [@eder2024], and Vasques et al. [@vasques2026], establish empirical performance boundaries that architecture-focused papers rarely acknowledge.
+A survey of 63 EEG-GNN studies found Chebyshev spectral convolution to be the dominant choice and cross-subject transfer to be rarely explored [@klepl2024]. Adjacent reviews organize deep learning for MI decoding by task [@saibene2024] and transfer learning for BCIs by adaptation method [@wu2022]. Across machine-learning-based science, data leakage is a documented source of inflated results, found in studies from 17 fields [@kapoor2023]; large reproducible benchmarks such as MOABB [@chevallier2024], Eder et al. [@eder2024] and Vasques et al. [@vasques2026] supply leakage-controlled reference points that architecture-focused papers rarely compare against. This review organizes the graph-based MI literature around evaluation protocol as well as architecture.
 
 ### Contributions
 
-This review delivers five main contributions:
-1. **Systematic Synthesis of the Survey Corpus:** Anchored on the core PW-1 literature survey papers and supporting methodological benchmarks (36 total referenced works: 27 primary domain decoding architectures and 9 foundational standards), we classify the literature along the mathematical ordering of spatial and spectral processing, the inductive prior on the spatial operator, the mitigation of data scarcity, and the evaluation protocol.
-2. **Technical Audit and Provenance Verification:** We conduct a code-level audit of the GCNs-Net implementation released by the paper's second author (S. Jia, `SuperBruceJia/EEG-DL`), identifying three specific leakage mechanisms that explain the published >90 % accuracy.
-3. **Identification of the Class–Run Confound:** We demonstrate that on the PhysioNet dataset, four-class decoding without run-family decomposition conflates run-level baseline drift with motor imagery.
-4. **Resolution of Signal-Processing Paradoxes:** We clarify the operational requirements of single-sample timepoint classification versus streaming decoders, explain why short (0.40 s) sliding windows empirically outperform long (2–4 s) windows on trial-sparse datasets, and analyze the sample-variance instability of domain-specific batch normalization.
-5. **The Proposed GBP-Net Architecture:** We derive five concrete research gaps and introduce GBP-Net, a breakthrough graph band-power architecture with cross-subject pre-training designed to overcome these historical pitfalls.
+1. **A structured review of 34 works** spanning graph, classical, convolutional, Riemannian and transfer-learning approaches, organized by the ordering of spatial and spectral operations, the prior on the spatial operator, the response to data scarcity, and the evaluation protocol.
+2. **A reading of the public reference code** (`SuperBruceJia/EEG-DL` [@eegdl]) associated with GCNs-Net, identifying three leakage paths and a mismatch between the classes the code uses and the classes the paper names.
+3. **A description of the class–run confound in EEGMMIDB** and of within-family accuracy as the measure that removes it.
+4. **Five research gaps and a proposed design**, GBP-Net, with an evaluation plan in which every component is tested against a matched control.
 
 ## 2. Review Methodology
 
 ### 2.1 Scope and Research Questions
 
-The review is scoped to non-invasive scalp EEG motor imagery decoding, focusing on the PhysioNet EEGMMIDB benchmark [@goldberger2000]. It addresses four core research questions:
-- **RQ1:** How do graph-based architectures differ from classical spatial filters and graph-free deep networks in their sequence of spatial combination and spectral energy calculation?
-- **RQ2:** What empirical evidence demonstrates that an electrode graph prior outperforms unconstrained spatial operators or alternative priors?
-- **RQ3:** How does the literature address extreme within-subject sample scarcity, and do transfer-learning gains generalize across architectures?
-- **RQ4:** Are published results on benchmark datasets directly comparable, or do protocol discrepancies account for the reported performance variance?
+The review covers MI decoding from non-invasive scalp EEG, with particular attention to EEGMMIDB [@goldberger2000], on which the graph-based work motivating it is evaluated. It addresses four questions:
+- **RQ1:** How do graph-based decoders differ from classical and graph-free deep decoders in the order of spatial combination and power extraction?
+- **RQ2:** What evidence shows that an electrode graph improves on an unconstrained spatial operator or on other priors?
+- **RQ3:** How does the literature address the small number of training trials per subject?
+- **RQ4:** Are published results on EEGMMIDB comparable with one another?
 
-### 2.2 PRISMA-Guided Identification and Selection
+### 2.2 Identification and Selection
 
-Selection followed the PRISMA 2020 guidelines [@page2021] for systematic identification and screening. In accordance with institutional Phase-1 (PW-1) project requirements, the core body of this review is directly founded upon the primary research papers analyzed in the student Literature Survey Report (comprising 27 comprehensive studies, exceeding the prescribed threshold of 25 papers). To establish an exhaustive and reproducible synthesis, this core corpus is formally contextualized within 9 foundational, methodological, and benchmarking standards.
+Studies were identified in three stages. The starting point was the baseline graph model [@hou2024] and its predecessor [@hou2022]. Their reference lists were traced backwards to the methods they build on—spectral graph convolution, graph coarsening, the dataset and its acquisition system. Forward searches were then run on Google Scholar, IEEE Xplore, ScienceDirect, IOPscience and arXiv using combinations of the terms *graph convolutional network*, *graph neural network*, *EEG*, *motor imagery*, *common spatial pattern*, *Riemannian*, *transfer learning*, *pre-training*, *alignment*, *data augmentation* and *benchmark*.
 
-Primary and secondary searches were executed across IEEE Xplore, ScienceDirect, PubMed, and Google Scholar using boolean strings: `("graph convolutional network" OR "graph neural network" OR "GCN" OR "GNN") AND ("electroencephalography" OR "EEG") AND ("motor imagery" OR "brain-computer interface" OR "BCI")`. Forward and backward citation tracing was anchored on foundational GNN models [@hou2024; @defferrard2016], benchmark standards [@chevallier2024; @vasques2026; @eder2024], neurophysiological bounds [@pfurtscheller1999; @blankertz2010], and methodological audits [@kapoor2023].
+A work was included if it (i) proposes or evaluates a method for decoding MI from scalp EEG, or (ii) supplies a method, dataset, benchmark or neurophysiological result on which such decoders directly depend. Two graph models for emotion recognition [@song2020; @zhong2020] were included because they introduced graph-learning techniques later applied to MI. Studies of invasive recordings and studies whose full text or abstract was unavailable were excluded. Thirty-four works were retained (Fig. 1 and Fig. 2). Because selection proceeded iteratively through citation tracing rather than a single database query, screening counts are not reported: this is a structured review, not a systematic review in the PRISMA sense.
 
-Inclusion criteria required that studies: (i) propose or evaluate decoders for scalp EEG motor imagery (forming the 27 core survey studies across classical spatial filtering, compact CNNs, spectral/dynamic GNNs, and Riemannian manifolds); or (ii) provide foundational algorithms, benchmarks, or neurophysiological boundaries directly governing decoder performance (the 9 methodological foundations, including the PRISMA guidelines [@page2021], data resources [@goldberger2000; @schalk2004], and reference code audits [@eegdl]). Exclusion criteria eliminated invasive recordings, non-motor paradigms (e.g., emotion or sleep staging, except where architectural methods like DGCNN [@song2020] or RGNN [@zhong2020] directly established GNN principles), and unverified preprints with inaccessible technical details. In total, 36 peer-reviewed and benchmark works were synthesized (Fig. 1 and Fig. 2).
+Two of the retained studies [@deng2025; @meng2026] could be assessed from their abstracts and metadata only, and conclusions drawn from them are limited accordingly. Bibliographic details of every work were checked against Crossref or arXiv records, except the EEG-DL repository [@eegdl], which is cited as software.
 
-![Fig. 1. PRISMA-guided taxonomy and classification of the 36 reviewed studies (anchored on the 27 core PW-1 literature survey papers and 9 methodological standards) across seven analytical categories.](../figures/review_2/fig1_taxonomy.png)
+![Fig. 1. Classification of the 34 reviewed works into seven categories.](../figures/review_2/fig1_taxonomy.png)
 
-![Fig. 2. Chronological distribution of the 36 reviewed studies by category from 2000 to 2026.](../figures/review_2/fig2_years.png)
+![Fig. 2. Publication years of the 34 reviewed works by category.](../figures/review_2/fig2_years.png)
 
 ## 3. Neurophysiological and Dataset Foundations
 
 ### 3.1 What a Decoder Must Detect
 
-Motor imagery produces lateralized amplitude attenuations (ERD) in sensorimotor cortex: left-hand imagination induces contralateral ERD over the right hemisphere (electrodes C4, CP4), right-hand imagination over the left hemisphere (C3, CP3), and foot imagination over the midline (Cz, CPz) [@pfurtscheller1999]. Because ERD reflects the desynchronization of underlying pyramidal neural populations, it is fundamentally a **band-power / variance phenomenon**. The power change develops over an extended temporal interval (0.5 to 2.0 seconds post-cue). 
+Motor imagery produces lateralized ERD over sensorimotor cortex: left-hand imagery over the right hemisphere (around C4), right-hand imagery over the left (around C3), and foot imagery near the midline (around Cz) [@pfurtscheller1999]. Because ERD reflects reduced synchrony of large neural populations, it is a **band-power (variance) phenomenon** that unfolds over hundreds of milliseconds to seconds after the cue.
 
-Crucially, human participants exhibit substantial heterogeneity in their capacity to produce detectable sensorimotor rhythms (the so-called "BCI inefficiency" phenomenon). Blankertz et al. [@blankertz2010] demonstrated that the prominence of the resting mu rhythm above the 1/f spectral background, measured in a simple two-minute task-free eyes-open recording, predicts subsequent MI decoding accuracy at *r* = 0.53 (*N* = 80). Thus, roughly 30 % of inter-subject variance is predetermined by neuroanatomy and baseline physiology before any machine learning model is selected.
+Subjects differ widely in how detectable their sensorimotor rhythms are. Blankertz et al. [@blankertz2010] showed that the prominence of the resting mu rhythm above the 1/*f* background, measured in a two-minute eyes-open recording, correlates with later MI decoding accuracy at *r* = 0.53 (*N* = 80): about 28 % of the between-subject variance in accuracy is accounted for by a measurement taken before any decoder is trained.
 
 ### 3.2 The PhysioNet EEGMMIDB Benchmark
 
-The PhysioNet database [@goldberger2000; @schalk2004] contains 64-channel recordings from 109 subjects sampled at 160 Hz with the BCI2000 system. Each subject completed 14 runs comprising baseline eyes-open/closed resting states, executed movements, and imagined movements. Two structural design features critically affect evaluation:
-1. **Extreme Data Scarcity:** Each subject performs only three runs of each imagery task family, yielding approximately 21–23 trials per specific movement class (roughly 42–46 trials per binary contrast). A subject-dependent model is thus fit on only a few dozen trials.
-2. **The Class–Run Structural Confound:** Task classes are segregated across recording runs:
-   - *Runs 4, 8, and 12:* Target 1 = Left Fist, Target 2 = Right Fist.
-   - *Runs 6, 10, and 14:* Target 1 = Both Fists, Target 2 = Both Feet.
+EEGMMIDB [@goldberger2000; @schalk2004] contains 64-channel recordings from 109 subjects at 160 Hz, acquired with BCI2000. Each subject completed 14 runs: eyes-open and eyes-closed baselines, executed movements and imagined movements. Two features of its design matter for evaluation:
+1. **Data scarcity:** each subject performs three imagery runs per task family, giving about 22 trials per class and about 45 per binary contrast. A subject-dependent model is fitted on a few dozen trials.
+2. **Class–run structure:** classes are confined to particular runs.
+   - *Runs 4, 8 and 12:* T1 = left fist, T2 = right fist.
+   - *Runs 6, 10 and 14:* T1 = both fists, T2 = both feet.
 
-Because recording runs are separated in time, run-level non-stationarities (slow electrode impedance shifts, DC drift, participant fatigue, posture adjustments) create systematic spectral differences between run groups. A four-class model evaluated on this dataset can easily achieve above-chance accuracy by discriminating *which run group a trial originated from*, rather than decoding sensorimotor imagery. True motor imagery decoding can only be established by decomposing four-class performance into **within-family accuracy** (Left vs. Right; Both Fists vs. Both Feet).
+Because runs are recorded at different times, run-level non-stationarity—electrode drift, impedance change, fatigue—can differ systematically between the two run families. A four-class model can therefore exceed chance by recognizing *which family a trial came from* without decoding imagery at all. Decomposing four-class performance into **within-family accuracy** (left vs. right fist; both fists vs. both feet), whose chance level is 50 %, removes this route. A further consequence is that the label of a T1 or T2 event depends on the run number, not on the event code alone.
 
 ## 4. Classification and Critical Analysis
 
 ### 4.1 Classical Spatial Filtering
 
-Common Spatial Patterns (CSP) computes spatial filters *w* ∈ ℝ<sup>*C*</sup> that maximize the variance ratio between two classes [@ramoser2000]:
+CSP computes spatial filters *w* ∈ ℝ<sup>*C*</sup> that maximize the variance ratio between two classes [@ramoser2000]:
 
 <div class="eq">max<sub><i>w</i></sub> &nbsp; (<i>w</i><sup>T</sup> Σ<sub>1</sub> <i>w</i>) / (<i>w</i><sup>T</sup> Σ<sub>2</sub> <i>w</i>)</div>
 
-where Σ<sub>1</sub>, Σ<sub>2</sub> are class-conditional spatial covariance matrices. The operational ordering of CSP is vital: **channels are linearly combined while still signed, and power (variance) is computed only after spatial projection** [@blankertz2008]. This allows the linear combination to perform destructive interference, subtracting widespread task-irrelevant artifacts and common-mode noise across electrodes before squaring. Filter Bank CSP (FBCSP) [@ang2008] applies this spatial combination across discrete frequency bands. On EEGMMIDB, independent benchmarks place regularized CSP among the strongest within-subject methods, achieving ~0.62–0.65 on binary contrasts [@vasques2026].
+where Σ<sub>1</sub>, Σ<sub>2</sub> are class-conditional spatial covariance matrices. The order of operations matters: **channels are combined while the signal is still signed, and variance is computed only after projection** [@blankertz2008]. Signed combination allows cancellation between channels, which removes common-mode activity before squaring. FBCSP [@ang2008] repeats this per frequency band. On EEGMMIDB, the large benchmark of Vasques et al. [@vasques2026] reports the CSP and covariance/tangent-space families at about 0.60 on binary left-versus-right imagery, with the best of 216,714 pipeline configurations reaching 0.650.
 
 ### 4.2 Graph-Free Deep Convolutional Networks
 
-Compact convolutional neural networks explicitly internalize the CSP/FBCSP pipeline:
-- **ShallowConvNet** [@schirrmeister2017] implements temporal convolution (1 × *K<sub>t</sub>*) playing the role of band-pass filtering, followed by spatial convolution across all *C* electrodes (*C* × 1) acting as a learned spatial filter, followed by squaring, temporal mean pooling, and logarithmic activation:
+Compact convolutional networks learn the CSP/FBCSP pipeline end to end:
+- **ShallowConvNet** [@schirrmeister2017] applies a temporal convolution (1 × *K<sub>t</sub>*), acting as a learned band-pass filter, then a spatial convolution across all *C* electrodes (*C* × 1), then squaring, temporal average pooling and a logarithm:
 
-<div class="eq"><i>X</i> &nbsp;⟶&nbsp; Conv<sub>1×<i>K<sub>t</sub></i></sub> &nbsp;⟶&nbsp; <i>X</i><sub>temp</sub> &nbsp;⟶&nbsp; Conv<sub><i>C</i>×1</sub> &nbsp;⟶&nbsp; <i>X</i><sub>spat</sub> &nbsp;⟶&nbsp; (·)<sup>2</sup> &nbsp;⟶&nbsp; AvgPool<sub>1×<i>T<sub>p</sub></i></sub> &nbsp;⟶&nbsp; log(·) &nbsp;⟶&nbsp; <i>ŷ</i></div>
+<div class="eq"><i>X</i> &nbsp;⟶&nbsp; Conv<sub>1×<i>K<sub>t</sub></i></sub> &nbsp;⟶&nbsp; Conv<sub><i>C</i>×1</sub> &nbsp;⟶&nbsp; (·)<sup>2</sup> &nbsp;⟶&nbsp; AvgPool &nbsp;⟶&nbsp; log(·) &nbsp;⟶&nbsp; <i>ŷ</i></div>
 
-- **EEGNet** [@lawhern2018] utilizes depthwise separable convolutions to construct parameter-efficient spatio-temporal representations.
-- **FBCNet** [@mane2021] processes multi-band inputs with spatial convolutions followed by variance pooling over time.
+- **EEGNet** [@lawhern2018] uses a temporal convolution followed by a depthwise spatial convolution and separable convolutions, giving a parameter-efficient model.
+- **FBCNet** [@mane2021] filters the input into several bands, applies a spatial convolution per band and summarizes each with a variance layer.
 
-These architectures share the **spatial-then-power** ordering: spatial combination occurs over phase-coherent signed voltages before non-linear energy extraction.
+All three combine channels before any non-linear power extraction: a **spatial-then-power** ordering.
 
-### 4.3 Graph Convolutional Networks: Spectral, Dynamic, and Hybrid
+### 4.3 Graph Convolutional Networks: Spectral, Dynamic and Hybrid
 
-Spectral graph convolutions [@defferrard2016] define filtering on a graph *G* = (*V*, *E*, *W*) via the normalized graph Laplacian *L* = *I* − *D*<sup>−1/2</sup> *W* *D*<sup>−1/2</sup>. Truncated Chebyshev polynomials *T<sub>k</sub>*(*x*) approximate the spectral filter up to order *K*:
+Spectral graph convolution [@defferrard2016] filters signals on a graph *G* = (*V*, *E*, *W*) through the normalized Laplacian *L* = *I* − *D*<sup>−1/2</sup> *W* *D*<sup>−1/2</sup>, approximated with Chebyshev polynomials *T<sub>k</sub>* up to order *K*:
 
 <div class="eq"><i>g<sub>θ</sub></i> ★ <i>x</i> &nbsp;≈&nbsp; ∑<sub><i>k</i>=0</sub><sup><i>K</i>−1</sup> <i>θ<sub>k</sub></i> <i>T<sub>k</sub></i>(<i>L̃</i>) <i>x</i></div>
 
-where *L̃* = (2 / *λ*<sub>max</sub>) *L* − *I*. GCNs-Net [@hou2024] adopted this formulation using an absolute Pearson correlation adjacency *A* = |*P*| − *I* with Graclus coarsening [@dhillon2007] across six layers.
+where *L̃* = (2 / *λ*<sub>max</sub>) *L* − *I*. GCNs-Net [@hou2024] uses this filter with an absolute Pearson-correlation adjacency *A* = |*P*| − *I* and Graclus coarsening [@dhillon2007] across six graph-convolution layers.
 
-![Fig. 3. Two fundamental orderings of spatial and spectral operations in EEG decoders. (a) Inverted ordering: calculating power per channel discards phase and polarity, preventing destructive cancellation. (b) Principled ordering: spatial combination on signed voltages preserves phase cancellation before power pooling.](../figures/review_2/fig3_ordering.png)
+![Fig. 3. Two orderings of spatial and spectral operations in EEG decoders. (a) Power is computed per channel before channels are combined, so sign and phase are lost and cancellation between channels is no longer possible. (b) Channels are combined while the signal is signed, and power is taken afterwards.](../figures/review_2/fig3_ordering.png)
 
-#### The GCNs-Net Code Audit & Data Leakage Mechanism
-In analyzing the reference implementation published by the paper's second author (S. Jia, `SuperBruceJia/EEG-DL` [@eegdl]), we identified **three compounding data leakage pathways** that fully explain why published GCN models report >90 % accuracy:
-1. **Isolated Timepoint Sampling with Cross-Trial Shuffling:** In `main-GCN.py`, each sample is defined as a single timepoint vector (<i>x</i> ∈ ℝ<sup>64 × 1</sup>, <i>F</i><sub>in</sub> = 1). At 160 Hz, a sample spans exactly 6.25 ms. Trials are split by applying `randperm` across the pooled timepoints. Consequently, adjacent timepoints from the *same* 4-second trial appear in both training and test sets. The model simply memorizes trial-specific DC voltages and instantaneous phase, achieving 99.85 % training accuracy while true out-of-sample validation sits at chance.
-2. **Batch Normalization Forced in Training Mode:** In the reference implementation's `b2relu` and `fc` blocks, batch normalization is hardcoded to `training=True` during evaluation. Test batches are normalized against their own instantaneous batch statistics rather than frozen running statistics.
-3. **Transductive Graph Construction:** The Pearson correlation adjacency matrix *A* = |*P*| − *I* is computed over the entire concatenated dataset (training, validation, and test trials pooled) prior to splitting, contaminating graph spectral filters with test set covariance structure.
+#### Evaluation in the GCNs-Net reference code
 
-When these three leakage paths are eliminated—enforcing trial-level stratified splitting, train-only graph construction, and evaluation-mode batch normalization—the methodological reality gap is exposed (Fig. 4). While published leaky pipelines claim >90% accuracy, large-scale unbiased benchmarks in literature (e.g., Vasques et al. [@vasques2026] across 216,714 pipelines) demonstrate that genuine within-subject decoders cap around 65.0% accuracy, confirming that published claims of >90% on EEGMMIDB are artifacts of validation contamination.
+The paper's second author maintains a public implementation, `SuperBruceJia/EEG-DL` [@eegdl]. Reading its GCN pipeline shows three paths by which test information reaches training, each a recognized form of leakage [@kapoor2023]:
+1. **Timepoint samples split at random.** Each sample is a single timepoint across 64 electrodes (6.25 ms at 160 Hz), and the train/test split is a random permutation over all timepoints. Neighbouring, highly correlated timepoints of the *same* trial therefore fall on both sides of the split.
+2. **Batch normalization in training mode at test time.** The normalization layers are hard-coded with `training=True`, so test batches are normalized with their own statistics rather than with statistics learned from training data.
+3. **Graph built from all data.** The correlation adjacency *A* = |*P*| − *I* is computed over the whole pooled dataset before splitting, so test-set covariance enters the graph filters.
 
-![Fig. 4. Methodological audit of data leakage mechanisms identified in published EEG-GNN literature (SuperBruceJia/EEG-DL). Pathway 1: Inter-trial timepoint shuffling destroying continuous epoch boundaries; Pathway 2: Test-time batch normalization operating in training mode with instantaneous test statistics; Pathway 3: Transductive graph estimation over pooled train and test partitions.](../figures/review_2/fig4_leakage_audit_nip.png)
+The code also differs from the paper in its classes: the four classes are left fist, right fist, both feet and *rest*, the last drawn as windows from the eyes-open baseline run, whereas the paper names left fist, right fist, both fists and both feet. The code applies a common average reference and no band-pass filtering.
 
-#### Advances in Dynamic and Spatio-Temporal Graph Models
-Beyond static spectral GCNs, several architectures have addressed graph topology and temporal dynamics:
-- **DGCNN** (Dynamical Graph CNN, Song et al. [@song2020]) dynamically updates the adjacency matrix via backpropagation, learning edge weights as continuous parameters: <i>A</i> = ReLU(<i>W</i><sub>dyn</sub>).
-- **RGNN** (Regularized Graph Neural Network, Zhong et al. [@zhong2020]) regularizes dynamic graph learning by enforcing biological sparsity and topological priors, penalizing deviations from anatomical electrode layouts.
-- **GCN-TCNet** (Musallam et al. [@musallam2021]) and **ST-GCN** (Sun et al. [@sun2021]) integrate graph convolutions with Temporal Convolutional Networks (TCN) or 1D temporal convolutions, recognizing that static spatial graph filters require deep temporal receptive fields.
-- **MHD-GCN** [@deng2025] and **SAMGCN** [@meng2026] introduce multi-level community hierarchies and self-attention to mitigate graph **over-smoothing**—a phenomenon where deep Chebyshev convolutions over dense correlation graphs cause all electrode embeddings to converge to identical representations.
+These observations do not by themselves measure how much each path inflates accuracy, and we cannot confirm that the published 93.06 % was produced by exactly this version of the code. They do establish that the reported figure is not comparable with trial-disjoint benchmarks. For scale, the leakage-controlled benchmark of Vasques et al. reports 0.650 for the best of 216,714 configurations on the *binary* left-versus-right task (chance 0.50) [@vasques2026], whereas 93.06 % is a *four-class* figure (chance 0.25). We found no published evaluation of GCNs-Net on EEGMMIDB under a trial-disjoint split.
+
+![Fig. 4. The three leakage paths in the public EEG-DL reference code: timepoint samples split at random across trials, batch normalization left in training mode at test time, and a correlation graph estimated from pooled training and test data.](../figures/review_2/fig4_leakage_audit_nip.png)
+
+#### Dynamic and spatiotemporal graph models
+
+- **DGCNN** [@song2020] learns the adjacency matrix by backpropagation and operates on per-channel band features such as differential entropy, so power is computed before the graph stage.
+- **RGNN** [@zhong2020] initializes the adjacency from electrode distances with added global connections, learns it under a sparsity penalty, and adds domain-adversarial training; it also operates on per-channel differential-entropy features.
+- **BiLSTM-GCN** [@hou2022], from the same group as GCNs-Net, adds attention-based bidirectional LSTM temporal modelling to the graph backbone and is evaluated on the same dataset; its evaluation split was not examined here.
+- **Adaptive spatiotemporal GCNs** [@sun2021], **MHD-GCN** [@deng2025] and **SAMGCN** [@meng2026] learn graphs adaptively, hierarchically or at several levels. The last two were assessed from abstracts only.
+
+A general risk of deep graph networks is over-smoothing: repeated graph filtering over a dense graph drives node representations towards each other. Six stacked Chebyshev layers over a near-complete 64-node correlation graph, as in GCNs-Net, is such a configuration.
 
 ### 4.4 Riemannian Geometry and Learned Spatial Priors
 
-Riemannian BCI algorithms map spatial covariance matrices <i>S</i> = (1/*T*) <i>X</i> <i>X</i><sup>T</sup> ∈ 𝒮<sub>++</sub><sup><i>C</i></sup> onto the Riemannian manifold of symmetric positive-definite (SPD) matrices under the affine-invariant Riemannian metric (AIRM) [@vasques2026; @eder2024]. Projecting SPD matrices onto the tangent space anchored at the Fréchet geometric mean yields feature vectors that preserve signed inter-channel covariances. In the Vasques et al. benchmark of 216,714 pipeline configurations [@vasques2026], Tangent Space projection with an SVM achieved **0.650** on binary left-versus-right MI, tying with CSP as the highest-performing within-subject paradigm.
+Riemannian methods treat spatial covariance matrices *S* = (1/*T*) *X* *X*<sup>T</sup> as points on the manifold of symmetric positive-definite (SPD) matrices and classify them after projection to a tangent space [@eder2024; @vasques2026]. Tangent-space features preserve signed covariances between channels, so they too combine channels before discarding sign. In the benchmark of Vasques et al. on EEGMMIDB [@vasques2026], the covariance/tangent-space and CSP families perform similarly, at about 0.60 on binary left-versus-right imagery.
 
-Recent deep learning studies incorporate Riemannian and classical priors directly into network layers:
-- **TSMNet** [@kobler2022] combines CNN feature extraction with SPD covariance pooling and domain-specific batch normalization (DSBN), attributing a 3.0–4.5 % gain to the manifold prior.
-- **CSP-Net** [@jiang2024] directly initializes spatial convolutional filters with CSP spatial weights computed on training trials, achieving a 6.0 percentage point gain over random initialization on ShallowConvNet.
+Two recent networks build such priors into deep models:
+- **TSMNet** [@kobler2022] combines convolutional feature extraction with SPD covariance pooling and domain-specific batch normalization (DSBN); in its ablation, removing DSBN costs 2.4–3.9 %.
+- **CSP-Net** [@jiang2024] initializes a network's spatial layer with CSP filters computed on training trials and reports a gain of 6.0 points over a ShallowConvNet backbone averaged over four MI datasets (70.29 % to 76.26 %).
 
-### 4.5 Cross-Subject Transfer, Alignment, and Augmentation
+### 4.5 Cross-Subject Transfer, Alignment and Augmentation
 
-Given that each subject provides only ~45 trials per task, within-subject models suffer from acute sample scarcity [@chevallier2024]. Three methodologies target this constraint:
-- **Cross-Subject Pre-Training:** Xie et al. [@xie2023] implemented multi-task pre-training across external datasets followed by target fine-tuning. LaBraM [@jiang2024b] pre-trained a large transformer on 2,500 hours of multi-dataset EEG.
-- **Euclidean Space Alignment (EA):** He and Wu [@he2020; @wu2025] introduced reference alignment, whitening each subject's trials by their average covariance matrix <i>R̄</i>: <i>X̃</i> = <i>R̄</i><sup>−1/2</sup> <i>X</i>. EA aligns subject distributions into a common space without requiring target labels.
-- **Data Augmentation:** Rommel et al. [@rommel2022] demonstrated that Fourier-transform phase randomization produces up to 45 % relative improvements in low-data regimes, provided that phase perturbations are applied *identically* across channels to preserve spatial phase coherence.
+With about 45 trials per binary problem, subject-dependent models are data-starved. Three families of methods address this:
+- **Cross-subject and cross-dataset pre-training.** Xie et al. [@xie2023] combine multi-task learning with pre-training across datasets before fine-tuning on the target; LaBraM [@jiang2024b] pre-trains a large transformer on about 2,500 hours of EEG.
+- **Euclidean alignment (EA).** He and Wu [@he2020] whiten each subject's trials by the inverse square root of the subject's mean covariance, *X̃* = *R̄*<sup>−1/2</sup> *X*, aligning subjects without target labels; Wu [@wu2025] revisits when and why this works.
+- **Data augmentation.** In a systematic comparison, Rommel et al. [@rommel2022] report improvements of up to 45 % (relative) for some augmentations when training data are scarce.
 
 ## 5. Comparative Analysis
 
-Table 1 summarizes the architectural and operational characteristics of the principal reviewed methods. Table 2 contrasts the seven method families. Table 3 audits evaluation practice and data integrity across decoding studies.
+Table 1 summarizes the operational characteristics of the principal methods, Table 2 compares the seven method families, and Table 3 lists the checks a valid evaluation on EEGMMIDB must pass, against what the GCNs-Net reference code does.
 
-**Table 1.** Characteristics and operational ordering of reviewed decoding architectures.
+**Table 1.** Operational characteristics of the principal reviewed methods. Studies assessed from abstracts only, and those whose pipeline was not examined, are omitted.
 
-| Method | Category | Spatial Model | Where Power Is Taken | Sample Extent | Primary Benchmark Accuracy |
-|---|---|---|---|---|---|
-| **CSP** [@ramoser2000] | Classical | Supervised linear spatial filters | After spatial combination | Trial segment (3–4 s) | 0.624 within-family (EEGMMIDB) |
-| **FBCSP** [@ang2008] | Classical | Sub-band spatial filters | After spatial combination | Trial segment (3–4 s) | Competitive BCI IV-2a benchmark |
-| **EEGNet** [@lawhern2018] | Graph-free CNN | Depthwise spatial convolution | Implicit, after spatial stage | 2.0–4.0 s window | 0.630 within-family (EEGMMIDB) |
-| **ShallowConvNet** [@schirrmeister2017] | Graph-free CNN | Dense spatial convolution (<i>C</i> &times; 1) | After spatial stage (log(mean(<i>x</i><sup>2</sup>))) | 2.0–4.0 s window | 0.673 within-family (EEGMMIDB) |
-| **FBCNet** [@mane2021] | Graph-free CNN | Spatial convolution per sub-band | Variance layer after spatial | Trial window (2–4 s) | SOTA on BCI Competition IV-2a |
-| **GCNs-Net** [@hou2024] | Spectral GCN | Order-2 Chebyshev polynomial | Not computed (voltage classification) | 6.25 ms (1 timepoint) | 0.898 (un-audited leaky protocol) |
-| **BiLSTM-GCN** [@hou2022] | GCN + RNN | Chebyshev conv + BiLSTM | Temporal modeling over graph | Sequence of timepoints | Reports 94.2 % (shuffled split) |
-| **DGCNN** [@song2020] | Dynamic GNN | Graph conv + learnable adjacency | Frequency-band features first | Segment window | High emotion decoding accuracy |
-| **RGNN** [@zhong2020] | Regularized GNN | Topological adjacency + domain reg. | Differential entropy first | 1.0 s segment | Effective cross-subject transfer |
-| **GCN-TCNet** [@musallam2021] | GCN + TCN | Graph conv + dilated temporal conv | After spatio-temporal stage | 2.0–4.0 s window | 72–78 % on BCI IV-2a |
-| **ST-GCN** [@sun2021] | Spatio-Temporal GNN | Interleaved spatial-temporal graph conv | After spatial-temporal blocks | 2.0–3.0 s window | Strong multi-class MI performance |
-| **Tangent Space** [@vasques2026] | Riemannian | SPD manifold tangent projection | Second-order covariance | Trial segment (3–4 s) | 0.650 binary MI (best single pipeline) |
-| **TSMNet** [@kobler2022] | Learned Prior | CNN stem + SPD manifold pooling | After spatial stage | &le; 3.0 s segment | +3.0–4.5 % gain from manifold prior |
-| **CSP-Net** [@jiang2024] | Learned Prior | CSP-initialized spatial weights | After spatial stage | Trial window | +6.0 % over random initialization |
+| Method | Family | Spatial operator | Where power is taken | Input unit |
+|---|---|---|---|---|
+| **CSP** [@ramoser2000] | Classical | Supervised linear spatial filters | After spatial combination | Trial segment |
+| **FBCSP** [@ang2008] | Classical | Spatial filters per sub-band | After spatial combination | Trial segment |
+| **EEGNet** [@lawhern2018] | Graph-free CNN | Depthwise spatial convolution | Implicit, after spatial stage | Trial window |
+| **ShallowConvNet** [@schirrmeister2017] | Graph-free CNN | Dense spatial convolution (*C* × 1) | After spatial stage (log-mean-square) | Trial window |
+| **FBCNet** [@mane2021] | Graph-free CNN | Spatial convolution per band | Variance layer after spatial stage | Trial window |
+| **GCNs-Net** [@hou2024] | Spectral GCN | Chebyshev filters (*K* = 2), 6 layers | Not computed (voltage classified directly) | One timepoint (6.25 ms) |
+| **DGCNN** [@song2020] | Dynamic GNN | Graph convolution, learnable adjacency | Before graph stage (band features) | Segment |
+| **RGNN** [@zhong2020] | Regularized GNN | Distance-initialized, sparsity-regularized adjacency | Before graph stage (differential entropy) | Segment |
+| **Tangent space** [@vasques2026] | Riemannian | Covariance, tangent-space projection | Second-order statistics of signed channels | Trial segment |
+| **TSMNet** [@kobler2022] | Learned prior | CNN + SPD covariance pooling | After spatial stage | Trial segment |
+| **CSP-Net** [@jiang2024] | Learned prior | CSP-initialized spatial layer | After spatial stage | Trial window |
 
-**Table 2.** Comparison of method families across seven core dimensions.
+**Table 2.** Comparison of method families.
 
-| Family | Studies | Primary Strengths | Critical Limitations |
+| Family | Works | Strengths | Limitations |
 |---|---|---|---|
-| **Classical Spatial Filtering** | [@ramoser2000; @blankertz2008; @ang2008] | Strict spatial-then-power ordering; interpretable; effective on few trials | Binary formulation; sensitive to covariance estimation noise; band selection is manual |
-| **Graph-Free Deep Networks** | [@lawhern2018; @schirrmeister2017; @mane2021] | End-to-end differentiable; learn temporal and spatial filters jointly | Sensitive to hyperparameter choices; no explicit structural topology |
-| **Graph Convolutional Networks** | [@hou2024; @hou2022; @song2020; @zhong2020; @musallam2021; @sun2021; @deng2025; @meng2026] | Explicit inter-electrode topology; localized Chebyshev filters; learnable edge weights | Frequently invert spatial/power ordering; over-smoothing at depth; vulnerable to leakage |
-| **Riemannian & Learned Priors** | [@vasques2026; @kobler2022; @jiang2024; @eder2024] | Strongest within-subject benchmarks; affine invariance; robust to scaling | High-dimensional tangent vectors require shrinkage regularisation |
-| **Transfer, Alignment & Augmentation** | [@xie2023; @jiang2024b; @he2020; @wu2025; @rommel2022; @wu2022] | Directly attacks within-subject data scarcity; architecture-agnostic | Target fine-tuning can overfit; per-subject alignment requires stable covariance |
-| **Benchmarks & Evaluation Audits** | [@kapoor2023; @chevallier2024; @vasques2026; @klepl2024; @saibene2024; @page2021] | Rigorous statistical baselines; exposes protocol artifacts and leakage | Benchmarks evaluate fixed pipelines; rarely re-engineer flawed architectures |
-| **Neurophysiology & Infrastructure** | [@pfurtscheller1999; @blankertz2010; @goldberger2000; @schalk2004; @eegdl] | Grounds decoder designs in biophysics; establishes empirical variance bounds | Correlational bounds do not prescribe specific deep learning architectures |
+| **Classical spatial filtering** | [@ramoser2000; @blankertz2008; @ang2008] | Spatial-then-power ordering; interpretable; works with few trials | Binary formulation; sensitive to covariance estimation; band choice |
+| **Graph-free deep networks** | [@lawhern2018; @schirrmeister2017; @mane2021] | Learn temporal and spatial filters jointly | Sensitive to hyperparameters; no explicit electrode topology |
+| **Graph convolutional networks** | [@hou2024; @hou2022; @song2020; @zhong2020; @sun2021; @deng2025; @meng2026; @defferrard2016; @dhillon2007] | Explicit electrode topology; localized filters; learnable edges | Often take power before the graph stage; over-smoothing at depth; evaluation often not trial-disjoint |
+| **Riemannian and learned priors** | [@vasques2026; @kobler2022; @jiang2024; @eder2024] | Strong within-subject results; invariance properties | Tangent vectors are high-dimensional and need regularization |
+| **Transfer, alignment and augmentation** | [@xie2023; @jiang2024b; @he2020; @wu2025; @rommel2022; @wu2022] | Address data scarcity directly; largely architecture-agnostic | Fine-tuning can overfit; alignment needs stable covariance estimates |
+| **Benchmarks and evaluation methodology** | [@kapoor2023; @chevallier2024; @vasques2026; @klepl2024; @saibene2024] | Leakage-controlled reference points; protocol scrutiny | Evaluate fixed pipelines rather than redesigning architectures |
+| **Neurophysiology, datasets and tools** | [@pfurtscheller1999; @blankertz2010; @goldberger2000; @schalk2004; @eegdl] | Ground decoder design in physiology and data | Correlational findings do not prescribe architectures |
 
-**Table 3.** Evaluation practice and data leakage audit across reviewed decoding studies.
+**Table 3.** Checks for a valid subject-dependent evaluation on EEGMMIDB, and what the public GCNs-Net reference code does.
 
-| Study | Sample Unit | Data Partitioning Granularity | Graph Adjacency Fitting Split | Normalization Statistics Split | Test-Time BatchNorm Mode | Reported Task | Valid Comparison to Benchmark? |
-|---|---|---|---|---|---|---|---|
-| **GCNs-Net** [@hou2024; @eegdl] | 1 timepoint (6.25 ms) | Random permutation over timepoints | Pooled data (train + test) | Pooled data (full dataset) | `training=True` (test-batch stats) | 4-class | **No — complete data leakage** |
-| **BiLSTM-GCN** [@hou2022] | Timepoint sequence | Shuffled window split | Pooled data | Pooled data | `training=True` | 4-class | **No — cross-trial contamination** |
-| **EEGNet** [@lawhern2018] | Trial window (2–4 s) | Trial-level stratified K-fold | N/A (graph-free) | Training trials only | Frozen eval statistics | Multi-class | **Yes — valid protocol** |
-| **ShallowConvNet** [@schirrmeister2017] | Trial window (2–4 s) | Trial-level block/session split | N/A (graph-free) | Training trials only | Frozen eval statistics | 4-class | **Yes — valid protocol** |
-| **CSP-Net** [@jiang2024] | Trial window (2–4 s) | Trial-level stratified K-fold | Training trials only | Training trials only | Frozen eval statistics | 2-class / 4-class | **Yes — valid protocol** |
-| **MOABB Benchmark** [@chevallier2024] | Whole trial (3–4 s) | Trial-level cross-validation | Training folds only | Training folds only | Frozen eval statistics | 2-class / 4-class | **Gold standard benchmark** |
-| **Vasques Benchmark** [@vasques2026] | Whole trial (3–4 s) | Trial-level 5-fold cross-validation | Training folds only | Training folds only | Frozen eval statistics | Binary (within-family) | **Gold standard benchmark** |
+| Check | EEG-DL reference code [@eegdl] | Valid protocol requires |
+|---|---|---|
+| Sample unit | One timepoint (6.25 ms) | A window that lies inside one trial |
+| Split unit | Random permutation over timepoints | Trials (or subjects); no trial on both sides |
+| Graph estimated from | Pooled data, including test | Training split only |
+| Batch normalization at test time | Training mode (test-batch statistics) | Evaluation mode (training statistics) |
+| Classes | Left fist, right fist, both feet, rest (baseline run) | The classes named in the paper, stated explicitly |
+| Reported metric | Four-class accuracy | Four-class accuracy decomposed by run family, with within-family accuracy |
 
 ### 5.1 Cross-Cutting Observations
 
-1. **Protocol Artifacts Overwhelm Architectural Differences:** A four-class accuracy of 93.06 % on EEGMMIDB reported by GCNs-Net [@hou2024] sits 28 percentage points above the *best of 216,714 pipeline configurations* (0.650) evaluated by Vasques et al. [@vasques2026]. Because chance on a four-class task is 25 % compared to 50 % on a binary task, this discrepancy cannot be explained by model superiority. As documented in Table 3, it is entirely the mathematical consequence of timepoint-level shuffled splitting, transductive graph computation, and dynamic test batch normalization.
-2. **The Spatial-then-Power Imperative:** The most successful classical and deep models (CSP, ShallowConvNet, FBCNet, Tangent Space) perform spatial combinations on signed, phase-coherent voltages prior to computing variance or log power. Conversely, GNN models that compute power spectral density (PSD) or differential entropy (DE) per channel prior to graph convolutions discard the phase relationships required for destructive interference.
-3. **Data Scarcity Is the Governing Ceiling:** In subject-dependent motor imagery, training on ~45 trials per task leaves deep architectures severely data-starved. Cross-subject pre-training and alignment methods consistently produce larger effect sizes than variations in graph convolution orders or edge sparsity thresholds.
+1. **Protocol differences dominate reported accuracy differences.** The 93.06 % four-class figure for GCNs-Net [@hou2024] and the 0.650 binary figure from the largest leakage-controlled benchmark [@vasques2026] are not on the same scale: they differ in task, chance level and split. The code-level observations in Table 3 are sufficient to make the former incomparable with the latter; until a trial-disjoint evaluation of GCNs-Net is published, its accuracy cannot be placed among the methods in Table 1.
+2. **The best-performing methods under valid protocols are spatial-then-power.** CSP, FBCSP, ShallowConvNet, FBCNet and tangent-space methods all combine signed channels before extracting power. Graph models that compute band power or differential entropy per channel before the graph stage cannot perform cancellation between channels.
+3. **Data scarcity is a structural constraint of the dataset.** With about 45 trials per binary contrast, transfer, alignment and augmentation address the constraint directly. We found no study on EEGMMIDB that compares the size of transfer-learning gains with the size of gains from graph design under the same split.
 
 ## 6. Research Gaps
 
-These observations yield five critical research gaps, summarized in Table 4:
+- **G1 — Incomparable evaluation protocols:** the highest reported graph-model accuracies on EEGMMIDB come from protocols that are not trial-disjoint, and we found no published evaluation of GCNs-Net under both its original protocol and a trial-disjoint one on the same subjects.
+- **G2 — Uncontrolled class–run confound:** four-class results on EEGMMIDB are routinely reported without the run-family decomposition, so they may reward run identification rather than imagery decoding.
+- **G3 — Inverted ordering in graph architectures:** graph models that extract per-channel power before graph filtering discard the sign information that cancellation between channels requires.
+- **G4 — The graph prior is not isolated:** graph models are rarely compared with an unconstrained spatial operator or with a graph-free network under identical splits.
+- **G5 — Transfer learning is rarely applied to graph MI models:** cross-subject pre-training has not been systematically combined with spectral graph architectures [@klepl2024].
 
-- **G1 — Unaudited and Incomparable Evaluation Protocols:** Published graph models report high accuracies under protocols that violate fundamental cross-validation principles. No study has systematically replicated GCNs-Net under both its original leaky protocol and a strictly controlled trial-level protocol on the identical cohort.
-- **G2 — Uncontrolled Class–Run Confound in EEGMMIDB:** Because target pairs occur in disjoint runs, standard four-class metrics reward run identification rather than motor imagery decoding.
-- **G3 — Inverted Operational Ordering in Graph Architectures:** Existing GNNs frequently extract non-linear energy features before spatial graph convolutions, destroying phase cancellation.
-- **G4 — Failure to Isolate the Graph Inductive Bias:** GNN studies rarely compare their graph-constrained operators against an unconstrained dense spatial operator or a graph-free CNN under identical splits and parameter initializations.
-- **G5 — Neglect of Transfer Learning in Graph Motor Imagery:** Cross-subject pre-training has not been systematically integrated into spectral graph architectures to conquer per-subject sample scarcity.
+**Table 4.** Research gaps, supporting literature and the corresponding element of the proposed design.
 
-**Table 4.** Research gaps mapped to supporting evidence and the proposed GBP-Net solutions.
-
-| Gap | Description | Supporting Literature | Proposed Solution in GBP-Net |
+| Gap | Description | Literature | Proposed response |
 |---|---|---|---|
-| **G1** | Incomparable protocols & rampant data leakage | [@hou2024; @eegdl; @kapoor2023] | Strict trial-level stratified splitting; train-only graph and standardizer fitting; frozen evaluation batch normalization |
-| **G2** | Class–run structural confound on EEGMMIDB | [@goldberger2000; @schalk2004] | Mandatory within-family binary evaluation (Left vs. Right; Both Fists vs. Both Feet) alongside four-class metrics |
-| **G3** | Inverted operational ordering | [@ramoser2000; @schirrmeister2017; @mane2021] | Strict spatial-then-power sequence: temporal convolution ⟶ signed Chebyshev graph conv ⟶ band power |
-| **G4** | Unisolated spatial graph contribution | [@klepl2024; @hou2024; @defferrard2016] | Controlled modular comparison against unconstrained spatial operators and graph-free ShallowConvNet |
-| **G5** | Unaddressed within-subject data scarcity | [@chevallier2024; @xie2023; @he2020] | Stage 1 cross-subject pre-training on disjoint cohorts ⟶ Stage 2 per-subject fine-tuning |
+| **G1** | Incomparable protocols; leakage | [@hou2024; @eegdl; @kapoor2023] | Trial-disjoint splits; graph and normalization fitted on training data only; evaluation-mode normalization |
+| **G2** | Class–run confound | [@goldberger2000; @schalk2004] | Within-family accuracy reported alongside four-class accuracy |
+| **G3** | Inverted ordering | [@ramoser2000; @schirrmeister2017; @mane2021] | Temporal filtering, then signed graph convolution, then band power |
+| **G4** | Graph prior not isolated | [@klepl2024; @hou2024; @defferrard2016] | Matched comparison with an unconstrained spatial operator and with graph-free ShallowConvNet |
+| **G5** | Data scarcity | [@xie2023; @he2020; @wu2022] | Subject-disjoint cross-subject pre-training, then per-subject fine-tuning, tested on a graph-free model as well |
 
-## 7. Proposed Work: GBP-Net (A Breakthrough Graph Band-Power Network)
+## 7. Proposed Design: GBP-Net
 
-To resolve gaps G1–G5, we introduce **GBP-Net** (Graph Band-Power Network), an advanced deep graph architecture that unites spectral graph convolutions with neurophysiologically aligned band-power extraction and cross-subject transfer learning (Fig. 5).
+GBP-Net (Graph Band-Power Network) responds to gaps G1–G5 (Fig. 5). Its macro-architecture—temporal filter, spatial filter, square, average, logarithm—is that of ShallowConvNet [@schirrmeister2017]; the ordering is not new. What the design changes is the spatial stage, which becomes a graph convolution, so that the value of the electrode graph can be tested inside an ordering that is known to work (G3, G4).
 
-![Fig. 5. Architectural schematic of the proposed GBP-Net. Stage 1 executes cross-subject pre-training on source cohorts (disjoint from the target). Stage 2 executes leak-free target fine-tuning using a learned temporal filter bank, signed Chebyshev graph convolution, and band-power pooling.](../figures/review_2/fig5_gbpnet.png)
+![Fig. 5. The proposed GBP-Net. Stage 1 pre-trains on source subjects disjoint from the target. Stage 2 fine-tunes on the target subject's own training trials using a learned temporal filter bank, a signed Chebyshev graph convolution and band-power pooling.](../figures/review_2/fig5_gbpnet.png)
 
-### 7.1 Mathematical Formulation of GBP-Net Architecture (G3, G4)
+### 7.1 Architecture (G3, G4)
 
-Each input sample is a multichannel EEG window *X* ∈ ℝ<sup>*C* × *T*</sup> (*C* = 64 electrodes, *T* = 64 timepoints at 160 Hz, corresponding to a 0.40 s window). The processing sequence is rigorously defined as follows:
+Each input is an EEG window *X* ∈ ℝ<sup>*C* × *T*</sup> with *C* = 64 electrodes and *T* = 64 samples (0.40 s at 160 Hz):
 
-1. **Temporal Filter Bank Stage:** A bank of *F<sub>t</sub>* = 40 learnable 1D temporal convolutional filters of kernel length *K<sub>t</sub>* = 25 convolves each channel independently across time, acting as a learned band-pass filter bank:
+1. **Temporal filter bank.** *F<sub>t</sub>* = 40 learnable temporal convolutions of length *K<sub>t</sub>* = 16 samples (100 ms) are applied to every channel, acting as learned band-pass filters:
 <div class="eq"><i>X</i><sup>(1)</sup> &nbsp;=&nbsp; Conv1D(<i>X</i>) &nbsp;∈&nbsp; ℝ<sup><i>F<sub>t</sub></i> × <i>C</i> × <i>T'</i></sup></div>
-This preserves signed, phase-coherent voltages while isolating the sensorimotor mu and beta frequency bands.
+The output is still a signed voltage.
 
-2. **Signed Spectral Graph Convolution Stage:** A Chebyshev spectral graph convolution combines electrode signals across the scalp graph while voltages remain signed:
+2. **Signed graph convolution.** A single Chebyshev graph convolution combines electrodes while the signal is signed:
 <div class="eq"><i>X</i><sup>(2)</sup> &nbsp;=&nbsp; ∑<sub><i>k</i>=0</sub><sup><i>K</i>−1</sup> <i>T<sub>k</sub></i>(<i>L̃</i>) <i>X</i><sup>(1)</sup> Θ<sub><i>k</i></sub> &nbsp;∈&nbsp; ℝ<sup><i>F<sub>s</sub></i> × <i>C</i> × <i>T'</i></sup></div>
-where *K* = 2 is the Chebyshev polynomial order, *L̃* = (2 / *λ*<sub>max</sub>) *L* − *I* is the rescaled normalized Laplacian constructed strictly from training split correlations (*A* = |*P*<sub>train</sub>| − *I*), and Θ<sub>*k*</sub> are learnable spectral filter parameters. By restricting spatial depth to a single layer (*L* = 1) and eliminating node pooling (retaining all 64 electrodes), GBP-Net prevents the catastrophic over-smoothing identified in deep GNNs.
+with *K* = 2, *F<sub>s</sub>* = 40, *L̃* the rescaled Laplacian of *A* = |*P*<sub>train</sub>| − *I* estimated from training trials only, and learnable Θ<sub>*k*</sub>. One layer and no node pooling keep all 64 electrodes and avoid the depth at which over-smoothing arises.
 
-3. **Band-Power Variance Pooling:** Only after spatial combinations are executed is non-linear band power extracted via squaring, temporal averaging, and logarithmic transformation:
-<div class="eq"><i>P</i> &nbsp;=&nbsp; log( <sup>1</sup>/<sub><i>T'</i></sub> ∑<sub><i>t</i>=1</sub><sup><i>T'</i></sup> (<i>X</i><sup>(2)</sup><sub><i>f, c, t</i></sub>)<sup>2</sup> &nbsp;+&nbsp; ε ) &nbsp;∈&nbsp; ℝ<sup><i>F<sub>s</sub> · C</i></sup></div>
-where ε = 10<sup>−6</sup> provides numerical stability.
+3. **Band power.** Power is taken only after spatial combination:
+<div class="eq"><i>P</i> &nbsp;=&nbsp; log( <sup>1</sup>/<sub><i>T'</i></sub> ∑<sub><i>t</i>=1</sub><sup><i>T'</i></sup> (<i>X</i><sup>(2)</sup><sub><i>f, c, t</i></sub>)<sup>2</sup> &nbsp;+&nbsp; ε ), &nbsp; ε = 10<sup>−6</sup></div>
 
-4. **Readout Classification:** A dropout layer (*p* = 0.50) followed by a dense linear layer maps the log band-power vector to class logits:
-<div class="eq"><i>ŷ</i> &nbsp;=&nbsp; Softmax(<i>W<sub>c</sub></i> <i>P</i> + <i>b<sub>c</sub></i>)</div>
+4. **Readout.** Dropout (*p* = 0.5) and a linear layer map *P* to class scores.
 
 ### 7.2 Stage 1: Cross-Subject Pre-Training (G5)
 
-To defeat within-subject data scarcity, GBP-Net employs a group-wise cross-subject pre-training scheme. The 103 subjects are partitioned into 10 disjoint groups. For each target group, a source model is pre-trained exclusively on the pooled trials of the remaining 9 groups (~92 subjects, ~145,000 overlapping windows). **Crucially, no target subject's trials, graph statistics, or normalization scalers are ever present in its corresponding source pre-training set.** 
+The 103 subjects that remain after excluding six with inconsistent recordings are divided into 10 disjoint groups. For each target group, a source model is trained on the other nine groups only, so no trial, graph statistic or normalization statistic of a target subject is ever seen during its pre-training.
 
-### 7.3 Stage 2: Target Subject Fine-Tuning & Leak-Free Evaluation (G1, G2)
+### 7.3 Stage 2: Target Fine-Tuning and Evaluation (G1, G2)
 
-The pre-trained weights initialize the target model, which is then fine-tuned exclusively on the target subject's training trials using a stratified 5-fold cross-validation scheme. All normalisation scalers and graph Laplacians are fitted strictly on training trials. Evaluation records both 4-class accuracy and confound-free within-family binary accuracy.
+The pre-trained weights initialize a model that is fine-tuned on the target subject's training trials under stratified, trial-disjoint 5-fold cross-validation, with the graph and normalization statistics fitted on training trials only. Both four-class and within-family accuracy are recorded.
 
-### 7.4 Theoretical Properties and Inductive Guarantees
+### 7.4 Design Rationale
 
-The proposed GBP-Net framework satisfies four formal theoretical guarantees derived from signal-processing and spectral graph principles:
-
-1. **Preservation of Destructive Spatial Phase Cancellation:** Unlike conventional architectures that extract per-channel energy envelopes prior to graph convolution, GBP-Net operates Chebyshev polynomial filters directly on signed voltages <i>X</i><sup>(1)</sup> &isin; &#x211d;<sup><i>F<sub>t</sub></i> &times; <i>C</i> &times; <i>T'</i></sup>. This guarantees that linear spatial combinations preserve destructive interference across antipodal scalp dipoles, isolating true cortical current sources while canceling common-mode volume-conducted artifacts before non-linear energy pooling (<i>P</i> = log(mean(<i>x</i><sup>2</sup>) + &epsilon;)).
-2. **Mitigation of Graph Over-Smoothing via Flat-K Filtering:** Deep graph neural networks with multiple stacked graph convolution layers suffer from node representation collapse, where Chebyshev filtering drives electrode feature vectors toward a uniform stationary distribution (<i>X</i><sup>(&ell;)</sup> &rarr; <i>c</i> <b>1</b>). GBP-Net strictly bounds spatial depth to a single localized layer (<i>L</i> = 1, <i>K</i> = 2) without node coarsening, preserving all 64 electrode identity channels and avoiding representation degeneracy.
-3. **Strict Inductive Invariance to Unseen Test Distributions:** By fitting the normalized Laplacian <i>L̃</i> exclusively on source training partitions and disallowing test-time batch statistics recalculation, GBP-Net guarantees true out-of-sample inductive generalization, eliminating the transductive contamination prevalent in prior art.
-4. **Information Flow Integrity in Cross-Subject Transfer:** By enforcing completely disjoint subject group boundaries during Stage 1 pre-training, GBP-Net ensures that target subject cortical morphology and baseline offsets remain strictly unseen, providing an uncorrupted foundation for subject-specific fine-tuning.
+1. **Cancellation is possible.** Because the graph convolution acts on signed signals, combinations of electrodes can cancel common-mode activity before power is taken, as in CSP.
+2. **Depth is kept at one graph layer.** This avoids the configuration in which over-smoothing is expected, and makes the graph stage directly comparable with ShallowConvNet's single spatial layer.
+3. **The three leakage paths are closed by construction.** Splits are trial-disjoint, the graph is estimated from training data, and normalization uses training statistics at test time. This removes the identified sources of leakage; it does not by itself guarantee that the model generalizes.
+4. **Transfer is subject-disjoint.** Pre-training never sees the target subjects, so any benefit is a transfer effect rather than leakage.
 
 ## 8. Limitations and Future Scope
 
-### 8.1 Planned Experimental Implementation and Verification Protocol (PW-2 Scope)
+### 8.1 Planned Evaluation
 
-To empirically substantiate the GBP-Net architectural framework formulated in this review, the upcoming Major Project Work-2 (PW-2) implementation phase will execute a rigorous, leak-free benchmarking study:
-1. **Target Benchmark Datasets:** Primary empirical validation will be conducted on the 109-subject PhysioNet EEGMMIDB benchmark (64 channels, 160 Hz, 4-class motor imagery), complemented by cross-dataset evaluation on the 9-subject BCI Competition IV-2a dataset (22 channels, 250 Hz).
-2. **Leak-Free Partitioning Protocol:** Continuous trials will be sliced into non-overlapping evaluation epochs under strict 5-Fold Stratified Cross-Validation (Within-Subject) and Leave-One-Subject-Out (LOSO) Cross-Subject Validation. All standardization parameters, temporal filter banks, and graph Laplacians will be fit strictly within training folds.
-3. **Comparative Baseline Suite:** GBP-Net will be benchmarked against a comprehensive hierarchy of literature baselines: classical spatial filters (CSP+LDA [@ramoser2000], FBCSP [@ang2008]), Riemannian tangent-space classifiers [@vasques2026], compact convolutional networks (EEGNet [@lawhern2018], ShallowConvNet [@schirrmeister2017]), and existing graph architectures (DGCNN [@song2020], GCNs-Net [@hou2024]).
-4. **Confirmatory Metrics & Statistical Rigor:** Evaluation will report 4-Class Classification Accuracy, Cohen’s Kappa (&kappa;), Macro F1-score, and paired Wilcoxon signed-rank tests with bootstrap confidence intervals to verify statistically significant gains over classical and deep baselines without data leakage.
+The design will be tested as follows.
+1. **Data.** EEGMMIDB imagery runs only (runs 4, 6, 8, 10, 12 and 14) for the 103 retained subjects; BCI Competition IV-2a as an optional second dataset.
+2. **Splits.** Trial-disjoint stratified 5-fold cross-validation within subjects; subject-disjoint groups for pre-training; leave-one-subject-out evaluation for the subject-independent setting. Windows from one trial never appear on both sides of a split, and every statistic—graph, normalization, filters—is fitted within training folds.
+3. **Baselines and controls.** CSP with linear discriminant analysis [@ramoser2000], tangent-space classification [@vasques2026], EEGNet [@lawhern2018], ShallowConvNet [@schirrmeister2017] and GCNs-Net [@hou2024] re-run under the same splits. The graph stage will be compared with an unconstrained spatial operator (G4), and pre-training will also be applied to graph-free ShallowConvNet, so that a gain from pre-training is not attributed to the graph architecture (G5).
+4. **Metrics and statistics.** Within-family accuracy as the primary outcome; four-class accuracy only with its run-family decomposition; confusion matrices and per-class accuracy; paired comparisons across subjects with bootstrap confidence intervals, correction for multiple comparisons, and a minimum effect size fixed before the runs.
 
-### 8.2 Critical Discussion & Signal-Processing Nuances
+### 8.2 Open Design Questions
 
-#### Resolving the Window-Length Paradox
-Standard BCI dogma asserts that because ERD/ERS evolves over 1.0–2.0 seconds, decoders must operate on analysis windows of 2.0–4.0 seconds [@schirrmeister2017; @lawhern2018]. However, theoretical signal-processing and neurophysiological principles indicate that **localized sub-second windows (0.40 s) offer decisive architectural advantages over classical multi-second epochs**. This apparent paradox is explained by two factors:
-- **Sliding-Window Sample Augmentation:** Segmenting continuous trials into overlapping 0.40 s windows with a fine stride generates a dense stream of training samples per trial, multiplying gradient updates to stabilize deep graph representations in sample-starved regimes.
-- **Temporal Localization of Transient Desynchronization:** Real-world motor imagery does not exhibit uniform, sustained power depression; rather, it manifests as transient, non-stationary micro-bursts of beta desynchronization. A 4.0 s window averages these sharp bursts over prolonged periods of inactive baseline, diluting signal-to-noise ratio.
-
-#### Estimation Variance of Domain-Specific Normalization (DSBN)
-While domain-specific batch normalization (DSBN) has been praised for unsupervised domain adaptation [@kobler2022], our analysis reveals a critical sample-size caveat. In transfer settings where each source subject provides tens of thousands of samples, per-subject batch statistics *μ<sub>s</sub>*, *σ<sub>s</sub>*<sup>2</sup> are well-conditioned. However, in small-sample target calibration with few calibration windows, single-subject normalization estimates suffer from high sample variance. Pooled batch normalization across background pre-training subjects provides an intrinsically regularized, low-variance estimator that avoids overfitting noisy per-subject statistics.
+- **Window length.** Analysis windows of 2–4 s are conventional [@schirrmeister2017; @lawhern2018]. Short sliding windows yield many more training samples per trial but each sees less of the ERD time course, and overlapping windows from one trial are not independent samples. Which effect dominates on EEGMMIDB is an empirical question to be tested.
+- **Normalization in transfer.** TSMNet reports gains from domain-specific batch normalization [@kobler2022]. With few windows per target subject, per-subject statistics may be noisy; whether DSBN helps under subject-disjoint pre-training on this dataset is to be tested rather than assumed.
 
 ### 8.3 Future Scope
 
-Grounded in the research gaps and architectural findings synthesized in this review, several promising avenues emerge for future exploration:
-
-1. **Cross-Montage and Heterogeneous Graph Transferability:** While GBP-Net currently operates on standard 64-channel 10–20 configurations, future work will benchmark transferability across divergent channel densities (e.g., 22-channel BCI Competition IV-2a and 128-channel High-Gamma datasets). Developing virtual channel interpolation operators and continuous spherical graph neural representations will enable decoders to generalize across non-identical montage geographies without retraining from scratch.
-2. **Zero-Calibration Subject-Adaptive Decoders:** Blankertz et al. [@blankertz2010] demonstrated that resting-state mu rhythm prominence predicts nearly 30 % of inter-subject variance. A compelling future direction is integrating a 2-minute pre-task resting EEG screening into the GBP-Net pipeline to dynamically calibrate regularization strength, learning rate schedules, and model capacity to individual subject aptitude, bringing plug-and-play zero-calibration BCIs closer to reality.
-3. **Edge-Native Deployment and Ultra-Low Latency Inference:** Clinical neurorehabilitation and robotic prosthetic control demand closed-loop latencies below 100 ms. Future work will investigate model quantization (INT8/FP16), structured graph pruning, and causal temporal convolutional kernels for GBP-Net, deploying the pre-trained architecture onto embedded edge processors (e.g., ARM Cortex-M or neuromorphic microcontrollers).
-4. **Self-Supervised Masked Graph Autoencoding:** While GBP-Net employs supervised cross-subject pre-training on 92 subjects, future iterations can harness massive unlabeled multi-paradigm EEG repositories (such as the 2,500-hour corpus leveraged in LaBraM [@jiang2024b]). Developing masked spatial-temporal graph autoencoders capable of reconstructing masked electrode patches will further expand transferability to diverse clinical cohorts.
+1. **Montage transfer:** extending the design to datasets with different electrode counts, such as the 22-channel BCI Competition IV-2a, requires graph operators that do not assume a fixed montage.
+2. **Using resting-state predictors:** since resting mu prominence accounts for about 28 % of between-subject variance [@blankertz2010], a short resting recording could inform per-subject choices such as regularization strength.
+3. **Low-latency deployment:** closed-loop use requires causal filtering and small models suitable for embedded hardware.
+4. **Self-supervised pre-training:** large unlabelled EEG corpora, as used by LaBraM [@jiang2024b], could replace or complement supervised pre-training.
 
 ### 8.4 Limitations of This Review
 
-1. **Benchmark Scope:** Although guided by PRISMA principles, this review focused primarily on the PhysioNet EEGMMIDB dataset, as it serves as the benchmark upon which claims of >90 % accuracy in the graph literature proliferated. While foundational, subsequent investigations should evaluate cross-paradigm generalizability across steady-state visual evoked potentials (SSVEP) and P300 event-related potentials.
-2. **Access to Proprietary Clinical Corpora:** The comparative analysis is bounded by public open-access benchmarks and peer-reviewed codebases. Unaudited proprietary decoders deployed in commercial BCI systems could not be evaluated for data leakage or evaluation protocol integrity.
+1. **Not a systematic review.** Works were identified by citation tracing and targeted searches, not by a single exhaustive query, so relevant studies may have been missed and no screening counts are reported.
+2. **Single-dataset focus.** The analysis concentrates on EEGMMIDB, where the highest graph-model accuracies have been reported; conclusions may not transfer to other datasets or paradigms.
+3. **Code reading, not measurement.** The leakage paths in Section 4.3 were identified by reading one public repository. Their individual effect on accuracy was not measured here, and we cannot confirm that the published results were produced by exactly this code.
+4. **Partial access.** Two recent graph models were assessed from their abstracts only.
 
 ## 9. Conclusion
 
-This critical review reassessed graph convolutional networks for EEG motor imagery decoding. We demonstrated that published accuracies exceeding 90 % on EEGMMIDB reflect severe data leakage—specifically timepoint-level shuffled splits, test-time batch normalization artifacts, and transductive graph construction—compounded by an unaddressed class–run structural confound. We showed that successful decoders fundamentally require a **spatial-then-power** operational sequence to enable destructive phase cancellation across signed voltages. 
+This review reassessed graph neural networks for EEG motor imagery decoding with evaluation protocol as a central axis. The highest reported graph-model accuracies on EEGMMIDB come from a pipeline whose public code splits trials across train and test, normalizes test batches with their own statistics and estimates its graph from all data; those figures cannot be compared with trial-disjoint benchmarks, and the dataset's class–run structure means four-class accuracy must be decomposed before it can be read as imagery decoding. The methods that perform best under valid protocols share a spatial-then-power ordering that many graph models invert. GBP-Net is proposed as a test rather than a claim: it places a graph-constrained spatial stage inside that ordering, adds subject-disjoint pre-training, and is to be evaluated against matched graph-free and unconstrained controls so that any gain can be attributed to the component that produced it.
 
-To overcome these historical vulnerabilities, we introduced **GBP-Net**, an advanced graph band-power architecture that couples Chebyshev spectral graph convolutions with temporal filter banks, spatial-then-power pooling, and cross-subject pre-training. By providing an audited, leak-free blueprint, GBP-Net establishes a rigorous foundation for the next generation of graph-based brain–computer interfaces.
+## Declarations
+
+**Data availability.** No new data were collected. EEGMMIDB is publicly available from PhysioNet [@goldberger2000; @schalk2004], and the reference code discussed in Section 4.3 is publicly available [@eegdl].
+
+**Ethics.** This review analyses published work and public code only; no human participants were recruited.
+
+**Conflicts of interest.** [To be confirmed by the authors.]
+
+**Funding.** [To be confirmed by the authors.]
+
+**Author contributions.** [To be confirmed by the authors.]
 
 <!-- REFERENCES -->

@@ -67,13 +67,11 @@ REFS = {
     "zhong2020": 'P. Zhong, D. Wang, and C. Miao, "EEG-based emotion recognition using regularized '
                  'graph neural networks," <i>IEEE Trans. Affect. Comput.</i>, vol. 13, no. 3, '
                  'pp. 1290–1301, 2022, doi: 10.1109/TAFFC.2020.2994159.',
-    "musallam2021": 'Y. K. Musallam <i>et al.</i>, "Electroencephalography-based motor imagery '
-                    'classification using temporal convolutional network fused with graph '
-                    'convolution," <i>J. Neural Eng.</i>, vol. 18, no. 4, Art. no. 046027, 2021, '
-                    'doi: 10.1088/1741-2552/ac05eb.',
-    "sun2021": 'B. Sun, F. He, J. Zou, and Y. Ke, "Adaptive spatial-temporal graph convolutional '
-               'networks for motor imagery classification," <i>IEEE Trans. Neural Syst. Rehabil. '
-               'Eng.</i>, vol. 30, pp. 1888–1897, 2022, doi: 10.1109/TNSRE.2022.3188561.',
+    # Corrected 2026-11-04 against Crossref: the previous entry had the wrong authors,
+    # journal, volume and a DOI that does not resolve.
+    "sun2021": 'B. Sun, H. Zhang, Z. Wu, Y. Zhang, and T. Li, "Adaptive spatiotemporal graph '
+               'convolutional networks for motor imagery classification," <i>IEEE Signal '
+               'Process. Lett.</i>, vol. 28, pp. 219–223, 2021, doi: 10.1109/LSP.2021.3049683.',
     "deng2025": 'X. Deng, D. Xu, H. Huo, X. Hong, and B. Liu, "Multi-level hierarchical dynamic '
                 'graph convolutional networks for motor imagery EEG analysis," '
                 '<i>Neurocomputing</i>, vol. 626, Art. no. 129594, 2025, '
@@ -102,9 +100,6 @@ REFS = {
                 'algorithms: Riemannian approaches vs convolutional neural networks," <i>J. '
                 'Neural Eng.</i>, vol. 21, no. 4, Art. no. 044002, 2024, '
                 'doi: 10.1088/1741-2552/ad6793.',
-    "page2021": 'M. J. Page <i>et al.</i>, "The PRISMA 2020 statement: An updated guideline for '
-                'reporting systematic reviews," <i>BMJ</i>, vol. 372, Art. no. n71, 2021, '
-                'doi: 10.1136/bmj.n71.',
     "goldberger2000": 'A. L. Goldberger <i>et al.</i>, "PhysioBank, PhysioToolkit, and PhysioNet: '
                       'Components of a new research resource for complex physiologic signals," '
                       '<i>Circulation</i>, vol. 101, no. 23, pp. e215–e220, 2000, '

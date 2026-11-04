@@ -2,7 +2,7 @@
 
 ## Project Context
 
-Building an improved graph convolutional network for EEG motor imagery decoding, based on **GCNs-Net** (Hou et al., IEEE TNNLS 2022).
+Building an improved graph convolutional network for EEG motor imagery decoding, based on **GCNs-Net** (Hou et al., IEEE TNNLS 35(6), 2024; online 2022).
 
 **Base architecture:** Spectral GCN — Pearson correlation adjacency → normalized graph Laplacian → Chebyshev polynomial filters (K=2) → Graclus graph coarsening/pooling → softmax. 6 graph-conv layers + 6 pooling layers. 4-class output.
 

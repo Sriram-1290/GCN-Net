@@ -3787,7 +3787,40 @@ ShallowConvNet.
   3. **"93 % → 50.9 %, a 42-point collapse"** sets a four-class subject-level figure against
      a binary within-family one. The 2026-09-20 entry already notes the comparable form
      for the 0.650 benchmark; the same care is missing here.
-  4. Nothing since commit `f596cca` (2026-09-20) is committed.
+  4. Nothing since commit `f596cca` (2026-09-20) is committed. *(Resolved the same day:
+     commits `d920d45` and `8856ab3`.)*
+- **Decision: the review paper submitted before Review-2 is the "no implementation"
+  version, and every experimental result is kept for a separate research paper** built from
+  `PAPER.md`. Publishing the measurements inside a review without a methods section would
+  invite rejection and could count as prior publication of the research paper's results.
+  `REVIEW_PAPER_2.md` (with results) is superseded and stays as presented.
+- **`REVIEW_PAPER_NIP.md` rewritten for journal submission.** A full audit against the record
+  and Crossref found, beyond issues 1–3 above:
+  - **Two references with invented details.** *musallam2021* had a title ("…fused with
+    graph convolution"), journal and DOI that do not exist; the real Musallam et al. 2021 is
+    TCNet-Fusion (*BSPC* 69:102826), not a graph model, so the "GCN-TCNet" entry built on it
+    was removed along with the reference. *sun2021* had wrong authors, journal, volume and a
+    non-resolving DOI; corrected to *IEEE SPL* 28:219–223, doi 10.1109/LSP.2021.3049683.
+  - **A PRISMA claim and database searches that contradicted `REVIEW_PAPER.md`**, which
+    states the review is not systematic. Replaced with the honest citation-tracing method;
+    the PRISMA reference was dropped. References 36 → 34; Figs. 1–2 regenerated.
+  - Own measurements (0.624, 0.630, 0.673, 0.898) presented under other papers' citations;
+    TSMNet's gain misquoted (record: 2.4–3.9 % from DSBN); BiLSTM-GCN's 94.2 % and code-level
+    claims unsupported; "genuine decoders cap around 65 %" (ShallowConvNet's 0.6608 L-vs-R
+    already exceeds it); "four formal theoretical guarantees" with no proofs; a temporal
+    kernel of 25 where the model uses 16 for a 64-sample window; a plan that omitted the
+    within-family metric G2 calls mandatory.
+  - The rewrite cites only published figures and dataset/code facts, describes the EEG-DL
+    findings as a code reading whose effect was not measured, states that GBP-Net's
+    macro-architecture is ShallowConvNet's, adds a planned graph-free pre-training control,
+    removes college-specific wording, and adds declarations (three marked "to be confirmed
+    by the authors"). Fig. 4 (NIP) text narrowed to what a code reading supports.
+  - Rebuilt: `Review-Paper-NIP.pdf` 11 pages, 34 references; one-page analysis updated
+    (34 works) and still one page. 337 tests pass.
+- **Still open:** the Review-1 decks and speech guides (both variants) carry the issues
+  listed by the deck audit — the 65 % comparison, "breakthrough", the 42-point mixed-metric
+  claim, a Slide 9 architecture the model does not have, wrong preprocessing/stack/statistics
+  details, and deck-order problems. To be corrected when the Review-2 format is known.
 
 ### 2026-09-20
 

@@ -1,7 +1,7 @@
-"""Figures for Review Paper 2, drawn from 36 surveyed studies.
+"""Figures for Review Paper 2, drawn from 34 reviewed works.
 
 Generates:
-  figures/review_2/fig1_taxonomy.png  - Systematic taxonomy of 36 studies across 7 categories
+  figures/review_2/fig1_taxonomy.png  - Taxonomy of 34 works across 7 categories
   figures/review_2/fig2_years.png     - Chronological distribution across categories (2000-2026)
   figures/review_2/fig3_ordering.png  - Operational ordering: power-then-spatial vs spatial-then-power
   figures/review_2/fig4_gbpnet.png    - Proposed GBP-Net: cross-subject pre-training & spatial-then-power graph pipeline
@@ -26,11 +26,11 @@ plt.rcParams.update({
 })
 INK, SOFT, ACCENT, FILL, HIGHLIGHT = "#1b1b1f", "#55555c", "#8a2d2d", "#f4f1f1", "#2d5a8a"
 
-# 36 studies grouped into 7 categories
+# 34 works grouped into 7 categories (Musallam 2021 and Page 2021 removed 2026-11-04)
 CATS_2 = [
     ("Graph convolutional\nnetworks", [
         ("Hou", 2024), ("Hou", 2022), ("Song", 2020), ("Zhong", 2020),
-        ("Musallam", 2021), ("Sun", 2021), ("Defferrard", 2016), ("Dhillon", 2007),
+        ("Sun", 2021), ("Defferrard", 2016), ("Dhillon", 2007),
         ("Deng", 2025), ("Meng", 2026)
     ]),
     ("Classical spatial\nfiltering", [
@@ -48,7 +48,7 @@ CATS_2 = [
     ]),
     ("Benchmarks and\nevaluation methodology", [
         ("Kapoor", 2023), ("Chevallier", 2024), ("Vasques", 2026),
-        ("Klepl", 2024), ("Saibene", 2024), ("Page", 2021)
+        ("Klepl", 2024), ("Saibene", 2024)
     ]),
     ("Neurophysiology,\ndatasets and tools", [
         ("Pfurtscheller", 1999), ("Blankertz", 2010), ("Schalk", 2004),
@@ -56,7 +56,7 @@ CATS_2 = [
     ]),
 ]
 TOTAL_PAPERS = sum(len(p) for _, p in CATS_2)
-assert TOTAL_PAPERS == 36, f"Total papers count is {TOTAL_PAPERS}"
+assert TOTAL_PAPERS == 34, f"Total papers count is {TOTAL_PAPERS}"
 
 
 def box(ax, x, y, w, h, text, *, fc="white", ec=INK, lw=0.7, weight="normal", size=8.2, color=INK):
@@ -77,7 +77,7 @@ def fig_taxonomy():
     ax.set_ylim(0, 1)
     ax.axis("off")
     
-    box(ax, 0, 0.38, 0.17, 0.24, "Reviewed studies\non EEG motor\nimagery decoding\n(PRISMA-guided,\n n = 36)",
+    box(ax, 0, 0.38, 0.17, 0.24, "Reviewed works\non EEG motor\nimagery decoding\n(n = 34)",
         fc=FILL, ec=ACCENT, weight="bold", size=8)
     
     n = len(CATS_2)
@@ -162,7 +162,7 @@ def fig_gbpnet():
     ax.axis("off")
 
     # Title & Stage 1
-    ax.text(0, 3.9, "Stage 1 — Cross-Subject Pre-Training (Conquering Data Scarcity)", fontsize=8.2, weight="bold", color=INK)
+    ax.text(0, 3.9, "Stage 1 — Cross-Subject Pre-Training (Addressing Data Scarcity)", fontsize=8.2, weight="bold", color=INK)
     box(ax, 0.2, 2.6, 2.5, 1.05, "Source Subjects\n(All groups except target's;\n10-fold split)", size=7.0, fc=FILL)
     arrow(ax, 2.7, 3.12, 3.3, 3.12)
     box(ax, 3.3, 2.6, 3.5, 1.05, "GBP-Net Pre-Training\n(Graph & standardizer fitted strictly\non pooled source data)", size=7.0, fc="#eef4fa", ec=HIGHLIGHT)
@@ -296,9 +296,9 @@ def fig_leakage_audit_nip():
     ax.set_ylim(0, 10)
     ax.axis("off")
 
-    ax.text(5.0, 9.6, "Methodological Audit: Three Compounding Data Leakage Pathways in EEG-GNN Literature",
+    ax.text(5.0, 9.6, "Methodological Audit: Three Data Leakage Paths in the EEG-DL Reference Code",
             fontsize=8.5, weight="bold", color=ACCENT, ha="center")
-    ax.text(5.0, 9.15, "Systematic deconstruction of validation pitfalls identified in reference codebase (SuperBruceJia/EEG-DL; Hou et al., 2024)",
+    ax.text(5.0, 9.15, "Identified by reading the public implementation associated with GCNs-Net (SuperBruceJia/EEG-DL; Hou et al., 2024)",
             fontsize=7.0, style="italic", color=SOFT, ha="center")
 
     # Column 1: Timepoint Shuffling
@@ -312,13 +312,12 @@ def fig_leakage_audit_nip():
         "  Adjacent timepoints (t and t+1) from the\n"
         "  same continuous 4-second motor imagery\n"
         "  trial split across training and test folds.\n\n"
-        "• Failure Mechanism:\n"
-        "  EEG exhibits strong continuous temporal\n"
-        "  autocorrelation and trial-specific DC offsets.\n"
-        "  The network interpolates unseen test labels\n"
-        "  via memorization rather than learning true\n"
-        "  sensorimotor rhythm dynamics.\n\n"
-        "• Rigorous Reformulation:\n"
+        "• Why it leaks:\n"
+        "  EEG is strongly autocorrelated, so every test\n"
+        "  sample has near-duplicates in training. Accuracy\n"
+        "  then measures recognition of seen trials, not\n"
+        "  decoding of new ones.\n\n"
+        "• Correct practice:\n"
         "  Strict trial-level (epoch-level) stratified\n"
         "  splitting with continuous temporal windows.",
         fc=FILL, ec=ACCENT, size=6.2)
@@ -328,21 +327,20 @@ def fig_leakage_audit_nip():
         "Pathway 2: Test-Time BatchNorm in Training Mode\n\n"
         "• Formulation Flaw:\n"
         "  Normalization layers (b2relu, fc blocks)\n"
-        "  hardcoded to training=True during evaluation;\n"
-        "  running statistics tracking disabled.\n\n"
+        "  hardcoded to training=True during evaluation.\n\n"
         "• Consequence:\n"
         "  Inference mini-batches are standardized using\n"
         "  instantaneous test-batch statistics:\n"
         "  μ_test = mean(X_test), σ_test = std(X_test)\n"
         "  instead of frozen training statistics (μ_train, σ_train).\n\n"
-        "• Failure Mechanism:\n"
-        "  The model peeks into collective test-set\n"
-        "  class distributions during inference, artificially\n"
-        "  aligning test representations and masking\n"
-        "  domain shift and covariate drift.\n\n"
-        "• Rigorous Reformulation:\n"
-        "  Strict eval mode; batch statistics frozen\n"
-        "  from training data; or Domain-Specific BN (DSBN).",
+        "• Why it leaks:\n"
+        "  Each test sample is normalized using the other\n"
+        "  test samples in its batch, so predictions depend\n"
+        "  on the test set and can absorb shifts between\n"
+        "  training and test data.\n\n"
+        "• Correct practice:\n"
+        "  Evaluation mode at test time, using\n"
+        "  statistics learned from training data.",
         fc=FILL, ec=ACCENT, size=6.2)
 
     # Column 3: Transductive Graph
@@ -356,11 +354,11 @@ def fig_leakage_audit_nip():
         "  Test-trial covariance structures leak directly\n"
         "  into Chebyshev spectral polynomial filters:\n"
         "  g_θ(L̃) = ∑ θ_k T_k(L̃).\n\n"
-        "• Failure Mechanism:\n"
-        "  Spectral filters are pre-adapted to the geometric\n"
-        "  relationships of test data, violating inductive\n"
-        "  generalization to unseen recordings.\n\n"
-        "• Rigorous Reformulation:\n"
+        "• Why it leaks:\n"
+        "  The graph filters are shaped by the test data's\n"
+        "  correlation structure, so the model is not\n"
+        "  evaluated on data it has never seen.\n\n"
+        "• Correct practice:\n"
         "  Adjacency and Laplacian estimated strictly on\n"
         "  training trials, or computed dynamically per\n"
         "  individual trial window without leakage.",
