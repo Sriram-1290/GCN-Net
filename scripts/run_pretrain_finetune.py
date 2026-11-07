@@ -60,6 +60,32 @@ leakage guarantee is unchanged and a target still draws on ~92 source subjects.
 The run prints each group's elapsed time. **Check the first one against the estimate
 before walking away** — that is the check error 24 skipped. `--resume` is keyed on
 (subject, fold) as everywhere else.
+
+Zero-shot scoring and Euclidean alignment (9.26 A1 and A6)
+----------------------------------------------------------
+``--zero-shot`` scores each target with its group's source model and fine-tunes
+nothing: one row per target (``fold`` is ``None``), ``finetune_epochs`` 0. It is the
+subject-independent arm of A6 and, with ``--classes`` omitted, A1's 4-class arm, whose
+rows also carry ``confusion_excl_calibration`` (the trials outside runs 4 and 6) so A1
+can be compared with A6 on the same trials.
+
+``--calibration-run-excluded`` never scores the task's calibration run: run 4 for the
+fist family (classes 0/1), run 6 for the fists-vs-feet family (classes 2/3). A6
+excludes it in **both** arms, with and without EA, so the arms are paired (Review Focus
+2); with ``--ea pseudo-online`` that run is the target's EA reference.
+
+``--ea`` aligns the band-passed trials before windowing (``data/alignment.py``). Each
+source subject is aligned to the reference of its own trials. The target's reference:
+
+* ``pseudo-online`` (``--zero-shot``): its calibration run only;
+* ``offline`` (``--zero-shot``): all its trials -- TRANSDUCTIVE, logged as such;
+* ``train-fold`` (fine-tuning): the fold's training trials only; the fold's test trials
+  are aligned with that reference and never contribute to it.
+
+No test trial enters a reference anywhere except the labelled transductive variant.
+None of the three options enters the source cache key except ``ea``, which records
+how the *sources* were aligned (identical for every EA mode), and only when set: an
+unaligned run keeps every existing key, so A6's no-EA arm reuses PTG-shallow's models.
 """
 
 from __future__ import annotations
@@ -78,16 +104,19 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from data.alignment import EAReference, align, fit_ea  # noqa: E402
 from data.cache import load_subject, read_manifest  # noqa: E402
 from data.config import all_subjects, load_config  # noqa: E402
 from data.montage import CONDITIONS, common_average, region_vector  # noqa: E402
 from data.splits import stratified_trial_kfold  # noqa: E402
 from evaluation.experiment_log import (  # noqa: E402
     completed_keys, describe_resume, log_experiment, set_seed)
-from evaluation.pipeline import Samples, Trials, concat_trials, prepare_fold  # noqa: E402
+from evaluation.pipeline import (  # noqa: E402
+    Samples, Trials, concat_trials, prepare_fold, to_timepoint_samples, to_window_samples)
 from evaluation.robustness import (  # noqa: E402
     completed_with_conditions, condition_row, condition_tag, evaluate_conditions)
 from evaluation.trainer import TrainConfig, Trainer  # noqa: E402
+from graphs.coarsening import perm_data  # noqa: E402
 from graphs.subset import Moments, moments, subset_representation  # noqa: E402
 
 
@@ -188,6 +217,121 @@ def provenance_fields(args) -> dict:
     if args.source_tag and args.source_tag != args.tag:
         extra["source_tag"] = args.source_tag
     return extra
+
+
+# ------------------------------------------- zero-shot scoring and EA (9.26 A1, A6)
+
+#: Run family of each class: classes 0/1 (left, right fist) come only from runs
+#: 4/8/12, classes 2/3 (both fists, both feet) only from runs 6/10/14.
+CLASS_FAMILY = (0, 0, 1, 1)
+#: Earliest imagery run of each family: the pseudo-online calibration run.
+FAMILY_CALIBRATION_RUN = (4, 6)
+#: Where the target's EA reference comes from, per ``--ea`` mode (logged).
+EA_REFERENCE = {"pseudo-online": "calibration_run", "offline": "all_target_trials",
+                "train-fold": "training_fold"}
+
+
+def calibration_runs(classes) -> tuple[int, ...]:
+    """The task's calibration run(s): the earliest run of each family its classes
+    come from. ``(4,)`` for classes 0/1, ``(6,)`` for 2/3, ``(4, 6)`` for 4-class."""
+    wanted = range(len(CLASS_FAMILY)) if not classes else classes
+    return tuple(sorted({FAMILY_CALIBRATION_RUN[CLASS_FAMILY[c]] for c in wanted}))
+
+
+def scored_trials(runs: np.ndarray, excluded) -> np.ndarray:
+    """Indices of the trials whose run is not in ``excluded``; these are scored."""
+    keep = np.flatnonzero(~np.isin(runs, list(excluded)))
+    if not len(keep):
+        raise RuntimeError(f"no trial left to score once runs {list(excluded)} are "
+                           f"excluded")
+    return keep
+
+
+def target_reference_indices(runs: np.ndarray, classes, mode: str,
+                             train_idx=None) -> np.ndarray:
+    """The ONE target's trials its EA reference is estimated from.
+
+    ``pseudo-online``: the calibration run only, which is then never scored.
+    ``train-fold``: the fold's training trials only (``train_idx``), never a test
+    trial. ``offline``: every trial -- the labelled transductive variant, the single
+    exception to "references from training data only" (9.26 A6).
+    """
+    if mode == "pseudo-online":
+        idx = np.flatnonzero(np.isin(runs, calibration_runs(classes)))
+    elif mode == "offline":
+        idx = np.arange(len(runs))
+    elif mode == "train-fold":
+        if train_idx is None:
+            raise ValueError("train-fold needs the fold's training indices")
+        idx = np.asarray(train_idx)
+    else:
+        raise ValueError(f"no target EA reference for mode {mode!r}")
+    if not len(idx):
+        raise RuntimeError(f"no trial to estimate the {mode} EA reference from")
+    return idx
+
+
+def align_each(parts: list[Trials]) -> Trials:
+    """Pool subjects, each aligned to the reference of its own trials (EA sources).
+
+    Filled into one preallocated array rather than concatenating aligned copies, so
+    the pooled source set (~0.7 GB) never exists twice in host memory.
+    """
+    if not parts:
+        raise ValueError("cannot pool zero subjects")
+    X = np.empty((sum(len(p) for p in parts), *parts[0].X.shape[1:]), dtype=np.float32)
+    i = 0
+    for p in parts:
+        X[i:i + len(p)] = align(p.X, fit_ea(p.X).W)
+        i += len(p)
+    return Trials(X=X, y=np.concatenate([p.y for p in parts]))
+
+
+def target_windows(prepared, X: np.ndarray, y: np.ndarray, offset: int,
+                   window: int, stride: int) -> Samples:
+    """Window one target's trials exactly as ``prepare_fold`` windows its test split.
+
+    The zero-shot and EA paths transform each target on its own, because under EA
+    each target has its own alignment. Only the fold's SOURCE-fitted standardiser
+    (and node permutation, for graph folds) is applied; nothing is fitted here.
+    test_target_windows_match_the_group_windows pins this against prepare_fold.
+    """
+    Z = prepared.standardizer.apply(X)
+    if prepared.bases:
+        Z = perm_data(Z, prepared.perm)
+    if window == 1 and stride == 1:
+        return to_timepoint_samples(Z, y, trial_offset=offset)
+    return to_window_samples(Z, y, window, stride, trial_offset=offset)
+
+
+def score_samples(trainer, samples: Samples) -> dict:
+    """Score windows with a fitted model: the one place zero-shot targets are scored.
+
+    A named function so the tests can see exactly which trials reach scoring
+    (Review Focus 2: under --calibration-run-excluded, never one of run 4 or 6).
+    """
+    if len(samples) == 0:
+        raise RuntimeError("asked to score zero windows")
+    return trainer.evaluate_samples(samples)
+
+
+def alignment_fields(args) -> dict:
+    """Log-row fields of the Phase A options, on every row of a run that uses one.
+
+    Empty on the default path, like :func:`provenance_fields`, so existing arms keep
+    exactly their old keys.
+    """
+    if not (args.zero_shot or args.calibration_run_excluded or args.ea != "none"):
+        return {}
+    return {"ea": args.ea, "zero_shot": args.zero_shot,
+            "calibration_run_excluded": args.calibration_run_excluded,
+            "transductive": args.ea == "offline",
+            "ea_reference": EA_REFERENCE.get(args.ea)}
+
+
+def ea_fields(ref: EAReference | None) -> dict:
+    """The fitted target reference's rank and size, when there is one."""
+    return {} if ref is None else {"ea_rank": ref.rank, "ea_n_trials": ref.n_trials}
 
 
 def sum_moments(parts: list[Moments]) -> Moments:
@@ -337,6 +481,14 @@ def source_cache_key(args, seed: int, group_idx: int,
         # fingerprint) would orphan the cached ROB1-chebrp source models, so it is left
         # as is; the fingerprint is logged on every row (`noref_fingerprint`) instead.
         fields["noref_config"] = str(args.noref_config)
+    # "ea" likewise only when set (getattr: namespaces predating the option lack it).
+    # It records how the SOURCES were aligned -- each subject to its own trials -- which
+    # is the same for every EA mode, so the fine-tuned arm (train-fold) reuses the
+    # zero-shot arm's (pseudo-online) EA source models. The target's reference never
+    # touches the source weights, so it is not hashed; nor are --zero-shot and
+    # --calibration-run-excluded, which only change what is scored.
+    if getattr(args, "ea", "none") != "none":
+        fields["ea"] = "each-source-subject-own-trials"
     payload = json.dumps(fields, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
@@ -425,9 +577,54 @@ def main() -> int:
                          "row per condition under '<tag>.<condition>'. --model shallow "
                          "(interpolation repair) or --model graphbp --readout region "
                          "(subset graph). Reads the no-reference cache (--noref-config)")
+    ap.add_argument("--zero-shot", action="store_true",
+                    help="score each target with its group's source model WITHOUT "
+                         "fine-tuning (9.26 A1, A6): one row per target, "
+                         "finetune_epochs 0. Not part of the source cache key, so "
+                         "--source-tag can reuse another arm's models")
+    ap.add_argument("--calibration-run-excluded", action="store_true",
+                    help="--zero-shot only: never score the task's calibration run "
+                         "(run 4 for classes 0/1, run 6 for classes 2/3, both without "
+                         "--classes). A6 excludes it in both arms so they stay paired; "
+                         "under --ea pseudo-online it is the target's EA reference")
+    ap.add_argument("--ea", choices=["none", "pseudo-online", "offline", "train-fold"],
+                    default="none",
+                    help="Euclidean alignment of the band-passed trials, before "
+                         "windowing. Every source subject is aligned to its own trials. "
+                         "Target reference: pseudo-online = its calibration run "
+                         "(--zero-shot --calibration-run-excluded); offline = all its "
+                         "trials (--zero-shot; TRANSDUCTIVE, logged as such); "
+                         "train-fold = the fold's training trials, test trials aligned "
+                         "with it (fine-tuning)")
+    ap.add_argument("--require-source-cache", action="store_true",
+                    help="fail instead of pre-training when a group's source model is "
+                         "not cached: for arms defined as reusing cached models (A6's "
+                         "no-EA arm scores PTG-shallow's)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
+    # Phase A options (9.26 A1, A6), checked before any data is loaded.
+    if args.zero_shot and args.no_pretrain:
+        ap.error("--zero-shot scores the pre-trained source model; with --no-pretrain "
+                 "there is nothing to score")
+    if args.zero_shot and (args.robustness or args.dsbn):
+        ap.error("--zero-shot is not defined with --robustness or --dsbn")
+    if args.calibration_run_excluded and not args.zero_shot:
+        ap.error("--calibration-run-excluded applies to --zero-shot only; fine-tuned "
+                 "arms score every trial, as PTG-shallow did")
+    if args.ea in ("pseudo-online", "offline") and not args.zero_shot:
+        ap.error(f"--ea {args.ea} is a zero-shot target reference; fine-tuning takes "
+                 f"its reference from the training fold (--ea train-fold)")
+    if args.ea == "train-fold" and args.zero_shot:
+        ap.error("--ea train-fold is for fine-tuning; a zero-shot target has no "
+                 "training fold (use pseudo-online or offline)")
+    if args.ea == "pseudo-online" and not args.calibration_run_excluded:
+        ap.error("--ea pseudo-online takes the target's reference from its calibration "
+                 "run, which must then never be scored: add --calibration-run-excluded")
+    if args.ea != "none" and (args.dsbn or args.robustness or args.readout != "flat"):
+        ap.error("--ea is not defined with --dsbn, --robustness or --readout region")
+    if args.require_source_cache and (args.no_pretrain or not args.source_cache):
+        ap.error("--require-source-cache needs pre-training and a --source-cache")
 
     import datetime as dt
     cfg = load_config(args.config)
@@ -468,13 +665,18 @@ def main() -> int:
 
     print(f"loading {len(subjects)} subjects...", flush=True)
     trials: dict[str, Trials] = {}
+    # The run of every kept trial: what --calibration-run-excluded and the pseudo-online
+    # EA reference select on, and what A1's second confusion matrix is computed over.
+    runs: dict[str, np.ndarray] = {}
     for s in subjects:
         ep = load_subject(s, cfg.dataset.cache_dir)
-        X, y = ep.X, ep.y
+        X, y, run = ep.X, ep.y, np.asarray(ep.run)
         if args.classes:
             mask = np.isin(y, args.classes)
             X, y = X[mask], (y[mask] == args.classes[1]).astype(np.int64)
+            run = run[mask]
         trials[s] = Trials(X=X, y=y)
+        runs[s] = run
     sfreq = ep.sfreq
 
     # Region readout: the graph is fit on NO-REFERENCE data so that it can be rebuilt
@@ -520,8 +722,23 @@ def main() -> int:
                           f"{args.pretrain_epochs} epochs @ {args.pretrain_lr}, "
                           f"{len(groups)} group(s) of <= {max(len(g) for g in groups)} "
                           f"targets, ~{n_src} source subjects each"))
-    print(f"FINE-TUNE {args.finetune_epochs} epochs @ {args.finetune_lr} "
-          f"on the target's training folds\n")
+    excluded_runs = calibration_runs(args.classes) if args.calibration_run_excluded else ()
+    if args.zero_shot:
+        print("ZERO-SHOT: each target scored with its group's source model, no "
+              "fine-tuning" + (f"; run(s) {list(excluded_runs)} never scored"
+                               if excluded_runs else "") + "\n")
+    else:
+        print(f"FINE-TUNE {args.finetune_epochs} epochs @ {args.finetune_lr} "
+              f"on the target's training folds\n")
+    if args.ea != "none":
+        print(f"EA: each source subject aligned to its own trials; targets to "
+              f"{EA_REFERENCE[args.ea]}"
+              + (" (TRANSDUCTIVE)" if args.ea == "offline" else "") + "\n")
+    # A zero-shot target has one row and no fold; its resume key is (subject, None).
+    fold_ids = [None] if args.zero_shot else list(range(args.folds))
+    # Zero-shot and EA targets are windowed one at a time (each may have its own
+    # alignment), so the group is not windowed as one test split.
+    per_target = args.zero_shot or args.ea != "none"
 
     done = resume_keys(args.log, args.tag, args.robustness) if args.resume else set()
     # Per tag as well, so a fold re-run after a partial write logs only the rows that
@@ -534,14 +751,14 @@ def main() -> int:
         # Count only keys of the requested targets: under --targets the log may hold
         # other subjects' rows, which would read as "130 of 100".
         print(describe_resume({k for k in done if k[0] in target_set},
-                              len(target_set) * args.folds, args.tag))
+                              len(target_set) * len(fold_ids), args.tag))
 
     per_subject: list[float] = []
     t0 = time.time()
 
     for gi, group, source in plan:
         if all((t, f) in done for t in group if t in target_set
-               for f in range(args.folds)):
+               for f in fold_ids):
             continue
         if deadline is not None and dt.datetime.now() >= deadline:
             print(f"\nreached --stop-at {args.stop_at}; stopping cleanly before "
@@ -553,8 +770,11 @@ def main() -> int:
         # source set: not their trials, not the graph, not the standardiser.
         # (`source` comes from plan_groups: every subject outside the group.)
         val_pick = pick_validation(source, seed, gi, args.val_subjects)
-        src_train = concat_trials([trials[s] for s in source if s not in val_pick])
-        src_val = concat_trials([trials[s] for s in val_pick])
+        # Under --ea every source subject (training and validation alike) is aligned to
+        # the reference of its own trials before anything is fitted on it.
+        pool = align_each if args.ea != "none" else concat_trials
+        src_train = pool([trials[s] for s in source if s not in val_pick])
+        src_val = pool([trials[s] for s in val_pick])
 
         # One representation for both phases: graph and standardiser fit on SOURCE.
         # The group's trials are the "test" argument purely so they are transformed by
@@ -562,6 +782,13 @@ def main() -> int:
         # so each target occupies a known contiguous span of trial ids.
         group_trials = [trials[t] for t in group]
         offsets = np.cumsum([0] + [len(t) for t in group_trials])
+        # Zero-shot and EA targets are windowed one at a time below (target_windows),
+        # with the same ids, so the group's split is empty here and never windowed.
+        # A fresh empty array, not src_train.X[:0]: a view would keep the whole source
+        # array alive past the `del` below.
+        group_test = (Trials(X=np.empty((0, *src_train.X.shape[1:]), np.float32),
+                             y=np.empty(0, np.int64)) if per_target
+                      else concat_trials(group_trials))
 
         cache_path = None
         if not args.no_pretrain and args.source_cache:
@@ -577,9 +804,13 @@ def main() -> int:
         # Decided ONCE: re-checking the file later could see it vanish in between and
         # pre-train on a fold built without source windows (guarded below too).
         cache_hit = cache_path is not None and cache_path.exists()
+        if args.require_source_cache and not cache_hit:
+            raise RuntimeError(f"group {gi}: {cache_path} is not in the source cache and "
+                               f"--require-source-cache forbids pre-training a "
+                               f"replacement; check --source-tag and the key options")
         source_windows = not (cache_hit and not args.dsbn)
         prepared = prepare_fold(
-            src_train, concat_trials(group_trials), src_val if source_windows else None,
+            src_train, group_test, src_val if source_windows else None,
             lmax=lmax, seed=seed, sfreq=sfreq, window=args.window, stride=args.stride,
             build_graph=(args.model == "gcn"
                          or (args.model == "graphbp" and args.readout == "flat")),
@@ -644,15 +875,101 @@ def main() -> int:
                     print(f"group {gi}/{len(groups)}: pre-trained on {len(source)} "
                           f"subjects [{time.time() - t0:.0f}s elapsed]", flush=True)
 
+        if args.zero_shot:
+            # One scoring model per group: the source weights exactly as pre-trained
+            # (or loaded from the cache). The Trainer only predicts; fit() is never
+            # called on it, so no optimiser step touches the weights.
+            model = build_model(args.model, prepared, args.window, n_classes, sfreq,
+                                spatial=args.spatial,
+                                graph_smoothness=args.graph_smoothness,
+                                readout=args.readout, region_graph=region_graph)
+            model.load_state_dict(pretrained_state)
+            trainer = Trainer(model, ft_cfg, n_classes=n_classes)
+
         for j, target in enumerate(group):
             # j stays the member's index in the FULL group: it seeds the fine-tune
             # stage and locates the target's span in the group's concatenation.
             if target not in target_set:
                 continue
-            if all((target, f) in done for f in range(args.folds)):
+            if all((target, f) in done for f in fold_ids):
                 continue
             # This target's trials are a contiguous span of the concatenated group.
             base = 200_000 + int(offsets[j])
+
+            if args.zero_shot:
+                # ------------------------------------------------------ zero-shot
+                X_t, y_t, runs_t = trials[target].X, trials[target].y, runs[target]
+                ea_ref = None
+                if args.ea != "none":
+                    # pseudo-online: the calibration run only (never scored below);
+                    # offline: every trial (transductive, labelled on the row).
+                    ref_idx = target_reference_indices(runs_t, args.classes, args.ea)
+                    ea_ref = fit_ea(X_t[ref_idx])
+                    X_t = align(X_t, ea_ref.W)
+                tgt = target_windows(prepared, X_t, y_t, base, args.window, args.stride)
+                # Review Focus 2: the calibration run's trials are dropped HERE, before
+                # scoring, by run number alone, in both arms (with and without EA).
+                keep = scored_trials(runs_t, excluded_runs)
+                result = score_samples(trainer,
+                                       subset_samples(tgt, set((keep + base).tolist())))
+                row = {
+                    "experiment": "pretrain_finetune",
+                    "tag": args.tag,
+                    "subject": target,
+                    "fold": None,
+                    "n_folds": None,
+                    "protocol": "zero_shot",
+                    "split_type": "group_subject_disjoint",
+                    **seed_info,
+                    "config_source": str(cfg.source_path),
+                    "preprocess": {"bandpass": cfg.preprocess.bandpass,
+                                   "rereference": cfg.preprocess.rereference},
+                    "classes": args.classes,
+                    "n_classes": n_classes,
+                    "window": args.window,
+                    "stride": args.stride,
+                    "model": args.model,
+                    "pretrained": True,
+                    "dsbn": False,
+                    "n_source_subjects": len(source),
+                    "n_groups": len(groups),
+                    "group_id": gi,
+                    "group_size": len(group),
+                    "pretrain_epochs": args.pretrain_epochs,
+                    "finetune_epochs": 0,
+                    "pretrain_lr": args.pretrain_lr,
+                    "finetune_lr": None,
+                    "train_config": {"epochs": 0, "batch_size": args.batch_size,
+                                     "learning_rate": None, "device": ft_cfg.device},
+                    "n_parameters": sum(p.numel() for p in model.parameters()),
+                    "accuracy": result["trial"].accuracy,
+                    "trial_accuracy": result["trial"].accuracy,
+                    "timepoint_accuracy": result["timepoint"].accuracy,
+                    "trial_confusion": result["trial"].confusion.tolist(),
+                    "trial_per_class": list(result["trial"].per_class_accuracy),
+                    "trial_kappa": result["trial"].kappa,
+                    "trial_macro_f1": result["trial"].macro_f1,
+                    "n_trials_scored": int(len(keep)),
+                    "scored_runs": sorted(set(runs_t[keep].tolist())),
+                    "calibration_runs": list(calibration_runs(args.classes)),
+                    **alignment_fields(args),
+                    **ea_fields(ea_ref),
+                    **provenance_fields(args),
+                }
+                if not args.classes:
+                    # A1: the same predictions restricted to the trials outside runs 4
+                    # and 6, the trial set A6's subject-independent arms are scored on.
+                    outside = scored_trials(runs_t, calibration_runs(None))
+                    excl = score_samples(trainer,
+                                         subset_samples(tgt, set((outside + base).tolist())))
+                    row["confusion_excl_calibration"] = excl["trial"].confusion.tolist()
+                    row["n_trials_excl_calibration"] = int(len(outside))
+                log_experiment(row, path=args.log)
+                per_subject.append(float(result["trial"].accuracy))
+                if not args.quiet:
+                    print(f"  {target}: zero-shot trial {per_subject[-1]:.4f} "
+                          f"({len(keep)} trials scored)", flush=True)
+                continue
 
             # -------------------------------------------------------- fine-tune
             # The same trial-level folds run_subject_dependent.py uses at this
@@ -662,8 +979,18 @@ def main() -> int:
             for split in stratified_trial_kfold(y_target, n_splits=args.folds, seed=seed):
                 if (target, split.fold) in done:
                     continue
-                ft_train = subset_samples(prepared.test, set(split.train + base))
-                ft_test = subset_samples(prepared.test, set(split.test + base))
+                ea_ref = None
+                tgt = prepared.test
+                if args.ea == "train-fold":
+                    # The target's reference from this fold's TRAINING trials only; its
+                    # test trials are aligned with that reference, never part of it.
+                    ref_idx = target_reference_indices(runs[target], args.classes,
+                                                       args.ea, train_idx=split.train)
+                    ea_ref = fit_ea(trials[target].X[ref_idx])
+                    tgt = target_windows(prepared, align(trials[target].X, ea_ref.W),
+                                         y_target, base, args.window, args.stride)
+                ft_train = subset_samples(tgt, set(split.train + base))
+                ft_test = subset_samples(tgt, set(split.test + base))
 
                 seed_stage(seed, gi, j + 1, split.fold)
                 model = build_model(args.model, prepared, args.window, n_classes, sfreq,
@@ -731,6 +1058,8 @@ def main() -> int:
                     "trial_kappa": result["trial"].kappa,
                     "trial_macro_f1": result["trial"].macro_f1,
                     "history": history.as_dict(),
+                    **alignment_fields(args),
+                    **ea_fields(ea_ref),
                     **provenance_fields(args),
                 }
 
@@ -783,6 +1112,7 @@ def main() -> int:
         prepared = model = trainer = pretrained_state = None
         ft_train = ft_test = ft_fold = history = result = None
         scores = test_noref = nr = m_src = rep_all = region_graph = None
+        group_test = tgt = excl = X_t = None
         release_host_memory()
 
     print("\n" + "=" * 64)
