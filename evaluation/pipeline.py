@@ -259,6 +259,54 @@ def concat_trials(parts: list[Trials]) -> Trials:
     )
 
 
+def prepare_timepoint_holdout_fold(trials: Trials, test_frac: float = 0.1, *,
+                                   leak_graph: bool = True, levels: int = 5,
+                                   orders: tuple[int, ...] = (2,) * 6,
+                                   lmax: float | None = 2.0, seed: int = 42) -> Fold:
+    """Timepoint-level random holdout, with the graph/standardiser leak switchable.
+
+    The split is the reference's: ``randperm`` over every timepoint of every trial,
+    so ~every trial contributes rows to both sides (leakage path 1). What goes into
+    the adjacency and the standardiser is chosen separately by ``leak_graph``
+    (paths 2 and 3), so the A5 ablation can switch them independently of the split:
+
+    * ``leak_graph=True``: both fitted on **all** timepoints, test included. With
+      this setting the function is exactly :func:`prepare_leaky_fold`.
+    * ``leak_graph=False``: both fitted on the **training timepoints only**, the
+      timepoint-level analogue of "fit on the training split".
+
+    Either way ``Fold.val`` is ``None`` (the reference has no validation set).
+    """
+    from data.splits import leaky_timepoint_holdout
+
+    n_trials, n_time = trials.X.shape[0], trials.X.shape[2]
+    train_idx, test_idx = leaky_timepoint_holdout(n_trials, n_time, test_frac, seed)
+
+    if leak_graph:
+        fit_source = trials.X
+    else:
+        # Flat index t * n_time + s is timepoint s of trial t, so a (channel, time)
+        # layout with trials concatenated along time is indexed by the same ints.
+        flat = trials.X.transpose(1, 0, 2).reshape(trials.X.shape[1], -1)
+        fit_source = flat[:, train_idx][None]  # one pseudo-trial of training timepoints
+
+    adjacency = pcc_adjacency(fit_source)
+    graphs, perm = coarsen(adjacency, levels=levels, self_connections=False, seed=seed)
+    bases = build_bases(graphs, orders, lmax=lmax)
+    adjacencies = dense_adjacencies(graphs)
+    standardizer = fit_standardizer(fit_source)
+
+    X = perm_data(standardizer.apply(trials.X), perm)
+    pooled = to_timepoint_samples(X, trials.y)
+
+    def take(idx):
+        return Samples(X=pooled.X[idx], y=pooled.y[idx], trial_id=pooled.trial_id[idx])
+
+    return Fold(train=take(train_idx), val=None, test=take(test_idx), bases=bases,
+                adjacencies=adjacencies, perm=perm, adjacency=adjacency,
+                standardizer=standardizer, leaky=leak_graph)
+
+
 def prepare_leaky_fold(trials: Trials, test_frac: float = 0.1, *, levels: int = 5,
                        orders: tuple[int, ...] = (2,) * 6, lmax: float | None = 2.0,
                        seed: int = 42) -> Fold:
@@ -277,23 +325,6 @@ def prepare_leaky_fold(trials: Trials, test_frac: float = 0.1, *, levels: int = 
     This exists to *measure* the leakage rather than assert it: same model, same
     data, only the protocol differs from :func:`prepare_fold`.
     """
-    from data.splits import leaky_timepoint_holdout
-
-    adjacency = pcc_adjacency(trials.X)
-    graphs, perm = coarsen(adjacency, levels=levels, self_connections=False, seed=seed)
-    bases = build_bases(graphs, orders, lmax=lmax)
-    adjacencies = dense_adjacencies(graphs)
-    standardizer = fit_standardizer(trials.X)
-
-    X = perm_data(standardizer.apply(trials.X), perm)
-    pooled = to_timepoint_samples(X, trials.y)
-
-    n_trials, n_time = trials.X.shape[0], trials.X.shape[2]
-    train_idx, test_idx = leaky_timepoint_holdout(n_trials, n_time, test_frac, seed)
-
-    def take(idx):
-        return Samples(X=pooled.X[idx], y=pooled.y[idx], trial_id=pooled.trial_id[idx])
-
-    return Fold(train=take(train_idx), val=None, test=take(test_idx), bases=bases,
-                adjacencies=adjacencies, perm=perm, adjacency=adjacency,
-                standardizer=standardizer, leaky=True)
+    return prepare_timepoint_holdout_fold(trials, test_frac, leak_graph=True,
+                                          levels=levels, orders=orders, lmax=lmax,
+                                          seed=seed)
