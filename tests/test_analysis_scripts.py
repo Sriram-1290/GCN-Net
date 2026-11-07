@@ -385,3 +385,460 @@ def test_robustness_drop_from_full_is_a_difference_of_differences():
     # M1 trailing by 0.03 on Full shrinks its drop: level cond -> (0 - -0.03) - 0 = +0.03
     d = rr.drop_from_full_table(_robustness_rows(full_gain=-0.03), _M1, _M2, _SUBJ)
     assert d["random25"]["did"] == pytest.approx(0.03)
+
+
+# --------------------------------------------------- Phase A analysis (9.26)
+#
+# Synthetic rows go through the module's own completeness guard and statistics, so every
+# construction below has a known answer. ``_PA_SUBJ`` is a dozen subjects rather than 103:
+# the script takes the expected subject set as an argument, and the real default
+# (103, from configs/bandpass_8_30.yaml) is asserted separately.
+
+_PA_SUBJ = tuple(f"S{i + 1:03d}" for i in range(12))
+_FOLD_OFFSETS = {5: (-0.02, -0.01, 0.0, 0.01, 0.02), 3: (-0.01, 0.0, 0.01)}  # sum to 0
+_CM4 = np.array([[8, 2, 1, 1], [3, 7, 1, 1], [1, 1, 5, 5], [2, 0, 4, 6]])
+_CM_FLAT = np.array([[5, 5, 0, 0], [5, 5, 0, 0], [0, 0, 5, 5], [0, 0, 5, 5]])  # within 0.5
+
+
+def _pa():
+    return _load("phase_a_results")
+
+
+def _pa_rows(tags, fields_fn, subjects=_PA_SUBJ, drop=()):
+    """Rows for ``[(tag, folds), ...]``; ``fields_fn(tag, i, fold, folds) -> dict``.
+
+    ``folds`` of None is a one-row-per-subject tag (zero-shot, timepoint holdout, A1).
+    ``drop`` is a set of ``(tag, subject, fold)`` to leave out.
+    """
+    rows = []
+    for tag, folds in tags:
+        for i, subj in enumerate(subjects):
+            for f in (range(folds) if folds else [None]):
+                if (tag, subj, f) in drop:
+                    continue
+                rows.append({"tag": tag, "subject": subj, "fold": f,
+                             **fields_fn(tag, i, f, folds)})
+    return rows
+
+
+def _acc_fields(acc, auc=None, cm=_CM4):
+    return {"trial_accuracy": acc, "accuracy": acc, "timepoint_accuracy": acc,
+            "roc_auc": acc if auc is None else auc,
+            "trial_confusion": cm.tolist(), "timepoint_confusion": cm.tolist(),
+            "confusion_excl_calibration": cm.tolist()}
+
+
+def _base(i, folds, fold):
+    off = _FOLD_OFFSETS[folds][fold] if folds else 0.0
+    return 0.55 + 0.01 * i + off
+
+
+def _plan_tags(exp, **kw):
+    plan = _pa().plan(exp, **kw)
+    return list(plan.primary) + list(plan.secondary)
+
+
+def _a6_rows(d1, d2, d3, offline=0.05, subjects=_PA_SUBJ, drop=()):
+    def fields(tag, i, fold, folds):
+        shift = 0.0
+        if "si-shallow-ea-offline" in tag or "si-tgsp-ea-offline" in tag:
+            shift = offline
+        elif "si-shallow-ea" in tag:
+            shift = d1
+        elif "si-tgsp-ea" in tag:
+            shift = d2
+        elif "ft-shallow-ea" in tag:
+            shift = d3
+        return _acc_fields(_base(i, folds, fold) + shift)
+    return _pa_rows(_plan_tags("a6"), fields, subjects, drop)
+
+
+def test_phase_a_default_subject_set_is_the_103():
+    s = _pa().default_subjects()
+    assert len(s) == 103 and "S001" in s and "S109" in s
+    assert not {"S088", "S089", "S092", "S100", "S104", "S106"} & set(s)
+
+
+def test_phase_a_a6_decides_effect_for_a_unanimous_gain_of_0_03():
+    pa = _pa()
+    res = pa.a6_results(pa.Log(_a6_rows(0.03, 0.03, 0.03), _PA_SUBJ))
+    assert [c["id"] for c in res["contrasts"]] == ["C1", "C2", "C3"]
+    for c in res["contrasts"]:
+        assert c["diff"] == pytest.approx(0.03)
+        assert c["verdict"] == "effect" and c["direction"] == "+"
+        assert c["wins"] == c["n"] == 12 and c["ci_lo"] > 0
+        assert c["holm_reject"] is True
+    # predictions 1 and 2 hold as effects; 3 fails because 0.03 >= 0.020
+    assert res["predictions"]["P1"].startswith("holds")
+    assert res["predictions"]["P2"].startswith("holds")
+    assert res["predictions"]["P3"].startswith("fails")
+
+
+def test_phase_a_a6_decides_no_effect_for_0_01_and_reads_p3_as_equivalent():
+    pa = _pa()
+    res = pa.a6_results(pa.Log(_a6_rows(0.01, 0.01, 0.01), _PA_SUBJ))
+    for c in res["contrasts"]:
+        assert c["diff"] == pytest.approx(0.01) and c["verdict"] == "no effect"
+    assert res["predictions"]["P1"].startswith("does not hold")
+    assert res["predictions"]["P3"] == "holds: equivalence demonstrated"
+    text = pa.analyse("a6", _a6_rows(0.01, 0.01, 0.01), _PA_SUBJ).text
+    assert "no effect" in text and "TRANSDUCTIVE" in text
+
+
+def test_phase_a_a6_effect_needs_the_margin_the_ci_and_the_right_sign():
+    pa = _pa()
+    # +0.03 on C1 only; C2 falls by 0.03 (an effect, but the wrong way for P2); C3 level
+    res = pa.a6_results(pa.Log(_a6_rows(0.03, -0.03, 0.0), _PA_SUBJ))
+    c1, c2, c3 = res["contrasts"]
+    assert (c1["verdict"], c1["direction"]) == ("effect", "+")
+    assert (c2["verdict"], c2["direction"]) == ("effect", "-")
+    assert c3["verdict"] == "no effect"
+    assert res["predictions"]["P2"].startswith("does not hold")
+    assert res["predictions"]["P3"] == "holds: equivalence demonstrated"
+    # a 0.03 mean carried by noise: CI reaches zero, so no effect
+    rows = _a6_rows(0.0, 0.0, 0.0)
+    for r in rows:
+        if "si-shallow-ea" in r["tag"] and "offline" not in r["tag"]:
+            i = _PA_SUBJ.index(r["subject"])
+            r["trial_accuracy"] += 0.40 if i % 2 else -0.34     # mean +0.03, huge spread
+    c1 = pa.a6_results(pa.Log(rows, _PA_SUBJ))["contrasts"][0]
+    assert c1["diff"] == pytest.approx(0.03) and c1["ci_lo"] < 0
+    assert c1["verdict"] == "no effect"
+
+
+def test_phase_a_a6_subject_score_is_the_mean_of_the_two_problems():
+    pa = _pa()
+    rows = _a6_rows(0.0, 0.0, 0.0)
+    for r in rows:      # +0.10 on problem 0-1 only: the mean of the two moves by 0.05
+        if r["tag"] == "PA-A6-si-tgsp-ea-binary-0-1":
+            r["trial_accuracy"] += 0.10
+    c2 = pa.a6_results(pa.Log(rows, _PA_SUBJ))["contrasts"][1]
+    assert c2["diff"] == pytest.approx(0.05)
+    assert c2["per_problem"]["0-1"]["diff"] == pytest.approx(0.10)
+    assert c2["per_problem"]["2-3"]["diff"] == pytest.approx(0.0)
+
+
+def test_phase_a_a6_offline_arms_are_secondary_and_never_decide():
+    pa = _pa()
+    full = _a6_rows(0.0, 0.0, 0.0, offline=0.08)
+    res = pa.a6_results(pa.Log(full, _PA_SUBJ))
+    assert res["offline"]["shallow"]["diff"] == pytest.approx(0.08)
+    assert all(c["verdict"] == "no effect" for c in res["contrasts"])   # offline ignored
+    no_off = [r for r in full if "offline" not in r["tag"]]
+    rep = pa.analyse("a6", no_off, _PA_SUBJ)               # secondary absent: still prints
+    assert "not run" in rep.text and rep.exit_code == 0
+
+
+def _a4_rows(subjects=_PA_SUBJ, drop=(), runopp=0.40):
+    drops = {"rh_vs_feet": lambda i: 0.12 + 0.003 * i, "lr": lambda i: 0.04,
+             "bf": lambda i: 0.06}
+    rows = []
+    for tag, folds in _plan_tags("a4"):
+        _, _, task, model, split = tag.split("-")
+        for i, subj in enumerate(subjects):
+            for f in range(folds):
+                if (tag, subj, f) in drop:
+                    continue
+                off = _FOLD_OFFSETS[folds][f]
+                if split == "trial":
+                    auc = 0.85 + 0.01 * i
+                elif split == "run":
+                    auc = 0.85 + 0.01 * i - drops[task](i)
+                else:                                   # runopp: AUC below chance
+                    auc = runopp
+                rows.append({"tag": tag, "subject": subj, "fold": f,
+                             "roc_auc": auc + off, "accuracy": auc + off - 0.1})
+    return rows
+
+
+def test_phase_a_a4_inflation_equals_the_constructed_value():
+    """Inflation = (trial - run on rh_vs_feet) - mean of (trial - run) on lr and bf."""
+    pa = _pa()
+    res = pa.a4_results(pa.Log(_a4_rows(), _PA_SUBJ))
+    expected = np.mean([(0.12 + 0.003 * i) - (0.04 + 0.06) / 2 for i in range(12)])
+    for model in ("tgsp", "shallow"):
+        est = res["models"][model]["auc"]
+        assert est["estimate"] == pytest.approx(expected)            # 0.0865
+        assert est["ci_lo"] > 0.020 and est["verdict"] == "inflation"
+        # accuracy rides alongside: it was built as AUC - 0.1 everywhere, so same value
+        assert res["models"][model]["accuracy"]["estimate"] == pytest.approx(expected)
+        assert res["models"][model]["drops"]["lr"] == pytest.approx(0.04)
+    assert res["models"]["tgsp"]["runopp"]["auc_runopp"] == pytest.approx(0.40)
+
+
+def test_phase_a_a4_reads_a_level_estimate_as_no_extra_inflation():
+    pa = _pa()
+    rows = _a4_rows()
+    for r in rows:      # controls lose exactly as much as rh_vs_feet: estimate 0
+        if "-run" in r["tag"] and not r["tag"].endswith("runopp") \
+                and ("-lr-" in r["tag"] or "-bf-" in r["tag"]):
+            i = _PA_SUBJ.index(r["subject"])
+            r["roc_auc"] = (0.85 + 0.01 * i - (0.12 + 0.003 * i)
+                            + _FOLD_OFFSETS[3][r["fold"]])
+    est = pa.a4_results(pa.Log(rows, _PA_SUBJ))["models"]["tgsp"]["auc"]
+    assert est["estimate"] == pytest.approx(0.0, abs=1e-9)
+    assert est["verdict"] == "no extra inflation"
+
+
+def _a3_rows(trial, run, runopp, subjects=_PA_SUBJ, drop=()):
+    def fields(tag, i, fold, folds):
+        level = trial if "-trial-" in tag else run if "-run-" in tag else runopp
+        return {"accuracy": level + 0.002 * i - 0.011 + _FOLD_OFFSETS[folds][fold]}
+    return _pa_rows(_plan_tags("a3"), fields, subjects, drop)
+
+
+def test_phase_a_a3_chance_reading_gap_and_drift_decomposition():
+    pa = _pa()
+    res = pa.a3_results(pa.Log(_a3_rows(0.70, 0.60, 0.40), _PA_SUBJ))
+    cell = res["models"]["tgsp"]["bp830"]
+    assert cell["trial"]["reading"] == "above chance"
+    assert cell["run"]["reading"] == "above chance"
+    assert cell["runopp"]["reading"] == "below chance"
+    assert cell["gap"]["diff"] == pytest.approx(0.10)                 # (i) - (ii)
+    assert cell["drift_free"]["mean"] == pytest.approx(0.50, abs=1e-9)
+    assert cell["drift"]["mean"] == pytest.approx(0.10, abs=1e-9)     # half the difference
+    # the drift decomposition is for tangent space only
+    assert "runopp" not in res["models"]["shallow"]["bp830"]
+    # within 0.020 of 0.5 is at chance
+    near = pa.a3_results(pa.Log(_a3_rows(0.515, 0.50, 0.50), _PA_SUBJ))
+    assert near["models"]["tgsp"]["car"]["trial"]["reading"] == "at chance"
+
+
+def test_phase_a_a3_secondary_runopp_is_marked_not_run_when_absent_or_short():
+    pa = _pa()
+    rows = [r for r in _a3_rows(0.70, 0.60, 0.40) if "runopp" not in r["tag"]]
+    rep = pa.analyse("a3", rows, _PA_SUBJ)
+    assert rep.exit_code == 0 and "not run" in rep.text
+    short = [r for r in _a3_rows(0.70, 0.60, 0.40)
+             if not (r["tag"].endswith("runopp-car") and r["subject"] == "S003"
+                     and r["fold"] == 1)]
+    rep = pa.analyse("a3", short, _PA_SUBJ)           # incomplete secondary: not quoted
+    assert "not run" in rep.text and "runopp-car" in rep.text
+
+
+def _a5_rows(all_tp=0.90, subjects=_PA_SUBJ, drop=()):
+    tp = {"none": 0.52, "split": 0.60, "bn": 0.55, "graph": 0.53, "all": all_tp}
+
+    def fields(tag, i, fold, folds):
+        arm = tag.rsplit("-", 1)[1]
+        cm = _CM_FLAT if arm == "none" else _CM4
+        return _acc_fields(tp[arm] + 0.001 * i, cm=cm)
+    return _pa_rows(_plan_tags("a5"), fields, subjects, drop)
+
+
+def test_phase_a_a5_gates_come_first_and_contrasts_follow_when_they_pass():
+    pa = _pa()
+    res = pa.a5_results(pa.Log(_a5_rows(), _PA_SUBJ))
+    assert res["gates"]["all"]["pass"] and res["gates"]["none"]["pass"]
+    assert res["gates"]["none"]["value"] == pytest.approx(0.5)        # the flat matrix
+    c = res["contrasts"]["split"]["timepoint"]
+    assert c["diff"] == pytest.approx(0.08) and c["verdict"] == "effect"
+    assert res["contrasts"]["graph"]["timepoint"]["verdict"] == "no effect"
+    rep = pa.analyse("a5", _a5_rows(), _PA_SUBJ)
+    assert rep.exit_code == 0 and "Contrasts" in rep.text
+
+
+def test_phase_a_a5_failed_gate_prints_the_failure_and_no_contrasts():
+    pa = _pa()
+    rep = pa.analyse("a5", _a5_rows(all_tp=0.70), _PA_SUBJ)
+    assert rep.exit_code != 0
+    assert "GATE FAILED" in rep.text and "Contrasts" not in rep.text
+    assert "[0.8794, 0.9147]" in rep.text
+    # the none gate: within-family must sit in [0.4984, 0.5199]
+    rows = _a5_rows()
+    for r in rows:
+        if r["tag"].endswith("-none"):
+            r["trial_confusion"] = _CM4.tolist()      # within-family 0.65: out of range
+    rep = pa.analyse("a5", rows, _PA_SUBJ)
+    assert rep.exit_code != 0 and "GATE FAILED" in rep.text and "Contrasts" not in rep.text
+
+
+def test_phase_a_a2_reads_a_drop_when_the_ws160_arm_is_lower_by_0_03():
+    pa = _pa()
+
+    def fields(tag, i, fold, folds):
+        shift = -0.03 if tag.startswith("PA-A2") else 0.0
+        return _acc_fields(_base(i, folds, fold) + shift)
+    rows = _pa_rows(_plan_tags("a2"), fields)
+    res = pa.a2_results(pa.Log(rows, _PA_SUBJ))
+    assert res["contrast"]["diff"] == pytest.approx(-0.03)            # (ii) - (i)
+    assert res["verdict"].startswith("drop")
+    assert res["contrast"]["wins"] == 0 and res["contrast"]["n"] == 12
+
+
+def test_phase_a_a1_decomposition_of_a_known_matrix_matches_decompose():
+    pa = _pa()
+    fam = _load("run_family_analysis")
+    mats = {i: _CM4 + i * np.eye(4, dtype=int) for i in range(12)}
+
+    def fields(tag, i, fold, folds):
+        return {"trial_confusion": mats[i].tolist(),
+                "confusion_excl_calibration": (mats[i] - 1).clip(0).tolist()}
+    rows = _pa_rows(list(pa.plan("a1").primary), fields)          # no A6 comparator rows
+    res = pa.a1_results(pa.Log(rows, _PA_SUBJ))
+    for model in ("shallow", "tgsp"):
+        m = res["models"][model]
+        pooled = fam.decompose(sum(mats.values()))
+        assert m["pooled"] == pooled
+        per = [fam.decompose(mats[i]) for i in range(12)]
+        for key in ("accuracy_4class", "family_accuracy", "within_family_accuracy"):
+            assert m["mean"][key] == pytest.approx(np.mean([d[key] for d in per]))
+        excl = [fam.decompose((mats[i] - 1).clip(0)) for i in range(12)]
+        assert m["excl"]["within_family_accuracy"] == pytest.approx(
+            np.mean([d["within_family_accuracy"] for d in excl]))
+    assert res["models"]["tgsp"]["vs_a6"] is None                  # no A6 rows: no claim
+
+
+def test_phase_a_a1_compares_within_family_with_the_a6_noea_arm_of_the_same_model():
+    pa = _pa()
+    fam = _load("run_family_analysis")
+
+    def fields(tag, i, fold, folds):
+        if tag.startswith("PA-A6"):
+            return _acc_fields(0.70)                 # the A6 binary baseline
+        return {"trial_confusion": _CM4.tolist(),
+                "confusion_excl_calibration": _CM4.tolist()}
+    tags = _plan_tags("a1") + [(f"PA-A6-si-{m}-noea-binary-{p}", None)
+                               for m in ("shallow", "tgsp") for p in ("0-1", "2-3")]
+    res = pa.a1_results(pa.Log(_pa_rows(tags, fields), _PA_SUBJ))
+    cmp_ = res["models"]["tgsp"]["vs_a6"]
+    wf = fam.decompose(_CM4)["within_family_accuracy"]
+    assert cmp_["a6"] == pytest.approx(0.70) and cmp_["a1"] == pytest.approx(wf)
+    assert cmp_["diff"] == pytest.approx(wf - 0.70)
+
+
+@pytest.mark.parametrize("experiment", ["a1", "a2", "a3", "a4", "a5", "a6"])
+def test_phase_a_missing_row_makes_every_experiment_refuse(experiment):
+    """One absent row in any primary tag is refused, naming the tag and the count."""
+    pa = _pa()
+    plan = pa.plan(experiment)
+    every = list(plan.primary) + list(plan.secondary)
+
+    def fields(tag, i, fold, folds):
+        return _acc_fields(0.60 + 0.01 * i)
+    pa.analyse(experiment, _pa_rows(every, fields), _PA_SUBJ)    # control: complete runs
+    for tag, folds in plan.primary:
+        last = (tag, _PA_SUBJ[-1], (folds - 1) if folds else None)
+        rows = _pa_rows(every, fields, drop={last})
+        need = len(_PA_SUBJ) * (folds or 1)
+        with pytest.raises(pa.IncompleteRun) as e:
+            pa.analyse(experiment, rows, _PA_SUBJ)
+        assert tag in str(e.value) and f"{need - 1} of {need}" in str(e.value)
+
+
+def test_phase_a_full_row_counts_are_the_pre_registered_ones():
+    """5x103 = 515 for 5-fold tags, 3x103 = 309 for run tags, 103 for the rest."""
+    pa = _pa()
+    n = len(pa.default_subjects())
+    by_tag = {t: n * (f or 1) for e in ("a1", "a2", "a3", "a4", "a5", "a6")
+              for t, f in (list(pa.plan(e).primary) + list(pa.plan(e).secondary))}
+    assert by_tag["A2-shallow-binary-0-1"] == 515
+    assert by_tag["PA-A2-shallow-ws160-binary-0-1"] == 515
+    assert by_tag["PA-A3-rest-tgsp-trial-bp830"] == 515
+    assert by_tag["PA-A3-rest-shallow-run-car"] == 309
+    assert by_tag["PA-A3-rest-tgsp-runopp-car"] == 309
+    assert by_tag["PA-A4-lr-shallow-run"] == 309
+    assert by_tag["PA-A4-rh_vs_feet-tgsp-runopp"] == 309
+    assert by_tag["PA-A5-leak-none"] == by_tag["PA-A5-leak-bn"] == 515
+    assert by_tag["PA-A5-leak-split"] == by_tag["PA-A5-leak-all"] == 103
+    assert by_tag["PA-A6-si-tgsp-ea-binary-2-3"] == 103
+    assert by_tag["PA-A6-ft-shallow-ea-binary-0-1"] == 515
+    assert by_tag["PTG-shallow-binary-2-3"] == 515
+    assert by_tag["PA-A6-si-shallow-ea-offline-binary-0-1"] == 103
+    assert by_tag["PA-A1-shallow-4class"] == by_tag["PA-A1-tgsp-4class"] == 103
+
+
+def test_phase_a_partial_mode_is_watermarked_and_never_decides():
+    pa = _pa()
+    rows = _a6_rows(0.03, 0.03, 0.03,
+                    drop={("PA-A6-si-tgsp-ea-binary-0-1", "S012", None),
+                          ("PA-A6-ft-shallow-ea-binary-0-1", "S012", 4)})
+    with pytest.raises(pa.IncompleteRun):
+        pa.analyse("a6", rows, _PA_SUBJ)
+    rep = pa.analyse("a6", rows, _PA_SUBJ, allow_partial=True)
+    assert rep.text.count("PARTIAL — NOT A RESULT") >= 2
+    assert "| effect" not in rep.text and "no effect" not in rep.text
+    assert "11 of 12" in rep.text            # progress is stated, S012 is left out
+
+
+def test_phase_a_duplicate_rows_are_last_wins_and_noted():
+    pa = _pa()
+    rows = _a6_rows(0.03, 0.03, 0.03)
+    dup = dict(next(r for r in rows if r["tag"] == "PA-A6-si-tgsp-ea-binary-0-1"
+                    and r["subject"] == "S002"), trial_accuracy=0.99)
+    rep = pa.analyse("a6", rows + [dup], _PA_SUBJ)
+    assert "duplicate" in rep.text.lower()
+    assert "PA-A6-si-tgsp-ea-binary-0-1: 1" in rep.text
+
+
+def test_phase_a_cli_refuses_with_a_nonzero_exit(tmp_path):
+    import json
+    import subprocess
+    log = tmp_path / "log.jsonl"
+    log.write_text("\n".join(json.dumps(r) for r in _a6_rows(0.03, 0.03, 0.03)[:50]),
+                   encoding="utf-8")
+    p = subprocess.run([sys.executable, str(ROOT / "scripts" / "phase_a_results.py"),
+                        "a6", "--log", str(log)], capture_output=True, text=True,
+                       encoding="utf-8")
+    assert p.returncode != 0
+    assert "PA-A6-" in p.stderr + p.stdout and "of 103" in p.stderr + p.stdout
+
+
+# --- validation against the real log: the script must reproduce what was logged ---
+
+@pytest.fixture(scope="module")
+def _real_log():
+    import json
+    path = ROOT / "runs" / "experiments.jsonl"
+    if not path.exists():
+        pytest.skip("runs/experiments.jsonl is absent")
+    rows = []
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:      # a line being appended by a live job
+                    pass
+    pa = _pa()
+    return pa, pa.Log(rows, pa.default_subjects())
+
+
+def _need(log, tag, folds):
+    have, need, complete = log.status(tag, folds)
+    if not complete:
+        pytest.skip(f"{tag} is not complete in this log ({have} of {need})")
+
+
+def test_phase_a_reproduces_the_logged_a2_within_family_figure(_real_log):
+    """A2-shallow-binary-*: 0.6725, the mean of the two problems' subject means."""
+    pa, log = _real_log
+    for p in ("0-1", "2-3"):
+        _need(log, f"A2-shallow-binary-{p}", 5)
+    arm = pa.binary_arm(log, "A2-shallow-binary-{p}")
+    assert round(float(arm["mean"].mean()), 4) == 0.6725
+
+
+def test_phase_a_reproduces_the_logged_ptg_shallow_figure(_real_log):
+    """PTG-shallow-binary-*: 0.7369."""
+    pa, log = _real_log
+    for p in ("0-1", "2-3"):
+        _need(log, f"PTG-shallow-binary-{p}", 5)
+    arm = pa.binary_arm(log, "PTG-shallow-binary-{p}")
+    assert round(float(arm["mean"].mean()), 4) == 0.7369
+
+
+def test_phase_a_reproduces_the_a5_none_gate_procedure(_real_log):
+    """Per-subject pooled trial_confusion -> decompose -> mean over subjects, per seed;
+    the mean of the three seeds is the logged 0.5090. Likewise the leaky 0.8975."""
+    pa, log = _real_log
+    seeds = [f"P1-A-103-s{k}" for k in (1, 2, 3)]
+    for t in seeds:
+        _need(log, t, 5)
+    per_seed = [float(np.mean(pa.within_family_by_subject(log, t))) for t in seeds]
+    assert round(float(np.mean(per_seed)), 4) == 0.5090
+    leaky = [f"P1-leaky-103-s{k}" for k in (1, 2, 3)]
+    for t in leaky:
+        _need(log, t, None)
+    tp = [float(pa.per_subject(log, t, "timepoint_accuracy").mean()) for t in leaky]
+    assert round(float(np.mean(tp)), 4) == 0.8975
