@@ -3514,6 +3514,48 @@ ROC-AUC (primary) and accuracy per subject, mean over folds.
   information remains (drift-free AUC about 0.64). This quantifies one benchmark's
   inflation on one dataset and one model; it is not a verdict on MOABB.
 
+#### 9.27.3 A6 arm 2 — Euclidean alignment on subject-independent tangent space (complete; decision pending)
+
+Zero-shot group transfer (10 subject-disjoint groups); the calibration run (4 for `0-1`, 6
+for `2-3`) supplies the pseudo-online EA reference and is never scored, in either arm.
+Subject score = mean of the two binary problems. Never compared to the 0.650 ceiling.
+
+| arm | `0-1` | `2-3` | mean | 95 % CI |
+|---|---|---|---|---|
+| `si-tgsp-noea` | 0.630 | 0.601 | 0.616 | [0.597, 0.635] |
+| `si-tgsp-ea` | 0.653 | 0.631 | 0.642 | [0.621, 0.663] |
+
+* **Contrast (EA − no EA): +0.0265 [+0.0117, +0.0419], raw two-sided p = 0.0006**, 55/103
+  subjects ahead (41 behind); `0-1` +0.023, `2-3` +0.030. Margin (at least 0.020) and CI
+  (excludes zero) are both met.
+* **Decision pending:** Holm adjusts the three primary contrasts together, and arms 1 and 3
+  (ShallowConvNet) are still running. Under Holm's step-down rule this p-value is adjusted by
+  a factor of at most 3 (0.0018), so it survives at α = 0.05 whatever the other two contrasts
+  give. Prediction 2 will therefore be scored when the scorecard is complete; it is not
+  declared here.
+* **Secondary, TRANSDUCTIVE** (reference from all of the target's unlabelled trials; never in
+  a prediction): 0.661, +0.045 [+0.030, +0.060] over no EA, 65/103.
+
+#### 9.27.4 A1 — 4-class subject-independent decoding, tangent space (complete)
+
+Zero-shot group transfer, 4-class, no EA; per-subject decomposition (`decompose`).
+
+| measure | mean | 95 % CI | chance |
+|---|---|---|---|
+| 4-class | 0.348 | [0.330, 0.367] | 0.25 |
+| run family | 0.546 | [0.533, 0.559] | 0.5 |
+| within-family | 0.630 | [0.607, 0.654] | 0.5 |
+
+* **Across subjects, run family is only weakly identifiable** (0.546). The 4-class figure's
+  margin over chance comes mostly from within-family decoding, unlike the within-subject case
+  in 9.8, where family accuracy was 0.617.
+* **4-class training costs nothing within-family:** on the trials outside runs 4 and 6,
+  within-family 0.621 against the A6 `si-tgsp-noea` binary 0.616: +0.005 [−0.009, +0.019],
+  within 0.020 (pre-stated reading). As the whole-branch review noted, this compares
+  within-family accuracy on correctly-familied trials with binary forced-choice accuracy;
+  the definitions differ by design (9.26.8).
+* The ShallowConvNet A1 arm is pending.
+
 ---
 
 ## 10. Pre-registration of the remaining ablations
