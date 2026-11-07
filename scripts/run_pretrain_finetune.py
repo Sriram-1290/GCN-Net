@@ -621,6 +621,9 @@ def main() -> int:
     if args.ea == "pseudo-online" and not args.calibration_run_excluded:
         ap.error("--ea pseudo-online takes the target's reference from its calibration "
                  "run, which must then never be scored: add --calibration-run-excluded")
+    if args.ea == "offline" and args.classes is not None and not args.calibration_run_excluded:
+        ap.error("--ea offline on a binary task must score the same trials as the arms it "
+                 "is compared with: add --calibration-run-excluded")
     if args.ea != "none" and (args.dsbn or args.robustness or args.readout != "flat"):
         ap.error("--ea is not defined with --dsbn, --robustness or --readout region")
     if args.require_source_cache and (args.no_pretrain or not args.source_cache):

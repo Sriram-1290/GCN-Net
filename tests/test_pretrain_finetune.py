@@ -835,6 +835,7 @@ def test_zero_shot_resume_skips_logged_targets(monkeypatch, tmp_path):
     ("--ea", "offline"),                              # so does offline
     ("--zero-shot", "--ea", "train-fold"),            # train-fold is fine-tuning only
     ("--zero-shot", "--ea", "pseudo-online"),         # needs --calibration-run-excluded
+    ("--zero-shot", "--ea", "offline"),               # binary offline must pair: same flag
     ("--calibration-run-excluded",),                  # zero-shot only
     ("--zero-shot", "--no-pretrain"),                 # nothing to score
 ])
