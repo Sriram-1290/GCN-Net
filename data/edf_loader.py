@@ -27,7 +27,7 @@ import numpy as np
 from mne.datasets import eegbci
 
 from .config import Config
-from .labels import class_index
+from .labels import FEET_RUNS, FIST_RUNS, REST_CODE, class_index
 
 # MNE returns EEG in volts; the EDF files are in microvolts with a scale factor of
 # exactly 1.0. Convert back so the cache is in the units the data was recorded in.
@@ -131,6 +131,84 @@ def epoch_run(raw: mne.io.BaseRaw, run: int, cfg: Config
     X = np.asarray(epochs, dtype=np.float32)
     assert X.shape == (len(labels), data.shape[0], n_samples), X.shape
     return X, np.asarray(labels, dtype=np.int64), np.asarray(onsets, dtype=np.float32)
+
+
+#: Rest (T0) segments per imagery run in every non-excluded subject (15 T0 + 15 T1/T2).
+EXPECTED_REST_PER_RUN = 15
+
+
+def rest_family(run: int) -> int:
+    """Run family of an imagery run: 0 for runs 4/8/12 (fists), 1 for runs 6/10/14.
+
+    The label-free run-family test asks whether a model can tell the two task
+    families apart from rest EEG alone, so the family must come from the run
+    number and nothing else. Any other run (baseline, execution) raises.
+    """
+    if run in FIST_RUNS:
+        return 0
+    if run in FEET_RUNS:
+        return 1
+    raise ValueError(f"run {run} is not an imagery run {FIST_RUNS + FEET_RUNS}")
+
+
+def epoch_rest(raw: mne.io.BaseRaw, run: int, cfg: Config
+               ) -> tuple[np.ndarray, np.ndarray]:
+    """Cut the rest (T0) segments of one run into (X, onsets).
+
+    Same epoch length and onset convention as :func:`epoch_run` (``cfg.epoch``),
+    and ``raw`` is expected from :func:`load_run_raw`, so the band-pass and
+    re-reference are exactly those of the trial cache. Returns X as
+    (n_rest, n_channels, n_samples) in microvolts.
+
+    A T0 epoch that would run past the end of the recording is dropped (at most
+    one per run; more raises). Every kept T0 segment must last at least one epoch
+    length, otherwise the epoch would spill into the following trial.
+    """
+    rest_family(run)  # rejects non-imagery runs before any work
+    sfreq = raw.info["sfreq"]
+    n_samples = cfg.epoch.n_samples(sfreq)
+    data = raw.get_data() * _VOLTS_TO_MICROVOLTS
+
+    ann = raw.annotations
+    if len(ann) != cfg.dataset.expect_events_per_run:
+        raise RunValidationError(
+            f"run {run}: {len(ann)} annotations, "
+            f"expected {cfg.dataset.expect_events_per_run}"
+        )
+    is_rest = [d.strip() == REST_CODE for d in ann.description]
+    n_rest = sum(is_rest)
+    if n_rest != EXPECTED_REST_PER_RUN:
+        raise RunValidationError(
+            f"run {run}: {n_rest} rest (T0) annotations, expected {EXPECTED_REST_PER_RUN}"
+        )
+
+    epochs, onsets = [], []
+    for rest, onset, duration in zip(is_rest, ann.onset, ann.duration):
+        if not rest:
+            continue
+        start = int(round((onset + cfg.epoch.tmin) * sfreq))
+        stop = start + n_samples
+        if start < 0:
+            raise RunValidationError(f"run {run}: rest at {onset:.2f}s starts before 0")
+        if stop > data.shape[1]:
+            continue  # runs past the end of the recording
+        if duration < cfg.epoch.length_s - 1e-6:
+            raise RunValidationError(
+                f"run {run}: rest at {onset:.2f}s lasts {duration:.2f}s, "
+                f"shorter than the {cfg.epoch.length_s}s epoch"
+            )
+        epochs.append(data[:, start:stop])
+        onsets.append(onset)
+
+    if len(epochs) < n_rest - 1:
+        raise RunValidationError(
+            f"run {run}: {n_rest - len(epochs)} of {n_rest} rest epochs run past the "
+            f"end of the {data.shape[1]}-sample recording"
+        )
+
+    X = np.asarray(epochs, dtype=np.float32)
+    assert X.shape == (len(onsets), data.shape[0], n_samples), X.shape
+    return X, np.asarray(onsets, dtype=np.float32)
 
 
 def load_subject(subject: str, cfg: Config) -> SubjectEpochs:

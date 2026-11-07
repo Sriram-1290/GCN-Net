@@ -1,0 +1,79 @@
+# Rest-period (T0) cache for the label-free run-family test (Phase A, A3).
+#
+# configs/bandpass_8_30.yaml with only cache_dir changed: 8-30 Hz band-pass,
+# common average reference. Read by scripts/build_rest_cache.py, which cuts the T0 segments
+# of the six imagery runs with the same preprocessing as the trial cache. The
+# rest cache holds T0 epochs, not trials; this config just fixes how they are
+# filtered and referenced.
+#
+# Ablation: mu/beta band-pass (8-30 Hz).
+#
+# Deviates from the reference, which applies no filtering. Motivated by the
+# recent literature ([4] wavelet bands, [5] differential entropy -- see
+# project_documentation.md 8.2) and by the finding that a single 6.25 ms sample
+# carries no spectral content at all, while motor imagery is a band-power
+# phenomenon. Separate cache_dir so both caches coexist and the comparison needs
+# no rebuilding back and forth.
+#
+# Based on configs/default.yaml.
+#
+# Nothing in this file is read from a global; callers load it explicitly and pass
+# the resulting Config object down. See CLAUDE.md ("Don't use global mutable config
+# shared across modules — pass explicit arguments").
+
+dataset:
+  root: data/raw/eegmmidb
+  cache_dir: data/cache_rest_bp830
+
+  # Motor-imagery runs only. Runs 3/5/7/9/11/13 are executed movement and must not
+  # be included — see CLAUDE.md, Dataset Rules.
+  imagery_runs: [4, 6, 8, 10, 12, 14]
+
+  # Corrupted subjects. S089 (not S090) is the defective one — verified empirically,
+  # see project_documentation.md 3.5. Kept at six subjects for comparability with
+  # the paper even though only S088/S092/S100 are unusable on the imagery runs.
+  exclude_subjects: [S088, S089, S092, S100, S104, S106]
+
+  # Hard validators. A run failing any of these aborts the build rather than being
+  # silently coerced — silent shape coercion is how leakage and misalignment hide.
+  expect_sfreq: 160.0
+  expect_n_channels: 64
+  expect_events_per_run: 30
+
+labels:
+  # (a) four motor-imagery classes, rest (T0) discarded. The alternative (b) is
+  # rest/left/right/feet. See project_documentation.md 6, open decision 1.
+  scheme: four_class_motor
+  names: [left_fist, right_fist, both_fists, both_feet]
+
+epoch:
+  # Trials are annotated at 4.1 s. 4.0 s at 160 Hz gives exactly 640 samples.
+  tmin: 0.0
+  length_s: 4.0
+
+preprocess:
+  # Verified against the local EEG-DL checkout, not a summary.
+  #
+  # Filtering: none. Extract-Raw-Data-Into-Matlab-Files.py defines a 5-30 Hz
+  # Butterworth and a 60 Hz notch but both calls are COMMENTED OUT, so the shipped
+  # pipeline applies no filter at all. null reproduces that.
+  #
+  # Re-referencing: the reference DOES re-reference. make_dataset.m line 22,
+  # `Stack_Dataset - mean(Stack_Dataset, 1)`, operates on a (64 channels x N
+  # timepoints) matrix, so mean(...,1) is the across-CHANNEL mean at each timepoint
+  # -- i.e. Common Average Reference, not dataset-wide mean centring. CAR uses no
+  # cross-sample statistics, so it is leakage-free and belongs in the cache.
+  # It also matters: CAR drops mean |PCC| from 0.686 to 0.353 and raises the
+  # neighbour/distant contrast from 1.47x to 4.45x, so the graph is far more
+  # structured with it than without.
+  bandpass: [8.0, 30.0]
+  notch: null
+  rereference: average
+
+  # Normalisation is deliberately NOT done here. The cache stores CAR-referenced
+  # epochs in uV; mean/std are fit on the training split only, at training time.
+  # (The reference applies no per-channel standardisation at all -- see above, its
+  # only centring operation is CAR.)
+  normalize: false
+
+seed: 42
