@@ -3556,6 +3556,27 @@ Zero-shot group transfer, 4-class, no EA; per-subject decomposition (`decompose`
   the definitions differ by design (9.26.8).
 * The ShallowConvNet A1 arm is pending.
 
+#### 9.27.5 A2 — dependence on the first second after the cue (complete)
+
+ShallowConvNet, subject-dependent, 5-fold; within-family accuracy, subject score = mean of
+the two binary problems.
+
+| arm | `0-1` | `2-3` | mean | 95 % CI |
+|---|---|---|---|---|
+| (i) all windows (reused `A2-shallow-binary-*`) | 0.661 | 0.684 | 0.6725 | [0.647, 0.699] |
+| (ii) windows from 1.0 s (`--window-start 160`) | 0.619 | 0.679 | 0.6488 | [0.622, 0.676] |
+
+* **(ii) − (i): −0.0237 [−0.0335, −0.0139]**, p = 0.0001, (ii) ahead in 28/103 subjects.
+  By problem: left vs right fist −0.042 [−0.057, −0.027]; both fists vs feet −0.006
+  [−0.019, +0.007].
+* **Reading, by the rule fixed in 9.26.4:** a drop of 0.020 or more with the CI excluding
+  zero, so the model leans on early-cue activity, reported as an **upper bound**: arm (ii)
+  trains on 27 of 37 windows per trial, so part of the drop is the smaller training set.
+  The dependence is concentrated in left versus right fist; fists versus feet is unaffected.
+* Code check: the A2 rows span several commits because other files were committed while it
+  ran. Its code path (`prepare_fold`, the trainer, the model) is unchanged from `beee4af`;
+  the only pipeline edits in that range touch the leaky-fold functions A2 does not call.
+
 ---
 
 ## 10. Pre-registration of the remaining ablations
