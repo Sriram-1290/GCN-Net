@@ -293,7 +293,7 @@ def format_drop_markdown(drops: dict) -> str:
     out = ["POST HOC / EXPLORATORY: drop from Full per model, and the difference of "
            "differences (M1 drop - M2 drop; positive = M1 loses less)", "",
            "| condition | M1 drop | M2 drop | difference of differences | 95 % CI | "
-           "M1 loses less on |", "|---|---|---|---|---|---|"]
+           "subjects where M1 loses less |", "|---|---|---|---|---|---|"]
     for name, d in drops.items():
         out.append(f"| {name} | {d['m1_drop']:+.4f} | {d['m2_drop']:+.4f} | "
                    f"{d['did']:+.4f} | [{d['ci_lo']:+.4f}, {d['ci_hi']:+.4f}] | "

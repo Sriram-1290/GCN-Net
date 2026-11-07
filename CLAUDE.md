@@ -144,8 +144,9 @@ not a result worth reporting.
   not a route to a clear win with this design.** The node-agnostic region-pooled graph model
   trails ShallowConvNet on **every** cap: **−0.1117** on the full cap (guard fires), −0.0633
   on IV-2a and −0.0940 on random 25 % (primaries are measured *losses*). All five predictions
-  refuted; Phases 2-3 not run. A smaller relative drop under channel loss (post hoc, 5 of 7
-  conditions) **never makes it the better model on any cap**. Fifth challenger measured; do
+  refuted; Phases 2-3 not run. A smaller relative drop under channel loss (post hoc; CI
+  excludes zero in 5 of 7 reduced conditions, includes zero for tentwenty and random10)
+  **never makes it the better model on any cap**. Fifth challenger measured; do
   not re-run with tuning. Mechanism and post hoc detail: §9.25.
 - **Never report a G-arm difference below 0.020 as an effect.** §9.12 fixed that rule before
   the runs; the design's minimum detectable difference is ~0.020 at 80 % power.

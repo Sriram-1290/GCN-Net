@@ -2948,7 +2948,7 @@ than M2. Produced by `scripts/robustness_results.py ... --post-hoc` (a small add
 the script, with one unit test).
 
 ```
-| condition | M1 drop | M2 drop | difference of differences | 95 % CI | M1 loses less on |
+| condition | M1 drop | M2 drop | difference of differences | 95 % CI | subjects where M1 loses less |
 |---|---|---|---|---|---|
 | iv2a | -0.0433 | -0.0917 | +0.0483 | [+0.0139, +0.0828] | 16/20 |
 | random25 | -0.0159 | -0.0336 | +0.0177 | [+0.0059, +0.0309] | 14/20 |
