@@ -104,7 +104,7 @@ def to_window_samples(X: np.ndarray, y: np.ndarray, window: int, stride: int,
 
     ``start`` is the sample index of the first window (default 0, the original
     behaviour). A positive value drops the early samples of every trial, e.g. to
-    exclude the cue-locked onset transient (Phase A, A4).
+    exclude the cue-locked onset transient (Phase A, A2).
     """
     n_trials, n_nodes, n_time = X.shape
     if not 1 <= window <= n_time:
