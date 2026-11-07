@@ -202,3 +202,43 @@ def test_shallow_smoke_logs_trial_level_metrics(workspace):
         assert r["window"] == 64 and r["stride"] == 16 and r["epochs"] == 2
         assert r["n_val_trials"] > 0
         assert sum(map(sum, r["trial_confusion"])) == r["n_test_trials"]
+
+
+# ------------------------------------------------- drift-opposed run pairing (secondary)
+def _drift_says_family1_later(train_runs, test_pair):
+    """Sign agreement between the training-set and held-out time ordering of families."""
+    fam = {4: 0, 8: 0, 12: 0, 6: 1, 10: 1, 14: 1}
+    tr0 = np.mean([r for r in train_runs if fam[r] == 0])
+    tr1 = np.mean([r for r in train_runs if fam[r] == 1])
+    te0 = [r for r in test_pair if fam[r] == 0][0]
+    te1 = [r for r in test_pair if fam[r] == 1][0]
+    return np.sign(tr1 - tr0) == np.sign(te1 - te0)
+
+
+def test_standard_pairs_align_with_drift_and_opposed_pairs_reverse_it():
+    runs = (4, 6, 8, 10, 12, 14)
+    for pair in audit.RUN_PAIR_FOLDS:
+        assert _drift_says_family1_later([r for r in runs if r not in pair], pair)
+    for pair in audit.RUN_PAIR_FOLDS_DRIFT_OPPOSED:
+        assert not _drift_says_family1_later([r for r in runs if r not in pair], pair)
+    flat = sorted(r for pair in audit.RUN_PAIR_FOLDS_DRIFT_OPPOSED for r in pair)
+    assert flat == list(runs)          # every run held out exactly once
+
+
+@pytest.mark.parametrize("experiment,task", [("rest-family", None),
+                                             ("cross-family", "rh_vs_feet")])
+def test_run_opposed_split_uses_opposed_pairs(workspace, experiment, task):
+    tmp, cfgs = workspace
+    argv, log = _cli(cfgs, tmp, experiment, "run-opposed", task)
+    assert audit.main(argv) == 0
+    rows = read_experiments(log)
+    assert len(rows) == 2 * 3
+    assert [tuple(r["fold_test_runs"]) for r in rows[:3]] ==         [tuple(sorted(p)) for p in audit.RUN_PAIR_FOLDS_DRIFT_OPPOSED]
+    assert all(r["split"] == "run-opposed" for r in rows)
+
+
+def test_run_opposed_rejected_for_within_family_tasks(workspace):
+    tmp, cfgs = workspace
+    argv, _ = _cli(cfgs, tmp, "cross-family", "run-opposed", task="lr")
+    with pytest.raises(SystemExit):
+        audit.main(argv)

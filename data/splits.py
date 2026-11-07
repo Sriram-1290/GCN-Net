@@ -76,6 +76,16 @@ def stratified_trial_kfold(y: np.ndarray, n_splits: int = 5,
 # content decides which fold a trial lands in.
 RUN_PAIR_FOLDS: list[tuple[int, ...]] = [(4, 6), (8, 10), (12, 14)]
 
+# The same six runs paired so that slow within-session drift points the WRONG way.
+# Run family alternates with time (4 F0, 6 F1, 8 F0, 10 F1, 12 F0, 14 F1), so in every
+# RUN_PAIR_FOLDS fold the held-out family-1 run is later than the family-0 run, and so
+# are the family-1 training runs on average: a classifier that only tracks time in the
+# session scores above chance there. In these folds the held-out family-1 run is the
+# earlier one relative to the training-set ordering, so a pure-drift classifier scores
+# below chance. Comparing the two pairings separates family information (same sign in
+# both) from drift (opposite signs). Phase A secondary analysis (9.26.5, 9.26.6).
+RUN_PAIR_FOLDS_DRIFT_OPPOSED: list[tuple[int, ...]] = [(4, 14), (6, 8), (10, 12)]
+
 
 def run_disjoint_folds(runs: np.ndarray, y: np.ndarray,
                        fold_runs: list[tuple[int, ...]]) -> list[TrialSplit]:

@@ -55,7 +55,8 @@ from data.cache import assert_cache_matches, load_subject, subject_path  # noqa:
 from data.config import all_subjects, load_config  # noqa: E402
 from data.edf_loader import rest_family  # noqa: E402
 from data.riemann import covariances, riemannian_mean, tangent_space  # noqa: E402
-from data.splits import (RUN_PAIR_FOLDS, TrialSplit, run_disjoint_folds,  # noqa: E402
+from data.splits import (RUN_PAIR_FOLDS, RUN_PAIR_FOLDS_DRIFT_OPPOSED, TrialSplit,
+                         run_disjoint_folds,  # noqa: E402
                          stratified_trial_kfold)
 from evaluation.experiment_log import (completed_keys, describe_resume,  # noqa: E402
                                        log_experiment, set_seed)
@@ -192,7 +193,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--experiment", choices=["rest-family", "cross-family"], required=True)
     ap.add_argument("--model", choices=["tgsp", "shallow"], required=True)
-    ap.add_argument("--split", choices=["trial", "run"], required=True)
+    ap.add_argument("--split", choices=["trial", "run", "run-opposed"], required=True,
+                    help="run-opposed: the drift-opposed run pairing "
+                         "RUN_PAIR_FOLDS_DRIFT_OPPOSED (rest-family and rh_vs_feet only)")
     ap.add_argument("--config", required=True,
                     help="rest-family: configs/rest_bp830.yaml or rest_car.yaml; "
                          "cross-family: configs/bandpass_8_30.yaml")
@@ -212,6 +215,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ap.error("--task is required for --experiment cross-family")
     if args.experiment == "rest-family" and args.task is not None:
         ap.error("--task is not allowed for --experiment rest-family")
+    if args.split == "run-opposed" and args.task in ("lr", "bf"):
+        ap.error("--split run-opposed needs runs of both families: rest-family or rh_vs_feet")
     return args
 
 
@@ -224,8 +229,11 @@ def main(argv: list[str] | None = None) -> int:
     seed_info = set_seed(args.seed)
     subjects = args.subjects or all_subjects(cfg)
     task_name = REST_TASK if args.experiment == "rest-family" else args.task
-    fold_runs = (RUN_PAIR_FOLDS if args.experiment == "rest-family"
-                 else TASK_RUN_FOLDS[args.task])
+    if args.split == "run-opposed":
+        fold_runs = RUN_PAIR_FOLDS_DRIFT_OPPOSED
+    else:
+        fold_runs = (RUN_PAIR_FOLDS if args.experiment == "rest-family"
+                     else TASK_RUN_FOLDS[args.task])
     n_folds = TRIAL_FOLDS if args.split == "trial" else len(fold_runs)
 
     done = completed_keys(args.log, args.tag) if args.resume else set()

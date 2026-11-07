@@ -3259,6 +3259,26 @@ run of each family held out: is family decodable on runs never seen.
 
 **Completeness.** Trial split: 5 folds, run split: 3 folds, x 103 subjects, per tag.
 
+**Added 2026-11-07, before any `PA-` row: drift and below-chance scores.**
+
+* **The run split is aligned with time.** Family alternates with run order (4 F0, 6 F1,
+  8 F0, 10 F1, 12 F0, 14 F1). In every `RUN_PAIR_FOLDS` fold the held-out family-1 run is
+  later than the family-0 run, and the family-1 training runs are later on average too, so
+  a classifier that tracks only slow within-session drift (impedance, fatigue) scores
+  above chance on (ii).
+* **Secondary split (iii), drift-opposed:** `RUN_PAIR_FOLDS_DRIFT_OPPOSED` =
+  {(4, 14), (6, 8), (10, 12)}, again one run of each family per fold, paired so that the
+  same drift classifier scores *below* chance. Tangent space only (minutes of CPU), both
+  caches, tags `PA-A3-rest-tgsp-runopp-<cache>`.
+* **Reading of (ii) against (iii):** family information that does not depend on time
+  scores above chance in both. Drift alone scores above chance in (ii) and below in
+  (iii). The mean of (ii) and (iii) estimates the drift-free part, and half their
+  difference the drift part, with paired bootstrap CIs. Only (ii) and (iii) both above
+  chance support "family is decodable on unseen runs".
+* **Below chance** (per-subject mean below 0.5 by 0.020 or more, CI excluding 0.5) is
+  reported as such and read as run-level signatures that do not transfer or that invert
+  on unseen runs. It is never read as family information.
+
 #### 9.26.6 A4 - the cross-family task (EXPLORATORY)
 
 **Tasks.** `rh_vs_feet`: right fist (runs 4/8/12) versus both feet (runs 6/10/14), a
@@ -3290,6 +3310,13 @@ accuracy is secondary and reported alongside.
   as measured, and checked for a run-pair imbalance before any reading is offered.
 * The two models are reported separately; a disagreement is stated, not averaged.
 * This quantifies one benchmark's inflation on one dataset. It is not a verdict on MOABB.
+* **Added 2026-11-07, before any `PA-` row: drift.** The `rh_vs_feet` run split
+  (`RUN_PAIR_FOLDS`) is aligned with time in the same way as A3 (ii): right-fist trials
+  come from the earlier run of each held-out pair, so slow drift can still raise
+  AUC<sub>run</sub>, and the inflation estimate is then a **lower bound** on the confound.
+  The `lr` and `bf` controls hold out one run of one family, so drift is not tied to class
+  there. Secondary: `rh_vs_feet` with the drift-opposed pairing (A3 (iii)), tangent space
+  only, tag `PA-A4-rh_vs_feet-tgsp-runopp`, read as in A3.
 
 **Completeness.** Trial split 5 folds, run split 3 folds, x 103 subjects, per tag.
 
