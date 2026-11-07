@@ -1123,6 +1123,9 @@ def analyse(experiment: str, rows: list[dict], subjects=None, allow_partial: boo
                 "tangent-space tags alone. 9.26 reports the two models separately and "
                 "never pools them; the ShallowConvNet arms are reported separately when "
                 "complete."]
+        if experiment == "a3":
+            out += ["", "NOTE: A3's ShallowConvNet arms were dropped (dated deviation in 9.26.5); "
+                    "A3 is reported for tangent space only."]
     status = 3 if experiment == "a5" and not res["gates_pass"] else 0
     if partial:
         out += ["", f"# {PARTIAL}"]

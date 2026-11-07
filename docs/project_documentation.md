@@ -3279,6 +3279,18 @@ run of each family held out: is family decodable on runs never seen.
   reported as such and read as run-level signatures that do not transfer or that invert
   on unseen runs. It is never read as family information.
 
+**Deviation, 2026-11-07, after the tangent-space arms were complete: the four ShallowConvNet
+tags are dropped** (`PA-A3-rest-shallow-<trial|run>-<bp830|car>`; none had been started).
+Decided by the user on the author's recommendation. The reasons:
+* The drift-opposed split (iii), which turned out to decide A3's reading, was pre-registered
+  for tangent space only. Without it, a ShallowConvNet result above chance on (ii) could not
+  be told apart from drift.
+* The arms would have cost about 10-16 GPU-hours.
+
+This decision was made after the tangent-space results had been seen, so it is reported as
+a deviation, not as part of the design. A3 is reported for tangent space only, and the
+write-up states that a deep model was not tested on rest data.
+
 #### 9.26.6 A4 - the cross-family task (EXPLORATORY)
 
 **Tasks.** `rh_vs_feet`: right fist (runs 4/8/12) versus both feet (runs 6/10/14), a
@@ -3476,7 +3488,8 @@ chance 0.5; 95 % bootstrap CI over subjects.
   run pairs are aligned with time. The drift-opposed pairing falls *below* chance, so the
   run-disjoint "family" signal in rest is slow within-session drift, not family information.
   The trial-disjoint 0.76-0.79 is run identity. Tangent space finds **no time-invariant
-  family signal in rest**, filtered or not; ShallowConvNet is pending.
+  family signal in rest**, filtered or not. The ShallowConvNet arms were dropped (deviation
+  note in 9.26.5), so A3 rests on tangent space alone.
 
 #### 9.27.2 A4 — the cross-family task, tangent space (complete)
 
@@ -4713,6 +4726,9 @@ ShallowConvNet.
 
 ### 2026-11-07
 
+- **A3 ShallowConvNet arms dropped (dated deviation in 9.26.5).** The user decided this after
+  the tangent-space A3 results were in: without the drift-opposed split, which is tangent-space only, a CNN
+  result on the run split could not be read. This saves about 10-16 GPU-hours. A1 and A4 keep both models.
 - **Phase A built and launched (branch `phase-a`); no results yet.** Code, each piece unit-tested
   on synthetic data and reviewed:
   - `data/alignment.py`: Euclidean alignment with a rank-aware pseudo-inverse square root
