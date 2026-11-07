@@ -3448,6 +3448,61 @@ fails its predictions, that is the result and is said plainly.
 
 ---
 
+### 9.27 Phase A — results (in progress; each arm entered only when its run is complete)
+
+*Written 2026-11-07. Every figure below comes from a complete arm (all 103 subjects, every
+fold) and is printed by `scripts/phase_a_results.py <exp> --tgsp-only`. The tangent-space
+(tgsp) arms finish hours or days before the ShallowConvNet arms; 9.26 reports the two models
+separately and never pools them. The ShallowConvNet arms, A1, A2, A5 and A6 are pending and
+are added here as each completes. A1-A5 are EXPLORATORY audit measurements.*
+
+#### 9.27.1 A3 — label-free run family from rest, tangent space (complete)
+
+Run family (runs 4/8/12 vs 6/10/14) decoded from rest (T0) epochs; accuracy per subject,
+chance 0.5; 95 % bootstrap CI over subjects.
+
+| cache | (i) trial-disjoint | (ii) run-disjoint | (iii) drift-opposed run |
+|---|---|---|---|
+| bp830 (8-30 Hz, CAR) | 0.760 [0.740, 0.780] | 0.532 [0.510, 0.554] | **0.396** [0.368, 0.424] |
+| car (CAR only) | 0.787 [0.770, 0.805] | 0.583 [0.559, 0.607] | **0.463** [0.433, 0.493] |
+
+* **(i) − (ii), the run-specific part:** +0.228 [+0.203, +0.253] (bp830, 101/103 subjects)
+  and +0.205 [+0.183, +0.227] (car, 102/103). Rest epochs are strongly identifiable by run.
+* **Drift decomposition** (drift-free = mean of (ii) and (iii); drift = half their
+  difference): drift-free 0.464 [0.442, 0.486] (bp830, below chance) and 0.523
+  [0.498, 0.548] (car, at chance); drift +0.068 [+0.056, +0.080] and +0.060
+  [+0.049, +0.071].
+* **Reading, by the rule fixed in 9.26.5:** (ii) is above chance only because the standard
+  run pairs are aligned with time. The drift-opposed pairing falls *below* chance, so the
+  run-disjoint "family" signal in rest is slow within-session drift, not family information.
+  The trial-disjoint 0.76-0.79 is run identity. Tangent space finds **no time-invariant
+  family signal in rest**, filtered or not; ShallowConvNet is pending.
+
+#### 9.27.2 A4 — the cross-family task, tangent space (complete)
+
+ROC-AUC (primary) and accuracy per subject, mean over folds.
+
+| task | AUC trial-disjoint | AUC run-disjoint | drop | acc trial | acc run |
+|---|---|---|---|---|---|
+| `rh_vs_feet` (cross-family) | 0.888 | 0.719 | **+0.170** | 0.806 | 0.646 |
+| `lr` (within fist family) | 0.705 | 0.739 | −0.034 | 0.655 | 0.673 |
+| `bf` (within feet family) | 0.742 | 0.771 | −0.029 | 0.684 | 0.693 |
+
+* **Inflation estimate** (drop on `rh_vs_feet` minus mean drop on the controls):
+  **+0.201 AUC [+0.166, +0.238]**, positive in 96/103 subjects; accuracy +0.174
+  [+0.147, +0.201], 94/103.
+* **Drift (secondary, drift-opposed pairing):** AUC 0.563; drift-free part 0.641
+  [0.600, 0.681]; drift part +0.078 [+0.060, +0.096]. The pre-stated note applies: drift
+  raises AUC<sub>run</sub>, so +0.201 is a **lower bound** on the confound.
+* **Reading, by the rule fixed in 9.26.6:** inflation. The within-family controls lose
+  nothing from run-disjoint splitting, while the cross-family task loses 0.17 AUC. A
+  within-session, trial-mixed benchmark of right hand versus feet on EEGMMIDB therefore
+  overstates decoding by at least 0.20 AUC under this model. Genuine hand-versus-feet
+  information remains (drift-free AUC about 0.64). This quantifies one benchmark's
+  inflation on one dataset and one model; it is not a verdict on MOABB.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
