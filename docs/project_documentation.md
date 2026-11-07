@@ -4270,6 +4270,22 @@ ShallowConvNet.
 
 ### 2026-11-07
 
+- **Literature review of next directions: `docs/RESEARCH_DIRECTIONS.md` and its PDF
+  (`scripts/build_research_report.py`).** It reports two fact-checked research rounds:
+  42 sources read, 50 claims checked by three verifiers each, 43 confirmed and 7 refuted.
+  - **Findings:** no motor-imagery architecture has an independently replicated advantage
+    under fair evaluation. Foundation models are tied with EEGNet and ShallowConvNet, and
+    LaBraM, EEGPT and AFPM were pre-trained on EEGMMIDB. Euclidean alignment (+4.3 to
+    +5.6 pp under LOSO elsewhere) is the best-supported method not yet tried here.
+  - **Novelty:** the generic block-design confound (Li et al., TPAMI 2021) and clinical
+    segment leakage (Brookshire et al. 2024) are published. The EEGMMIDB run-family form,
+    surviving our 8-30 Hz band-pass at 0.617, appears open, and MOABB's PhysioNet
+    right-hand-vs-feet benchmark crosses run families unremarked.
+  - **Proposed PW-2 paper:** an audit of what inflates results, plus a
+    contamination-controlled foundation-model comparison, alignment ablations and 2-3
+    datasets, written against the NERVE-ML checklist (JNE 2025).
+  - **Checked during the review:** model selection never uses the test fold. Validation
+    comes from training trials or held-out subjects, and fine-tuning uses the final epoch.
 - **Montage-robustness Phase 1 result recorded (9.25, EXPLORATORY): a null, in fact a
   measured loss. The fifth challenger to the ~0.67 -> 0.73 picture measured nothing in its
   favour.** The node-agnostic region-pooled graph model (M1, `ROB1-chebrp-*`) trails
