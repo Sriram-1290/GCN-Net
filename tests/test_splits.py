@@ -11,9 +11,11 @@ import numpy as np
 import pytest
 
 from data.splits import (
+    RUN_PAIR_FOLDS,
     count_shared_trials,
     leaky_timepoint_holdout,
     loso_folds,
+    run_disjoint_folds,
     stratified_trial_kfold,
 )
 
@@ -152,3 +154,45 @@ def test_windowing_brings_loso_inside_the_budget_and_timepoints_do_not():
     windowed = estimate_samples(8730, 640, 64, 64, "raw")
     assert timepoint > SAMPLE_BUDGET      # the reference formulation is hopeless
     assert windowed <= SAMPLE_BUDGET      # windowing makes it feasible
+
+
+# --------------------------------------------------------------------------
+# run-disjoint folds (Phase A)
+# --------------------------------------------------------------------------
+
+def _run_labels() -> tuple[np.ndarray, np.ndarray]:
+    """Six imagery runs with 6 trials each, both classes in every run."""
+    runs = np.repeat([4, 6, 8, 10, 12, 14], 6)
+    y = np.tile([0, 1], 18)
+    return runs, y
+
+
+def test_run_disjoint_folds_are_disjoint():
+    runs, y = _run_labels()
+    folds = run_disjoint_folds(runs, y, RUN_PAIR_FOLDS)
+    assert len(folds) == len(RUN_PAIR_FOLDS) == 3
+    for fold, held_out in zip(folds, RUN_PAIR_FOLDS):
+        test_runs, train_runs = set(runs[fold.test]), set(runs[fold.train])
+        assert test_runs == set(held_out)
+        assert not test_runs & train_runs
+        assert len(fold.train) + len(fold.test) == len(y)
+    # Every trial is tested exactly once across the folds.
+    tested = np.concatenate([f.test for f in folds])
+    assert sorted(tested.tolist()) == list(range(len(y)))
+    assert [f.fold for f in folds] == [0, 1, 2]
+
+
+def test_run_disjoint_folds_reject_missing_class():
+    runs, y = _run_labels()
+    y[runs == 12] = 0
+    y[runs == 14] = 0          # the (12, 14) test set now holds one class only
+    with pytest.raises(ValueError, match="class"):
+        run_disjoint_folds(runs, y, RUN_PAIR_FOLDS)
+
+
+def test_run_disjoint_folds_reject_class_missing_from_train():
+    runs = np.repeat([4, 6, 8], 4)
+    y = np.array([0, 1, 0, 1,  1, 1, 1, 1,  1, 1, 1, 1])
+    # Class 0 lives only in run 4; holding run 4 out leaves train without it.
+    with pytest.raises(ValueError, match="class"):
+        run_disjoint_folds(runs, y, [(4,)])

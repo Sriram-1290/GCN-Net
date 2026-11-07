@@ -236,6 +236,62 @@ def test_overlapping_windows_produce_more_samples():
     assert len(to_window_samples(X, y, window=20, stride=10)) == 9
 
 
+def test_window_start_offsets_windows():
+    from evaluation.pipeline import to_window_samples
+    T = 400
+    X = np.random.default_rng(1).normal(size=(2, 3, T)).astype(np.float32)
+    s = to_window_samples(X, np.array([0, 1]), 64, 16, start=160)
+    n = len(range(160, T - 64 + 1, 16))
+    assert s.X.shape == (2 * n, 3, 64)
+    assert np.array_equal(s.X[0], X[0, :, 160:224])         # first window at sample 160
+    assert np.array_equal(s.X[n], X[1, :, 160:224])         # trial 1 starts there too
+    last = 160 + 16 * (n - 1)
+    assert np.array_equal(s.X[n - 1], X[0, :, last:last + 64])
+
+
+def test_window_start_default_unchanged():
+    from evaluation.pipeline import to_window_samples
+    X = np.random.default_rng(2).normal(size=(3, 4, 300)).astype(np.float32)
+    y = np.array([0, 1, 0])
+    a = to_window_samples(X, y, 64, 16)
+    b = to_window_samples(X, y, 64, 16, start=0)
+    assert np.array_equal(a.X, b.X)
+    assert np.array_equal(a.y, b.y)
+    assert np.array_equal(a.trial_id, b.trial_id)
+    assert len(a) == 3 * len(range(0, 300 - 64 + 1, 16))
+
+
+def test_window_start_must_leave_room_for_a_window():
+    from evaluation.pipeline import to_window_samples
+    X = np.zeros((1, 2, 100), dtype=np.float32)
+    with pytest.raises(ValueError):
+        to_window_samples(X, np.array([0]), 64, 16, start=40)
+    with pytest.raises(ValueError):
+        to_window_samples(X, np.array([0]), 64, 16, start=-1)
+
+
+def test_prepare_fold_window_start_reaches_train_val_and_test():
+    rng = np.random.default_rng(3)
+
+    def trials(n):
+        return Trials(X=rng.normal(size=(n, 8, 200)).astype(np.float32),
+                      y=np.arange(n) % 2)
+
+    tr, va, te = trials(6), trials(4), trials(4)
+    kw = dict(build_graph=False, window=64, stride=16)
+    base = prepare_fold(tr, te, va, **kw)
+    same = prepare_fold(tr, te, va, window_start=0, **kw)
+    late = prepare_fold(tr, te, va, window_start=80, **kw)
+    for a, b in ((base.train, same.train), (base.val, same.val), (base.test, same.test)):
+        assert np.array_equal(a.X, b.X)
+    n_late = len(range(80, 200 - 64 + 1, 16))
+    for split, n_trials in ((late.train, 6), (late.val, 4), (late.test, 4)):
+        assert len(split) == n_trials * n_late
+    # The test windows begin at the offset too, not only the training windows.
+    std = late.standardizer.apply(te.X)
+    assert np.allclose(late.test.X[0], std[0, :, 80:144])
+
+
 def test_window_of_one_matches_the_timepoint_expansion():
     from evaluation.pipeline import to_timepoint_samples, to_window_samples
     X = np.random.default_rng(0).normal(size=(2, 4, 6)).astype(np.float32)
@@ -446,3 +502,14 @@ def test_concurrent_appends_never_tear_a_row(tmp_path):
     assert len(lines) == 100, f"expected 100 rows, got {len(lines)}"
     for l in lines:
         json.loads(l)          # raises if any row was torn
+
+
+def test_completed_keys_separates_window_starts(tmp_path):
+    """A resumed run at one window start must not skip another start's folds."""
+    from evaluation.experiment_log import completed_keys, log_experiment
+    p = tmp_path / "log.jsonl"
+    log_experiment({"tag": "t", "subject": "S001", "fold": 0}, path=p)
+    log_experiment({"tag": "t", "subject": "S002", "fold": 0, "window_start": 160}, path=p)
+    assert completed_keys(p, "t") == {("S001", 0), ("S002", 0)}   # default call unchanged
+    assert completed_keys(p, "t", window_start=0) == {("S001", 0)}
+    assert completed_keys(p, "t", window_start=160) == {("S002", 0)}

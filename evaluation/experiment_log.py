@@ -165,7 +165,8 @@ def read_experiments(path: Path | str = DEFAULT_LOG) -> list[dict[str, Any]]:
         return [json.loads(line) for line in fh if line.strip()]
 
 
-def completed_keys(path: Path | str, tag: str) -> set[tuple[str, int | None]]:
+def completed_keys(path: Path | str, tag: str, window_start: int | None = None
+                   ) -> set[tuple[str, int | None]]:
     """``(subject, fold)`` pairs already recorded under ``tag``.
 
     The experiment log is the checkpoint. A row is appended only *after* a fold has
@@ -176,6 +177,11 @@ def completed_keys(path: Path | str, tag: str) -> set[tuple[str, int | None]]:
     A crash during a write can leave a truncated final line; malformed lines are
     skipped rather than raising, since refusing to resume because of one damaged
     row would defeat the purpose.
+
+    ``window_start`` (default ``None`` = no filter, the original behaviour) keeps
+    only rows logged at that window start, treating a row without the field as 0.
+    A run with ``--window-start N`` then cannot mistake another start's rows under
+    the same tag for its own completed folds.
     """
     path = Path(path)
     if not path.exists():
@@ -190,6 +196,8 @@ def completed_keys(path: Path | str, tag: str) -> set[tuple[str, int | None]]:
                 row = json.loads(line)
             except json.JSONDecodeError:
                 continue  # truncated trailing row from an interrupted write
+            if window_start is not None and row.get("window_start", 0) != window_start:
+                continue
             if row.get("tag") == tag and "subject" in row:
                 done.add((row["subject"], row.get("fold")))
     return done

@@ -71,6 +71,47 @@ def stratified_trial_kfold(y: np.ndarray, n_splits: int = 5,
     ]
 
 
+# The three run-pair folds of the six imagery runs of one task family: each fold
+# holds out two runs and trains on the other four. Run numbers only; no trial
+# content decides which fold a trial lands in.
+RUN_PAIR_FOLDS: list[tuple[int, ...]] = [(4, 6), (8, 10), (12, 14)]
+
+
+def run_disjoint_folds(runs: np.ndarray, y: np.ndarray,
+                       fold_runs: list[tuple[int, ...]]) -> list[TrialSplit]:
+    """Folds that hold out whole recording runs instead of random trials.
+
+    Trials within one run share a recording session, so a trial-level k-fold lets
+    a model exploit slow within-run drift that a held-out run does not share.
+    Holding out whole runs removes that path. Fold ``i`` tests on the trials whose
+    run is in ``fold_runs[i]`` and trains on every other trial; the split depends
+    on the run numbers alone, never on trial content.
+
+    Raises:
+        ValueError: if any fold's train or test set lacks a class present in
+            ``y`` (such a fold cannot be trained or scored honestly).
+    """
+    runs = np.asarray(runs)
+    y = np.asarray(y)
+    if runs.ndim != 1 or y.ndim != 1 or len(runs) != len(y):
+        raise ValueError(
+            f"runs and y must be 1-D and equally long, got {runs.shape} and {y.shape}")
+    classes = np.unique(y)
+    folds: list[TrialSplit] = []
+    for i, held_out in enumerate(fold_runs):
+        is_test = np.isin(runs, held_out)
+        test = np.flatnonzero(is_test).astype(np.int64)
+        train = np.flatnonzero(~is_test).astype(np.int64)
+        for name, idx in (("test", test), ("train", train)):
+            missing = np.setdiff1d(classes, np.unique(y[idx]))
+            if missing.size:
+                raise ValueError(
+                    f"fold {i} (held-out runs {tuple(held_out)}): {name} set lacks "
+                    f"class {missing.tolist()}")
+        folds.append(TrialSplit(train=train, test=test, fold=i))
+    return folds
+
+
 def loso_folds(subjects: list[str], n_val_subjects: int = 5,
                seed: int = 42) -> list[SubjectSplit]:
     """Leave-One-Subject-Out folds, with a disjoint validation set per fold.

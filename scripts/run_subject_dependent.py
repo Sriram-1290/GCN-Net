@@ -113,6 +113,10 @@ def main() -> int:
                     help="timepoints per sample; 1 is the reference's definition")
     ap.add_argument("--stride", type=int, default=None,
                     help="hop between windows; defaults to --window (no overlap)")
+    ap.add_argument("--window-start", type=int, default=0,
+                    help="sample index of the first window in every trial (train, val "
+                         "and test alike); 0 keeps the original behaviour. Non-zero "
+                         "values are logged as window_start")
     ap.add_argument("--lmax", type=float, default=2.0,
                     help="2.0 reproduces the reference; pass 0 for the true lambda_max")
     ap.add_argument("--leaky", action="store_true", help="reproduce the reference protocol")
@@ -272,7 +276,8 @@ def main() -> int:
               f"({(deadline - now).total_seconds() / 60:.0f} min from now), "
               "at a fold boundary")
 
-    done = completed_keys(args.log, args.tag) if args.resume else set()
+    done = (completed_keys(args.log, args.tag, window_start=args.window_start)
+            if args.resume else set())
     if args.resume:
         print(describe_resume(done, len(subjects) * args.folds, args.tag))
 
@@ -310,6 +315,7 @@ def main() -> int:
 
             fold = prepare_fold(train, test, val, lmax=lmax, seed=seed,
                                 sfreq=ep.sfreq, window=args.window, stride=args.stride,
+                                window_start=args.window_start,
                                 features=args.features, bands=args.bands,
                                 leaky=args.leaky,
                                 build_graph=args.model in ("gcn", "graphbp"))
@@ -370,6 +376,7 @@ def main() -> int:
                 "n_classes": n_classes,
                 "window": args.window,
                 "stride": args.stride or args.window,
+                **({"window_start": args.window_start} if args.window_start else {}),
                 "temporal_attention": args.temporal_attention,
                 "attention_heads": args.attention_heads if args.temporal_attention else None,
                 "model": args.model,

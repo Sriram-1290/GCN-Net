@@ -89,7 +89,7 @@ def to_timepoint_samples(X: np.ndarray, y: np.ndarray, trial_offset: int = 0) ->
 
 
 def to_window_samples(X: np.ndarray, y: np.ndarray, window: int, stride: int,
-                      trial_offset: int = 0) -> Samples:
+                      trial_offset: int = 0, start: int = 0) -> Samples:
     """Cut each trial into overlapping windows of ``window`` timepoints.
 
     The reference's ``window = 1`` gives one sample per timepoint and therefore no
@@ -101,16 +101,23 @@ def to_window_samples(X: np.ndarray, y: np.ndarray, window: int, stride: int,
     Windows never cross a trial boundary, so a window is always wholly inside one
     trial and inherits that trial's label. Overlap between windows of the *same*
     trial is fine — they stay on the same side of any trial-level split.
+
+    ``start`` is the sample index of the first window (default 0, the original
+    behaviour). A positive value drops the early samples of every trial, e.g. to
+    exclude the cue-locked onset transient (Phase A, A4).
     """
     n_trials, n_nodes, n_time = X.shape
     if not 1 <= window <= n_time:
         raise ValueError(f"window {window} must be in [1, {n_time}]")
     if stride < 1:
         raise ValueError(f"stride must be >= 1, got {stride}")
+    if start < 0:
+        raise ValueError(f"start must be >= 0, got {start}")
 
-    starts = np.arange(0, n_time - window + 1, stride)
+    starts = np.arange(start, n_time - window + 1, stride)
     if len(starts) == 0:
-        raise ValueError(f"window {window} / stride {stride} yields no windows")
+        raise ValueError(
+            f"window {window} / stride {stride} / start {start} yields no windows")
 
     # (trials, windows, nodes, window) -> (trials*windows, nodes, window)
     chunks = np.stack([X[:, :, s:s + window] for s in starts], axis=1)
@@ -127,7 +134,7 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
                  features: str = "raw",
                  bands: str | tuple[tuple[float, float], ...] = "mu_beta",
                  leaky: bool = False, build_graph: bool = True,
-                 train_samples: bool = True) -> Fold:
+                 train_samples: bool = True, window_start: int = 0) -> Fold:
     """Build graph, statistics and tensors for one fold.
 
     Args:
@@ -137,6 +144,9 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
         window: timepoints per sample. ``1`` is the reference's definition; larger
             values give the model temporal extent (see :func:`to_window_samples`).
         stride: hop between windows; defaults to ``window`` (non-overlapping).
+        window_start: sample index of the first window, applied identically to the
+            training, validation and test windows (all go through ``convert``).
+            ``0`` is the original behaviour. Raw features only.
         features: ``"raw"`` uses voltage samples as node features; ``"bandpower"``
             uses log band power per channel per band (see :mod:`data.features`).
             Band power must be computed from an *unfiltered* cache.
@@ -187,6 +197,10 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
     standardizer = fit_standardizer(fit_source)
 
     step = stride if stride is not None else window
+    if window_start and features != "raw":
+        raise ValueError("window_start supports raw features only")
+    if window_start and window == 1 and step == 1:
+        raise ValueError("window_start needs window > 1 (timepoint samples)")
 
     if features == "bandpower":
         # The graph still comes from the raw time series, so this is a single
@@ -215,7 +229,8 @@ def prepare_fold(train: Trials, test: Trials, val: Trials | None = None, *,
                 X = perm_data(X, perm)
             if window == 1 and step == 1:
                 return to_timepoint_samples(X, split.y, trial_offset=offset)
-            return to_window_samples(X, split.y, window, step, trial_offset=offset)
+            return to_window_samples(X, split.y, window, step, trial_offset=offset,
+                                     start=window_start)
 
     # Distinct trial-id ranges per split so aggregated ids never collide.
     if train_samples:
