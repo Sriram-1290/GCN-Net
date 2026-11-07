@@ -4658,6 +4658,30 @@ ShallowConvNet.
 
 ### 2026-11-07
 
+- **Phase A built and launched (branch `phase-a`); no results yet.** Code, each piece unit-tested
+  on synthetic data and reviewed:
+  - `data/alignment.py`: Euclidean alignment with a rank-aware pseudo-inverse square root
+    (relative tolerance 1e-8), so the rank-63 common-average-referenced covariance is whitened
+    within its subspace instead of amplifying the null direction.
+  - `data/splits.py`: `run_disjoint_folds`, `RUN_PAIR_FOLDS` and the drift-opposed
+    `RUN_PAIR_FOLDS_DRIFT_OPPOSED`.
+  - `evaluation/pipeline.py`: a window-start offset, and a timepoint-holdout fold with the
+    graph/standardiser leak switchable.
+  - Rest-period (T0) caches `data/cache_rest_bp830` and `data/cache_rest_car` (103 subjects x
+    90 epochs of 4.0 s; every T0 lasts 4.1-4.2 s), built by `scripts/build_rest_cache.py`.
+  - Scripts: `run_confound_audit.py` (A3/A4), `run_leak_ablation.py` (A5),
+    `run_pretrain_finetune.py` gains `--zero-shot`, `--calibration-run-excluded`, `--ea` and
+    `--require-source-cache` (A1/A6; existing source-cache keys unchanged),
+    `run_tangent_transfer.py` (A1/A6, tangent helpers moved to `data/riemann.py`), and
+    `scripts/phase_a_queue.sh`, an appendable retrying job queue.
+  - Pre-registration amendments, all dated and made before any `PA-` row of the experiment
+    concerned: the A3 attribution caveat (T0 periods sit between same-family trials), the A5
+    `split` arm's loss of validation-based selection and the `none` gate procedure, and a
+    drift-opposed run pairing for A3/A4, because the standard pairs put the family-1 run later
+    in every fold, so slow drift alone could pass for family information.
+  - Runs started 2026-11-07 on two queues (GPU, CPU), A6 first among the long arms. Estimated
+    total: roughly 30-40 h of GPU time; results go in 9.27 only when each experiment is complete.
+
 - **Phase A pre-registered (9.26), before any `PA-` run.** Fixes the arms, tags, splits, metrics,
   validity checks and outcome readings for A1-A5 (EXPLORATORY audit measurements: 4-class
   subject-independent decoding with the family decomposition, early-cue dependence, label-free
