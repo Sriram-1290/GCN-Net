@@ -3150,6 +3150,15 @@ violates NERVE-ML's "parameters fitted on training data only". This experiment t
 cannot separate the two, and says so. Each arm is mapped to its NERVE-ML item in the
 write-up.
 
+`split` is also bundled, found while building it (added 2026-11-07, before any `PA-` row):
+the reference protocol's timepoint holdout has no validation set, so the `split` and `all`
+arms train 25 epochs and keep the final epoch, while `none`, `bn` and `graph` hold out 20 %
+of training trials and keep the best-validation epoch. `split` therefore measures the
+timepoint split together with the loss of validation-based checkpoint selection, and the
+write-up says so. A validation set of random timepoints would itself leak, so none is
+added. The `none` gate uses per-subject `trial_confusion` (mean-logit aggregation), pooled
+over folds and then averaged over subjects, which is how the logged 0.5090 was computed.
+
 **Metrics.** Timepoint accuracy (the metric the published protocol reports), plus 4-class,
 family and within-family accuracy from each row's logged confusion matrices (timepoint-level
 and trial-level). Contrast: each leaking arm minus `none`, paired over subjects.
