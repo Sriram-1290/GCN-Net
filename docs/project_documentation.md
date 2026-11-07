@@ -3060,6 +3060,346 @@ this gap mixes operator and readout and is not the cost of the region readout (9
 
 ---
 
+### 9.26 Phase A — pre-registration (written before any PA run)
+
+**Written 2026-11-07, about 16:50 local (IST), with zero `PA-` rows in
+`runs/experiments.jsonl` (`grep -c '"tag": "PA-' runs/experiments.jsonl` prints 0). The
+commit timestamp of the pre-registration commit is authoritative; the clock time here is
+approximate.** The commit hash recorded here, `846d4ae` (branch `phase-a`), is the HEAD the
+section was written on top of; the commit that *contains* this section (message
+"Pre-register Phase A") is the pre-registration commit, and every `PA-` run starts after it.
+No Phase A code exists at `846d4ae`: this section describes experiments, not code, and was
+committed ahead of the build tasks on purpose. Design:
+`docs/superpowers/specs/2026-11-07-phase-a-audit-alignment-design.md`; plan:
+`docs/superpowers/plans/2026-11-07-phase-a-audit-alignment.md`.
+
+**A1-A5 are EXPLORATORY audit measurements. A6 is a pre-registered method test.** None of
+the six is on the 10.3 list. Nothing in Phase A is tuned.
+
+#### 9.26.1 Question
+
+The planned paper needs evidence of two kinds from this dataset before any new dependency or
+download. **Audit:** how much published-style evaluations inflate results here, through the
+EEGMMIDB run-family confound (A1-A4) and through the individual GCNs-Net leakage paths (A5),
+plus whether our own models lean on the first second after the cue (A2). **Method:** whether
+Euclidean alignment (EA), the best-supported untried method, improves subject-independent
+and fine-tuned decoding (A6). Foundation models, extra datasets, augmentation and test-time
+batch-norm adaptation are out of scope; the last is deferred so that EA is measured alone.
+
+#### 9.26.2 Fixed for every experiment
+
+* **Data:** the 103 non-excluded subjects; the referenced cache (`configs/bandpass_8_30.yaml`:
+  8-30 Hz, common average reference, 4.0 s epochs at 160 Hz); 64-sample windows, stride 16,
+  unless an experiment says otherwise. Imagery runs only; class label = f(run, T-code).
+* **Groups:** always `assign_groups(all 103 subjects, 10)`, index mod 10, the same groups as
+  the pre-training arms, so results pair with them.
+* **Subject-independent protocol:** 10-group subject-disjoint cross-validation, **not true
+  leave-one-subject-out.** Ten trainings per arm instead of 103. The existing binary LOSO
+  figure (0.604, 103 folds, a different model) is **not compared directly** to anything here;
+  the binary subject-independent baseline is re-measured inside A6.
+* **Leakage:** graphs, standardisers and EA references come from training data only. The one
+  exception is the explicitly labelled transductive EA variant (A6, secondary). Run-disjoint
+  folds are generated from run numbers only.
+* **ShallowConvNet settings** copy the logged `A2-shallow-binary-*` arm: `--model shallow`,
+  8-30 Hz cache, window 64, stride 16, 5 folds, 50 epochs, lr 1e-3, batch 256, seed 42.
+  Tangent space and EA are implemented in-house; no new dependency, no download.
+* **Statistics:** paired bootstrap, 10,000 resamples over subjects, 95 % CI, per-subject win
+  counts. An *effect* is a difference of at least **0.020** whose CI excludes zero (the
+  project's 9.12 floor). A smaller difference is reported as indistinguishable, however
+  small its p-value.
+* **Reporting conditions:** a tag is quoted only when it holds its full row count (below);
+  a 4-class figure is never quoted without its family decomposition
+  (`scripts/run_family_analysis.decompose`: 4-class, family, within-family); nothing is
+  tuned after a result; no arm definition below changes after a result.
+* **9.15.4 applies in full.** Every pre-trained arm (A6 fine-tuned and the source models
+  behind A1 and A6) consumes ~92 other subjects, so **none may be compared to the 0.650
+  within-session ceiling.** The only comparisons are the paired ones stated here.
+
+**Tags.** Provisional naming, all prefixed `PA-`. The implementing tasks may finalise exact
+spellings without changing any arm definition below.
+
+| experiment | tag scheme |
+|---|---|
+| A1 | `PA-A1-<model>-4class`, model in {shallow, tgsp} |
+| A2 | `PA-A2-shallow-ws160-binary-<0-1\|2-3>` |
+| A3 | `PA-A3-rest-<model>-<split>-<cache>`, model in {tgsp, shallow}, split in {trial, run}, cache in {bp830, car} |
+| A4 | `PA-A4-<task>-<model>-<split>`, task in {rh_vs_feet, lr, bf}, model in {tgsp, shallow}, split in {trial, run} |
+| A5 | `PA-A5-leak-<arm>`, arm in {none, split, bn, graph, all} |
+| A6 | `PA-A6-<arm>-binary-<0-1\|2-3>`, arm in {si-shallow-noea, si-shallow-ea, si-tgsp-noea, si-tgsp-ea, ft-shallow-ea} plus the secondary {si-shallow-ea-offline, si-tgsp-ea-offline} |
+
+`0-1` is left versus right fist and `2-3` is both fists versus both feet, the two
+within-family binary problems used throughout.
+
+#### 9.26.3 A5 - GCNs-Net leakage paths, one at a time (EXPLORATORY)
+
+**Arms.** Start from the correct protocol and switch on each leakage path alone, then all
+three. Reference formulation (published preprocessing, no band-pass; `configs/default.yaml`),
+the reference GCNs-Net, 4-class training, one seed (42), 103 subjects, using the existing
+leaky-replication code paths.
+
+| arm | what is switched on |
+|---|---|
+| `none` | nothing: the correct protocol (trial-level 5-fold, BatchNorm in eval mode, graph and standardiser from training data) |
+| `split` | random timepoint holdout (test fraction 0.1) instead of the trial-level split |
+| `bn` | BatchNorm in training mode at test time (`always_train_bn`) |
+| `graph` | adjacency **and** standardiser fitted on pooled train and test data |
+| `all` | all three |
+
+`graph` covers **both** the adjacency and the standardiser, bundled on purpose: each
+violates NERVE-ML's "parameters fitted on training data only". This experiment therefore
+cannot separate the two, and says so. Each arm is mapped to its NERVE-ML item in the
+write-up.
+
+**Metrics.** Timepoint accuracy (the metric the published protocol reports), plus 4-class,
+family and within-family accuracy from each row's logged confusion matrices (timepoint-level
+and trial-level). Contrast: each leaking arm minus `none`, paired over subjects.
+
+**Validity checks, stated before the run.** `all` must reproduce the logged leaky replication
+(`P1-leaky-103-*`, per-seed timepoint accuracy 0.8970-0.8978, three-seed mean 0.8975) to
+within **0.010**; `none` must land inside the logged correct-split interval for
+within-family accuracy, [0.4984, 0.5199] (mean 0.5090). If either check fails the toggles
+are broken: no A5 number is quoted until that is fixed and the run repeated, and the failure
+is reported.
+
+**Reading, fixed now.**
+
+* **A single arm exceeds `none` by 0.020 or more (CI excludes zero):** that path alone
+  inflates the reference protocol by that amount. Arms are ranked by size; no path is
+  called "the" cause unless it recovers most of the `none` to `all` gap.
+* **A single arm is below 0.020:** that path alone does not measurably inflate this
+  formulation. It says nothing about its effect in combination.
+* **`all` exceeds the largest single arm by 0.020 or more:** the paths interact, and the
+  single-arm effects do not add up to the published inflation. **`all` is close to one of
+  the singles:** that path carries the inflation.
+* This is a measurement of three code paths in one formulation with one seed. It is not a
+  method comparison and is not reported as a win.
+
+**Completeness.** One row per subject for the holdout arms (`split`, `all`), five per
+subject for the trial-level arms; 103 subjects each.
+
+#### 9.26.4 A2 - dependence on the first second after the cue (EXPLORATORY)
+
+**Arms.** ShallowConvNet, subject-dependent, both binary problems, trained and tested two
+ways: (i) on all windows, which is the existing `A2-shallow-binary-0-1` / `-2-3` arm
+(reused, 0.6725); (ii) excluding every window that starts before **160 samples (1.0 s)**
+after the cue, `--window-start 160`, tags `PA-A2-shallow-ws160-binary-0-1` / `-2-3`. All other
+settings are those of (i). Same subjects, folds and seed.
+
+**Contrast.** Within-family accuracy (ii) minus (i), per-subject mean of the two problems.
+
+**Reading, fixed now.**
+
+* **A drop of 0.020 or more (CI excludes zero):** the model leans on early-cue activity
+  (the NeuroAtlas concern). Reported as dependence on the first second, with the caveat below.
+* **|difference| below 0.020:** no measurable dependence.
+* **A rise of 0.020 or more:** early windows hurt the model; reported as such, not as a
+  success of the exclusion.
+* **Caveat, pre-stated:** arm (ii) trains on fewer windows per trial (27 against 37 for a
+  4.0 s epoch), about 73 % of the training windows. A drop therefore mixes early-cue
+  reliance with a smaller training set and is reported as an upper bound on the former.
+
+**Completeness.** 5 folds x 103 subjects = 515 rows per problem tag.
+
+#### 9.26.5 A3 - label-free run-family confound from rest data (EXPLORATORY)
+
+**Data.** The rest periods (T0, ~15 per imagery run) carry no class label. A new rest cache
+holds each T0 epoch with its run number, built with the referenced preprocessing
+(`data/cache_rest_bp830`) and an unfiltered twin with common average reference only
+(`data/cache_rest_car`), which tests whether the band-pass removes the confound (Li et al.).
+Epoch length is 4.0 s (640 samples) to match imagery trials; if any T0 segment is shorter,
+the longest common length is used and recorded in 9.27. Family is 0 for runs 4/8/12 and 1
+for runs 6/10/14.
+
+**Task.** Classify run family from rest epochs, per subject, binary, chance 0.5.
+
+**Splits.** (i) trial-disjoint 5-fold stratified, mixing runs: does any run-level signature
+exist at all. (ii) run-disjoint, `RUN_PAIR_FOLDS` = {(4, 6), (8, 10), (12, 14)}, 3 folds, one
+run of each family held out: is family decodable on runs never seen.
+
+**Models.** Tangent space and ShallowConvNet (A2 settings). 2 models x 2 splits x 2 caches =
+8 tags. Metric: accuracy.
+
+**"Above chance"** means the per-subject-mean accuracy exceeds 0.5 by at least 0.020 with a
+95 % CI excluding 0.5.
+
+**Reading, fixed now.**
+
+* **(i) not above chance on either cache:** rest data carry no detectable run-level
+  signature under these models; the confound is not visible label-free.
+* **(i) above chance, (ii) at chance:** rest data hold run-specific signatures that do not
+  generalise to unseen runs. That is run identity, not family, and the gap (i) - (ii)
+  measures how much is run-specific.
+* **(i) and (ii) both above chance:** family is decodable on runs never seen, from epochs
+  with no class signal: a label-free demonstration that the run-family confound exists in
+  this cache.
+* **Cache comparison:** above chance on `car` but not on `bp830` localises the confound to
+  unfiltered pipelines (Li et al.'s finding); above chance on both says the 8-30 Hz band-pass
+  does not remove it, consistent with the within-family 0.617 measured earlier. A null on
+  `bp830` is still a reportable result.
+* Tangent space and ShallowConvNet are reported separately and not pooled. If they disagree,
+  both are stated and the weaker one is not discarded.
+
+**Completeness.** Trial split: 5 folds, run split: 3 folds, x 103 subjects, per tag.
+
+#### 9.26.6 A4 - the cross-family task (EXPLORATORY)
+
+**Tasks.** `rh_vs_feet`: right fist (runs 4/8/12) versus both feet (runs 6/10/14), a
+cross-family task, the one MOABB benchmarks for PhysioNet. Controls, both within-family:
+`lr` (left vs right fist, runs 4/8/12) and `bf` (both fists vs both feet, runs 6/10/14).
+
+**Splits.** (i) trial-disjoint 5-fold mixing runs, as MOABB does within a session; (ii)
+run-disjoint, 3 folds: `RUN_PAIR_FOLDS` for `rh_vs_feet` (one fist run and one feet run held
+out), and one held-out run of that family per fold for `lr` and `bf`.
+
+**Models and metrics.** Tangent space and ShallowConvNet (A2 settings). ROC-AUC, to match
+MOABB, and accuracy. 3 tasks x 2 models x 2 splits = 12 tags.
+
+**Inflation estimate**, per model and per subject:
+(AUC<sub>trial</sub> - AUC<sub>run</sub>) on `rh_vs_feet`, minus the mean of the same
+difference on `lr` and `bf`. This separates the confound from the generic cost of
+run-disjoint splitting. Paired bootstrap CI over subjects. It is the primary AUC quantity;
+accuracy is secondary and reported alongside.
+
+**Reading, fixed now.**
+
+* **Estimate of at least 0.020 with the CI excluding zero:** the cross-family task loses
+  more from run-disjoint splitting than the within-family controls do, so part of its
+  trial-split score comes from run-family identity. A within-session benchmark on this
+  dataset overstates cross-family decoding by about that much.
+* **|estimate| below 0.020:** no measurable extra inflation on the cross-family task; the
+  run-disjoint cost is generic.
+* **Estimate of -0.020 or less:** the controls lose more than the cross-family task. Reported
+  as measured, and checked for a run-pair imbalance before any reading is offered.
+* The two models are reported separately; a disagreement is stated, not averaged.
+* This quantifies one benchmark's inflation on one dataset. It is not a verdict on MOABB.
+
+**Completeness.** Trial split 5 folds, run split 3 folds, x 103 subjects, per tag.
+
+#### 9.26.7 A6 - Euclidean alignment (PRE-REGISTERED method test)
+
+**EA module.** Per-subject reference R = mean trial covariance; whitening by R<sup>-1/2</sup>
+computed as a pseudo-inverse square root keeping eigenvalues above a relative tolerance of
+**1e-8** of the largest (the common average reference leaves the covariance rank 63; `docs/RESEARCH_DIRECTIONS.md` 9.4).
+EA is applied after the band-pass. The tolerance is fixed and is not swept.
+
+**Where each reference comes from.**
+
+* **Source subjects:** each from its own training trials.
+* **Fine-tuned target:** its own training-fold trials only; the fold's test trials are
+  aligned with that reference.
+* **Subject-independent target, primary: pseudo-online.** The reference comes from the
+  subject's **earliest run of the task's family: run 4 for the fist family (`0-1`), run 6
+  for the fists-vs-feet family (`2-3`)**, 15 trials. That run is **excluded from scoring in
+  both arms** (with and without EA) of every subject-independent comparison, so the arms
+  stay paired. The literature's "first 24 trials" would leave too few test trials in a
+  roughly 45-trial binary task.
+* **Secondary, labelled transductive:** an offline reference from all of the target's
+  unlabelled trials, reported separately and never used for the decision rule.
+
+**Arms,** each with and without EA, sharing groups, seeds and folds:
+
+| arm | without EA | with EA |
+|---|---|---|
+| 1. subject-independent ShallowConvNet | cached PTG-shallow source models, scored zero-shot on their own group's targets (`si-shallow-noea`, no new training) | new source models trained on EA-aligned source data (`si-shallow-ea`) |
+| 2. subject-independent tangent space (classical control; **must also get EA**) | `si-tgsp-noea` | `si-tgsp-ea` |
+| 3. fine-tuned ShallowConvNet | PTG-shallow, logged, 0.7369 (reused) | the EA source models fine-tuned on EA-aligned target training folds (`ft-shallow-ea`) |
+
+Tangent space: features at the Riemannian mean of the pooled source covariances,
+`LogisticRegression` on the sources, group targets scored with the calibration run excluded.
+Giving EA to the deep model but not to the classical baseline is an anti-goal, which is why
+arm 2 exists.
+
+**Metric.** Trial-level within-family accuracy, per-subject mean of the two binary problems;
+each problem also reported alone.
+
+**Pre-registered predictions (verbatim from the design, section 3.6):**
+
+1. EA improves subject-independent ShallowConvNet by at least 0.020.
+2. EA improves subject-independent tangent space by at least 0.020.
+3. EA changes fine-tuned ShallowConvNet by less than 0.020, because pre-training absorbs it,
+   as it absorbed domain-specific batch norm.
+
+**Primary contrasts (three):** arm 1 with EA minus without; arm 2 with EA minus without;
+arm 3 with EA minus PTG-shallow.
+
+**Decision rule.** The project standard. A difference counts as an effect only if it is at
+least 0.020 with a 95 % paired bootstrap CI excluding zero; **Holm correction across the
+three primary contrasts**; per-subject win counts reported. Predictions 1 and 2 *hold* only
+if the contrast is an effect in the predicted direction under this rule. Prediction 3 *holds*
+if |difference| < 0.020; it is called *equivalence demonstrated* only if the whole 95 % CI
+lies inside (-0.020, +0.020), otherwise *not resolved*.
+
+**What each outcome means, fixed now.**
+
+* **1 and 2 hold:** EA helps subject-independent decoding for a deep and a classical model
+  alike, which makes it a data-alignment effect, not an architecture effect.
+* **2 holds, 1 does not:** the network already absorbs the between-subject covariance shift,
+  or the new source training lost what the alignment gave; the tangent-space gain is
+  reported on its own.
+* **1 holds, 2 does not:** unexpected for a method built for covariance-based models; checked
+  against the rank handling before it is reported.
+* **Neither holds:** a sixth challenger to the ~0.67 -> 0.73 picture measured nothing.
+  Reported plainly as a null; no setting is then varied.
+* **3 fails (EA moves the fine-tuned model by 0.020 or more):** pre-training did not absorb
+  the shift, and the 9.17 reading that the gain is a data effect needs a qualification.
+* **Not compared to 0.650.** The transductive offline arms are reported as secondary and
+  labelled; they never enter a prediction.
+
+**Completeness.** Subject-independent arms: 103 rows per problem tag. Fine-tuned arm:
+5 folds x 103 subjects = 515 rows per problem tag.
+
+#### 9.26.8 A1 - 4-class subject-independent decoding with the family decomposition (EXPLORATORY)
+
+**Models.** ShallowConvNet and the in-house tangent-space classifier. 4-class source models
+are trained for the 10 groups (a further pre-training set) and scored zero-shot on their own
+group's targets, with **no EA and no calibration run excluded**: A1 measures the unaligned
+protocol on every target trial. If compute runs short, A1 drops to tangent space only and
+that is reported.
+
+**Reported.** 4-class accuracy, family accuracy and within-family accuracy
+(`scripts/run_family_analysis.decompose`), with per-subject values and the confusion matrix.
+Chance is 0.25 for 4-class and 0.5 for family and within-family. The binary figures from A6
+(`si-shallow-noea`, `si-tgsp-noea`) are the same-protocol binary baseline; the 0.604 LOSO
+figure is not.
+
+**Reading, fixed now.**
+
+* **Family accuracy at least 0.020 above 0.5 with the CI excluding 0.5:** run family is
+  identifiable across subjects. This alone does not separate the run artefact from real
+  fist-versus-feet task information, because the two families also differ in task; A3 is the
+  label-free test for that. The 4-class accuracy is then not quoted without this line.
+* **Within-family accuracy is the confound-free measure.** If it is within 0.020 of the A6
+  binary baseline for the same model, 4-class training costs nothing within-family. If it is
+  lower by 0.020 or more, 4-class training costs that much within-family.
+* **4-class accuracy well above 0.25 while within-family accuracy stays at 0.5:** the
+  signature seen twice before (9.4, 9.6), a 4-class figure that is entirely family
+  identification. It is reported as a confound, not as decoding.
+* No prediction is registered for A1 and no model is called better on it.
+
+**Completeness.** 103 rows per tag (one per target subject).
+
+#### 9.26.9 Why no development / confirmation split
+
+All six experiments run on all 103 subjects, with no development subset and no held-out
+confirmation set. The reasons, fixed now:
+
+* **A1-A5 are measurements,** not method claims. Each reports how large a quantity is under a
+  definition fixed above; there is no setting to choose and so no selection to protect.
+* **A6 is one literature-fixed method with no tuned settings:** the reference rule, the
+  whitening tolerance (1e-8), the calibration run and the three contrasts are all stated
+  here. No hyperparameter will be varied after seeing a result, so a development set would
+  have nothing to tune.
+* **The cost, stated honestly:** the 103 subjects have been used by every earlier experiment
+  in this project, so none of these results is a fresh-subject confirmation. What the design
+  guarantees is that no Phase A choice is made after seeing a Phase A outcome, not that the
+  subjects are unseen.
+
+**Scope of the claim.** A1-A5 are reported as EXPLORATORY audit measurements and A6 as a
+pre-registered test, in 9.27. An audit measurement is never described as a method win. If A6
+fails its predictions, that is the result and is said plainly.
+
+---
+
 ## 10. Pre-registration of the remaining ablations
 
 **Written 2026-09-01 at commit `3347aa0`, before the learnable-graph result was known.**
@@ -4270,6 +4610,18 @@ ShallowConvNet.
 
 ### 2026-11-07
 
+- **Phase A pre-registered (9.26), before any `PA-` run.** Fixes the arms, tags, splits, metrics,
+  validity checks and outcome readings for A1-A5 (EXPLORATORY audit measurements: 4-class
+  subject-independent decoding with the family decomposition, early-cue dependence, label-free
+  run-family decoding from rest, the cross-family task, and the GCNs-Net leakage paths one at a
+  time) and A6 (Euclidean alignment, a pre-registered method test with three predictions copied
+  verbatim from the design, Holm over three contrasts, 0.020 floor). Written at `846d4ae` on
+  branch `phase-a` with zero `PA-` rows in the log. Rulings recorded: `--leaks graph` covers both
+  the adjacency and the standardiser; the A6 pseudo-online reference is the earliest run of the
+  task's family (run 4 or 6), excluded from scoring in both arms; the subject-independent protocol
+  is 10-group subject-disjoint CV, not LOSO, so the 0.604 LOSO figure is not compared; all six run
+  on all 103 subjects with no development/confirmation split, and why. Tag names are provisional
+  and may be finalised without changing arm definitions. Documentation only; no code, no runs.
 - **Literature review of next directions: `docs/RESEARCH_DIRECTIONS.md` and its PDF
   (`scripts/build_research_report.py`).** It reports two fact-checked research rounds:
   42 sources read, 50 claims checked by three verifiers each, 43 confirmed and 7 refuted.
