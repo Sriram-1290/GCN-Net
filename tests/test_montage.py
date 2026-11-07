@@ -1,7 +1,5 @@
 """Tests for data.montage: common-average re-referencing over a channel subset."""
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -19,16 +17,16 @@ from data.montage import (
     region_vector,
 )
 
-_CACHE = Path(__file__).resolve().parents[1] / "data" / "cache_bp830"
+from tests.eegmmidb_channels import CH_NAMES
 
 
 def _cached_ch_names() -> list[str]:
-    """The 64 standardised channel names; skip when the cache is not on disk."""
-    if not (_CACHE / "S001.npz").exists():
-        pytest.skip("data/cache_bp830/S001.npz absent; fresh clone")
-    from data.cache import load_subject
+    """The 64 standardised channel names in cache order.
 
-    return list(load_subject("S001", _CACHE).ch_names)
+    Hard-coded (tests/eegmmidb_channels.py) so these tests run on a fresh clone;
+    tests/test_interpolate.py checks the list against data/cache_bp830 when it exists.
+    """
+    return list(CH_NAMES)
 
 
 def _cond(name: str):
