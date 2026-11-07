@@ -266,6 +266,41 @@ def format_markdown(result: dict) -> str:
     return "\n".join(out)
 
 
+def drop_from_full_table(rows: list[dict], m1_prefix: str, m2_prefix: str,
+                         subjects: tuple[str, ...] = DEV_SUBJECTS) -> dict:
+    """POST HOC / EXPLORATORY, not part of the 9.24.5 decision.
+
+    Per subject, each model's drop from its own Full score, then the difference of
+    differences ``(M1_cond - M1_full) - (M2_cond - M2_full)`` with a paired bootstrap CI.
+    A positive value means M1 loses *less* than M2; it says nothing about which model
+    scores higher on that cap (that is the main table). Same completeness guard.
+    """
+    subjects = _check_complete(rows, m1_prefix, m2_prefix, subjects)
+    f1 = _subject_scores(rows, m1_prefix, None, subjects)
+    f2 = _subject_scores(rows, m2_prefix, None, subjects)
+    out = {}
+    for name in CONDITION_NAMES:
+        d1 = _subject_scores(rows, m1_prefix, name, subjects) - f1
+        d2 = _subject_scores(rows, m2_prefix, name, subjects) - f2
+        did, lo, hi = paired_bootstrap_ci(d1, d2)
+        out[name] = {"m1_drop": float(d1.mean()), "m2_drop": float(d2.mean()),
+                     "did": did, "ci_lo": lo, "ci_hi": hi,
+                     "wins": int((d1 - d2 > _EPS).sum()), "n": len(d1)}
+    return out
+
+
+def format_drop_markdown(drops: dict) -> str:
+    out = ["POST HOC / EXPLORATORY: drop from Full per model, and the difference of "
+           "differences (M1 drop - M2 drop; positive = M1 loses less)", "",
+           "| condition | M1 drop | M2 drop | difference of differences | 95 % CI | "
+           "M1 loses less on |", "|---|---|---|---|---|---|"]
+    for name, d in drops.items():
+        out.append(f"| {name} | {d['m1_drop']:+.4f} | {d['m2_drop']:+.4f} | "
+                   f"{d['did']:+.4f} | [{d['ci_lo']:+.4f}, {d['ci_hi']:+.4f}] | "
+                   f"{d['wins']}/{d['n']} |")
+    return "\n".join(out)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -276,6 +311,8 @@ def main() -> int:
                     help="the exact subject set the log must hold (default: the "
                          "pre-registered development set S001..S020)")
     ap.add_argument("--json", type=Path, default=None, help="also write the result here")
+    ap.add_argument("--post-hoc", action="store_true",
+                    help="also print the POST HOC drop-from-Full comparison")
     args = ap.parse_args()
 
     try:
@@ -286,6 +323,9 @@ def main() -> int:
         return 1
 
     print(format_markdown(result))
+    if args.post_hoc:
+        print("\n" + format_drop_markdown(drop_from_full_table(
+            load(args.log), args.m1, args.m2, tuple(args.subjects))))
     if args.json:
         args.json.write_text(json.dumps(result, indent=2), encoding="utf-8")
         print(f"\nwrote {args.json}")

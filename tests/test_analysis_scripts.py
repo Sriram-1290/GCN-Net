@@ -349,3 +349,15 @@ def test_robustness_condition_tag_matches_the_writer():
     for c in CONDITIONS:
         assert rr.condition_tag("ROB1-x-binary-0-1", c.name) == \
             condition_tag("ROB1-x-binary-0-1", c.name)
+
+
+def test_robustness_drop_from_full_is_a_difference_of_differences():
+    """POST HOC helper: with M1 +0.03 on iv2a and level on Full, M1 loses 0.03 less."""
+    rr = _load("robustness_results")
+    d = rr.drop_from_full_table(_robustness_rows(), _M1, _M2, _SUBJ)
+    assert d["iv2a"]["did"] == pytest.approx(0.03)
+    assert d["iv2a"]["wins"] == 6 and d["iv2a"]["ci_lo"] > 0
+    assert d["random25"]["did"] == pytest.approx(0.0)
+    # M1 trailing by 0.03 on Full shrinks its drop: level cond -> (0 - -0.03) - 0 = +0.03
+    d = rr.drop_from_full_table(_robustness_rows(full_gain=-0.03), _M1, _M2, _SUBJ)
+    assert d["random25"]["did"] == pytest.approx(0.03)
