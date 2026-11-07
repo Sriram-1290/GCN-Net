@@ -70,6 +70,7 @@ GATE_NONE = (0.4984, 0.5199)   # `none` within-family ~ P1-A-103-* 0.5090
 A5_ARMS = ("none", "split", "bn", "graph", "all")
 A5_HOLDOUT = ("split", "all")  # random timepoint holdout: one row per subject, fold null
 
+TGSP_CAPABLE = ("a1", "a3", "a4", "a6")   # experiments with a tangent-space arm of their own
 Plan = namedtuple("Plan", "primary secondary")     # lists of (tag, folds); folds None = 1 row
 Report = namedtuple("Report", "text exit_code")
 
@@ -155,7 +156,14 @@ def a6_tag(arm: str, problem: str) -> str:
 
 
 def plan(experiment: str, tgsp_only: bool = False) -> Plan:
-    """Every tag an experiment reads, with its fold count (None = one row per subject)."""
+    """Every tag an experiment reads, with its fold count (None = one row per subject).
+
+    ``tgsp_only`` (a1, a3, a4, a6) keeps the tangent-space tags alone: 9.26 reports the two
+    models separately and never pools them, so a finished tangent-space arm is a complete
+    run, not a partial one.
+    """
+    if tgsp_only and experiment not in TGSP_CAPABLE:
+        raise ValueError(f"--tgsp-only does not apply to {experiment}")
     if experiment == "a1":
         models = ("tgsp",) if tgsp_only else ("shallow", "tgsp")
         return Plan([(f"PA-A1-{m}-4class", None) for m in models],
@@ -163,26 +171,28 @@ def plan(experiment: str, tgsp_only: bool = False) -> Plan:
     if experiment == "a2":
         return Plan([(f"PA-A2-shallow-ws160-binary-{p}", 5) for p in PROBLEMS]
                     + [(f"A2-shallow-binary-{p}", 5) for p in PROBLEMS], [])
+    models = ("tgsp",) if tgsp_only else ("tgsp", "shallow")
     if experiment == "a3":
         return Plan([(f"PA-A3-rest-{m}-{s}-{c}", 5 if s == "trial" else 3)
-                     for m in ("tgsp", "shallow") for s in ("trial", "run")
+                     for m in models for s in ("trial", "run")
                      for c in ("bp830", "car")],
                     [(f"PA-A3-rest-tgsp-runopp-{c}", 3) for c in ("bp830", "car")])
     if experiment == "a4":
         return Plan([(f"PA-A4-{t}-{m}-{s}", 5 if s == "trial" else 3)
-                     for t in ("rh_vs_feet", "lr", "bf") for m in ("tgsp", "shallow")
+                     for t in ("rh_vs_feet", "lr", "bf") for m in models
                      for s in ("trial", "run")],
                     [("PA-A4-rh_vs_feet-tgsp-runopp", 3)])
     if experiment == "a5":
         return Plan([(f"PA-A5-leak-{a}", None if a in A5_HOLDOUT else 5) for a in A5_ARMS], [])
     if experiment == "a6":
-        primary = [(a6_tag(a, p), None) for a in ("si-shallow-noea", "si-shallow-ea",
-                                                    "si-tgsp-noea", "si-tgsp-ea")
-                   for p in PROBLEMS]
-        primary += [(a6_tag(a, p), 5) for a in ("ft-shallow-ea", "PTG-shallow")
-                    for p in PROBLEMS]
+        si = ("si-tgsp-noea", "si-tgsp-ea") if tgsp_only else (
+            "si-shallow-noea", "si-shallow-ea", "si-tgsp-noea", "si-tgsp-ea")
+        primary = [(a6_tag(a, p), None) for a in si for p in PROBLEMS]
+        if not tgsp_only:
+            primary += [(a6_tag(a, p), 5) for a in ("ft-shallow-ea", "PTG-shallow")
+                        for p in PROBLEMS]
         return Plan(primary, [(a6_tag(f"si-{m}-ea-offline", p), None)
-                              for m in ("shallow", "tgsp") for p in PROBLEMS])
+                              for m in models for p in PROBLEMS])
     raise ValueError(f"unknown experiment {experiment!r}")
 
 
@@ -359,10 +369,10 @@ def format_a2(res: dict, partial: bool) -> list[str]:
 
 
 # ================================================================== A3
-def a3_results(log: Log) -> dict:
+def a3_results(log: Log, tgsp_only: bool = False) -> dict:
     models: dict = {}
     secondary: dict = {}
-    for model in ("tgsp", "shallow"):
+    for model in (("tgsp",) if tgsp_only else ("tgsp", "shallow")):
         models[model] = {}
         for cache in ("bp830", "car"):
             sc = {s: per_subject(log, f"PA-A3-rest-{model}-{s}-{cache}", "accuracy")
@@ -456,9 +466,9 @@ def format_a3(res: dict, partial: bool) -> list[str]:
 TASKS = ("rh_vs_feet", "lr", "bf")
 
 
-def a4_results(log: Log) -> dict:
+def a4_results(log: Log, tgsp_only: bool = False) -> dict:
     models: dict = {}
-    for model in ("tgsp", "shallow"):
+    for model in (("tgsp",) if tgsp_only else ("tgsp", "shallow")):
         sc = {(t, s, f): per_subject(log, f"PA-A4-{t}-{model}-{s}", f)
               for t in TASKS for s in ("trial", "run")
               for f in ("roc_auc", "accuracy")}
@@ -694,7 +704,74 @@ A6_ARM_ORDER = ("si-shallow-noea", "si-shallow-ea", "si-tgsp-noea", "si-tgsp-ea"
                 "PTG-shallow", "ft-shallow-ea")
 
 
-def a6_results(log: Log) -> dict:
+def a6_tgsp_results(log: Log) -> dict:
+    """``--tgsp-only``: arm 2 (tangent space) alone, with NO decision.
+
+    The Holm correction adjusts the three primary contrasts together, so a verdict on one
+    of them before the other two exist would not be the pre-registered one. This reports the
+    raw contrast and the margin and CI checks as facts; it never says effect or no effect and
+    scores no prediction.
+    """
+    arms = {a: binary_arm(log, a6_tag(a, "{p}")) for a in ("si-tgsp-noea", "si-tgsp-ea")}
+    c = compare(arms["si-tgsp-ea"]["mean"], arms["si-tgsp-noea"]["mean"], "two-sided")
+    c.update(id="C2", label="si-tgsp-ea - si-tgsp-noea",
+             margin_met=bool(abs(c["diff"]) >= MARGIN - EPS),
+             ci_excludes_zero=bool(c["ci_lo"] > 0 or c["ci_hi"] < 0),
+             per_problem={p: compare(arms["si-tgsp-ea"][p], arms["si-tgsp-noea"][p],
+                                     with_p=False) for p in PROBLEMS})
+    offline: dict = {}
+    secondary: dict = {}
+    tags = [(a6_tag("si-tgsp-ea-offline", p), None) for p in PROBLEMS]
+    if all(log.status(t, f)[2] for t, f in tags):
+        arm = binary_arm(log, a6_tag("si-tgsp-ea-offline", "{p}"))
+        offline["tgsp"] = {**compare(arm["mean"], arms["si-tgsp-noea"]["mean"]), "arm": arm}
+    else:
+        secondary = {t: _not_run(log, t, f) for t, f in tags if not log.status(t, f)[2]}
+    return {"tgsp_only": True, "arms": arms, "contrast": c, "offline": offline,
+            "secondary": secondary}
+
+
+def _format_a6_tgsp(res: dict, partial: bool) -> list[str]:
+    c = res["contrast"]
+    out = ["TANGENT SPACE ONLY (arm 2). Trial-level within-family accuracy; subject score = "
+           "mean of the two binary problems, paired over subjects. The calibration run "
+           "(4 for 0-1, 6 for 2-3) is excluded from scoring in both arms. Never compared to "
+           "the 0.650 within-session ceiling (9.15.4).", ""]
+    out += md(["arm", "0-1", "2-3", "mean of both", "95 % CI of mean"],
+              [[a, f4(arm["0-1"].mean()), f4(arm["2-3"].mean()), f4(arm["mean"].mean()),
+                ci(boot_mean(arm["mean"])["lo"], boot_mean(arm["mean"])["hi"], signed=False)]
+               for a, arm in res["arms"].items()])
+    out += ["", "### Arm-2 contrast, raw and undecided", ""]
+    out += md(["contrast", "with EA", "reference", "diff", "95 % CI", "raw p (two-sided)",
+               "subjects ahead", "diff >= 0.020", "CI excludes zero"],
+              [[c["label"], f4(c["a"]), f4(c["b"]), sg(c["diff"]), ci(c["ci_lo"], c["ci_hi"]),
+                f"{c['p']:.4f}", f"{c['wins']}/{c['n']} (lost {c['losses']})",
+                "yes" if c["margin_met"] else "no",
+                "yes" if c["ci_excludes_zero"] else "no"]])
+    out += ["", "Each problem alone (no decision):", ""]
+    out += md(["problem", "diff", "95 % CI", "subjects ahead"],
+              [[p, sg(pc["diff"]), ci(pc["ci_lo"], pc["ci_hi"]), f"{pc['wins']}/{pc['n']}"]
+               for p, pc in c["per_problem"].items()])
+    out += ["", "**Holm-adjusted decision pending: the three primary contrasts are adjusted "
+            "together, and arms 1 and 3 are not complete.** The ShallowConvNet arms are "
+            "reported separately when complete (9.26 never pools the two models).", "",
+            "### Secondary, TRANSDUCTIVE: offline EA (reference from all of the target's "
+            "unlabelled trials). Never enters a prediction or the decision rule.", ""]
+    if res["offline"]:
+        o = res["offline"]["tgsp"]
+        out += md(["arm", "0-1", "2-3", "mean", "- noea of the same model", "95 % CI",
+                   "subjects ahead"],
+                  [["si-tgsp-ea-offline (TRANSDUCTIVE)", f4(o["arm"]["0-1"].mean()),
+                    f4(o["arm"]["2-3"].mean()), f4(o["a"]), sg(o["diff"]),
+                    ci(o["ci_lo"], o["ci_hi"]), f"{o['wins']}/{o['n']}"]])
+    for msg in res["secondary"].values():
+        out.append(f"- {msg}")
+    return out
+
+
+def a6_results(log: Log, tgsp_only: bool = False) -> dict:
+    if tgsp_only:
+        return a6_tgsp_results(log)
     arms = {a: binary_arm(log, a6_tag(a, "{p}")) for a in A6_ARM_ORDER}
     contrasts = []
     for cid, label, a, b in A6_CONTRASTS:
@@ -764,6 +841,8 @@ def a6_results(log: Log) -> dict:
 
 
 def format_a6(res: dict, partial: bool) -> list[str]:
+    if res.get("tgsp_only"):
+        return _format_a6_tgsp(res, partial)
     out = ["Trial-level within-family accuracy; subject score = mean of the two binary "
            "problems (0-1 left/right fist, 2-3 both fists/feet), paired over subjects. "
            "Subject-independent arms exclude the calibration run (4 for 0-1, 6 for 2-3) "
@@ -938,6 +1017,8 @@ def _check_primary(log: Log, pl: Plan) -> list[tuple[str, int, int]]:
 def analyse(experiment: str, rows: list[dict], subjects=None, allow_partial: bool = False,
             tgsp_only: bool = False) -> Report:
     """Render one experiment. Raises ``IncompleteRun`` when a primary tag is short."""
+    if tgsp_only and experiment not in TGSP_CAPABLE:
+        raise ValueError(f"--tgsp-only applies to {', '.join(TGSP_CAPABLE)} only")
     subjects = list(subjects) if subjects is not None else default_subjects()
     pl = plan(experiment, tgsp_only=tgsp_only)
     log = Log(rows, subjects)
@@ -973,20 +1054,26 @@ def analyse(experiment: str, rows: list[dict], subjects=None, allow_partial: boo
         if not keep:
             out += ["Nothing to tabulate yet.", "", f"# {PARTIAL}"]
             return Report("\n".join(out), 0)
-    out += [f"{len(keep)} subjects; paired bootstrap, 10,000 resamples, 95 % CI; an effect "
-            f"is a difference of at least {MARGIN:.3f} with the CI excluding zero.", ""]
+    if experiment == "a6" and tgsp_only:     # no decision is made in this mode
+        out += [f"{len(keep)} subjects; paired bootstrap, 10,000 resamples, 95 % CI.", ""]
+    else:
+        out += [f"{len(keep)} subjects; paired bootstrap, 10,000 resamples, 95 % CI; an "
+                f"effect is a difference of at least {MARGIN:.3f} with the CI excluding "
+                "zero.", ""]
 
     compute, fmt = RESULTS[experiment]
-    res = compute(used, tgsp_only=tgsp_only) if experiment == "a1" else compute(used)
+    res = compute(used, tgsp_only=tgsp_only) if experiment in TGSP_CAPABLE else compute(used)
     out += fmt(res, partial)
 
     dups = {t: used.surplus[t] for t, _ in pl.primary + pl.secondary if used.surplus.get(t)}
     if dups:
         out += ["", "NOTE: duplicate rows replaced last-wins (surplus rows per tag): "
                 + ", ".join(f"{t}: {n}" for t, n in dups.items())]
-    if experiment == "a1" and tgsp_only:
-        out += ["", "NOTE: A1 reported for tangent space only, as 9.26.8 allows when "
-                "compute runs short."]
+    if tgsp_only:
+        out += ["", "NOTE: tangent space only (--tgsp-only): completeness was checked on the "
+                "tangent-space tags alone. 9.26 reports the two models separately and "
+                "never pools them; the ShallowConvNet arms are reported separately when "
+                "complete."]
     status = 3 if experiment == "a5" and not res["gates_pass"] else 0
     if partial:
         out += ["", f"# {PARTIAL}"]
@@ -1002,11 +1089,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="print a progress table watermarked PARTIAL — NOT A RESULT; "
                          "nothing it shows may be quoted")
     ap.add_argument("--tgsp-only", action="store_true",
-                    help="A1 only: report tangent space alone, the 9.26.8 fallback when "
-                         "compute runs short")
+                    help="a1, a3, a4, a6: report the tangent-space arm alone, checking "
+                         "completeness on its tags only (9.26 never pools the two models); "
+                         "for a6 the Holm-adjusted decision is withheld")
     args = ap.parse_args(argv)
-    if args.tgsp_only and args.experiment != "a1":
-        ap.error("--tgsp-only applies to a1 only")
+    if args.tgsp_only and args.experiment not in TGSP_CAPABLE:
+        ap.error("--tgsp-only applies to a1, a3, a4 and a6 only")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -1026,6 +1114,8 @@ def main(argv: list[str] | None = None) -> int:
 #  * Effect in A6 = margin AND CI AND Holm (two-sided p, bootstrap_p_value) over three.
 #  * A5 contrasts carry no multiplicity correction (none is pre-registered).
 #  * A1 shallow is required unless --tgsp-only is passed; A6 noea comparator is secondary.
+#  * --tgsp-only (a1, a3, a4, a6): tangent-space tags are the primary set; for a6 the
+#    arm-2 contrast is shown raw with no verdict, since Holm spans all three contrasts.
 #  * Per-subject score over folds is the plain mean of fold values (trial_accuracy,
 #    accuracy, roc_auc, timepoint_accuracy), as confirmatory_results does for A2/PTG.
 

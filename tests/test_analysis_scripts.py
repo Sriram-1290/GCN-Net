@@ -842,3 +842,104 @@ def test_phase_a_reproduces_the_a5_none_gate_procedure(_real_log):
         _need(log, t, None)
     tp = [float(pa.per_subject(log, t, "timepoint_accuracy").mean()) for t in leaky]
     assert round(float(np.mean(tp)), 4) == 0.8975
+
+
+# --------------------------------------------- --tgsp-only: a finished arm is a run
+
+def _tgsp(rows):
+    return [r for r in rows if "tgsp" in r["tag"]]
+
+
+def test_phase_a_tgsp_only_plans_keep_the_tangent_space_tags_alone():
+    pa = _pa()
+    for exp in ("a1", "a3", "a4", "a6"):
+        tags = [t for t, _ in pa.plan(exp, tgsp_only=True).primary]
+        assert tags and all("tgsp" in t for t in tags), exp
+        full = [t for t, _ in pa.plan(exp).primary]
+        assert set(tags) < set(full)
+    assert len(pa.plan("a3", tgsp_only=True).primary) == 4
+    assert len(pa.plan("a4", tgsp_only=True).primary) == 6
+    assert [t for t, _ in pa.plan("a6", tgsp_only=True).primary] == [
+        f"PA-A6-si-tgsp-{a}-binary-{p}" for a in ("noea", "ea") for p in ("0-1", "2-3")]
+    assert all(f is None for _, f in pa.plan("a6", tgsp_only=True).primary)
+    for exp in ("a2", "a5"):
+        with pytest.raises(ValueError):
+            pa.plan(exp, tgsp_only=True)
+        with pytest.raises(ValueError):
+            pa.analyse(exp, [], _PA_SUBJ, tgsp_only=True)
+
+
+def test_phase_a_a6_tgsp_only_never_prints_a_verdict_or_a_scorecard():
+    pa = _pa()
+    rows = _tgsp(_a6_rows(0.03, 0.03, 0.03, offline=0.07))     # no ShallowConvNet rows
+    with pytest.raises(pa.IncompleteRun):
+        pa.analyse("a6", rows, _PA_SUBJ)                       # the full run still refuses
+    rep = pa.analyse("a6", rows, _PA_SUBJ, tgsp_only=True)
+    assert rep.exit_code == 0
+    text, low = rep.text, rep.text.lower()
+    assert "Holm-adjusted decision pending: the three primary contrasts are adjusted " \
+           "together, and arms 1 and 3 are not complete." in text
+    for banned in ("effect", "scorecard", "p2", "holds", "does not hold", "verdict",
+                   "meaning (fixed"):
+        assert banned not in low, banned
+    assert "+0.0300" in text and "12/12" in text and "raw p" in text
+    assert "diff >= 0.020" in text and "CI excludes zero" in text
+    assert "TRANSDUCTIVE" in text and "+0.0700" in text        # offline arm, labelled
+    assert "si-shallow" not in text
+    res = pa.a6_results(pa.Log(rows, _PA_SUBJ), tgsp_only=True)
+    c = res["contrast"]
+    assert c["diff"] == pytest.approx(0.03) and c["margin_met"] and c["ci_excludes_zero"]
+    assert "verdict" not in c and "p_holm" not in c and "predictions" not in res
+    # offline absent: still prints, marked not run
+    no_off = [r for r in rows if "offline" not in r["tag"]]
+    assert "not run" in pa.analyse("a6", no_off, _PA_SUBJ, tgsp_only=True).text
+    # an incomplete tangent-space tag is refused
+    short = _tgsp(_a6_rows(0.03, 0.03, 0.03,
+                           drop={("PA-A6-si-tgsp-ea-binary-2-3", "S005", None)}))
+    with pytest.raises(pa.IncompleteRun, match="PA-A6-si-tgsp-ea-binary-2-3: 11 of 12"):
+        pa.analyse("a6", short, _PA_SUBJ, tgsp_only=True)
+
+
+def test_phase_a_a3_tgsp_only_prints_tangent_space_with_drift_and_refuses_when_short():
+    pa = _pa()
+    rows = _tgsp(_a3_rows(0.70, 0.60, 0.40))
+    with pytest.raises(pa.IncompleteRun):
+        pa.analyse("a3", rows, _PA_SUBJ)                        # shallow tags missing
+    rep = pa.analyse("a3", rows, _PA_SUBJ, tgsp_only=True)
+    assert rep.exit_code == 0 and "shallow" not in rep.text.split("NOTE")[0]
+    assert "Drift decomposition" in rep.text and "below chance" in rep.text
+    assert "reported separately when complete" in rep.text
+    res = pa.a3_results(pa.Log(rows, _PA_SUBJ), tgsp_only=True)
+    assert list(res["models"]) == ["tgsp"]
+    assert res["models"]["tgsp"]["bp830"]["drift"]["mean"] == pytest.approx(0.10, abs=1e-9)
+    short = _tgsp(_a3_rows(0.70, 0.60, 0.40,
+                           drop={("PA-A3-rest-tgsp-run-car", "S012", 2)}))
+    with pytest.raises(pa.IncompleteRun, match="PA-A3-rest-tgsp-run-car: 35 of 36"):
+        pa.analyse("a3", short, _PA_SUBJ, tgsp_only=True)
+
+
+def test_phase_a_a4_tgsp_only_reports_the_inflation_for_tangent_space():
+    pa = _pa()
+    rows = _tgsp(_a4_rows())
+    with pytest.raises(pa.IncompleteRun):
+        pa.analyse("a4", rows, _PA_SUBJ)
+    rep = pa.analyse("a4", rows, _PA_SUBJ, tgsp_only=True)
+    assert rep.exit_code == 0 and "inflation" in rep.text
+    assert "reported separately when complete" in rep.text
+    res = pa.a4_results(pa.Log(rows, _PA_SUBJ), tgsp_only=True)
+    assert list(res["models"]) == ["tgsp"]
+    expected = np.mean([(0.12 + 0.003 * i) - 0.05 for i in range(12)])
+    assert res["models"]["tgsp"]["auc"]["estimate"] == pytest.approx(expected)
+    assert res["models"]["tgsp"]["runopp"]["auc_runopp"] == pytest.approx(0.40)
+    short = _tgsp(_a4_rows(drop={("PA-A4-lr-tgsp-run", "S001", 0)}))
+    with pytest.raises(pa.IncompleteRun, match="PA-A4-lr-tgsp-run: 35 of 36"):
+        pa.analyse("a4", short, _PA_SUBJ, tgsp_only=True)
+
+
+def test_phase_a_cli_tgsp_only_is_refused_for_a2_and_a5():
+    import subprocess
+    for exp in ("a2", "a5"):
+        p = subprocess.run([sys.executable, str(ROOT / "scripts" / "phase_a_results.py"),
+                            exp, "--tgsp-only"], capture_output=True, text=True,
+                           encoding="utf-8")
+        assert p.returncode != 0 and "tgsp-only" in p.stderr
