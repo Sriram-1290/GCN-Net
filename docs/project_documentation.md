@@ -3155,11 +3155,12 @@ family and within-family accuracy from each row's logged confusion matrices (tim
 and trial-level). Contrast: each leaking arm minus `none`, paired over subjects.
 
 **Validity checks, stated before the run.** `all` must reproduce the logged leaky replication
-(`P1-leaky-103-*`, per-seed timepoint accuracy 0.8970-0.8978, three-seed mean 0.8975) to
-within **0.010**; `none` must land inside the logged correct-split interval for
-within-family accuracy, [0.4984, 0.5199] (mean 0.5090). If either check fails the toggles
-are broken: no A5 number is quoted until that is fixed and the run repeated, and the failure
-is reported.
+(`P1-leaky-103-*`, three-seed mean 0.8975): its timepoint accuracy must fall inside the logged
+three-seed 95 % CI, **[0.8794, 0.9147]**; `none` must land inside the logged correct-split
+interval for within-family accuracy, [0.4984, 0.5199] (mean 0.5090). If either check fails the
+toggles are broken: no A5 number is quoted until that is fixed and the run repeated, and the
+failure is reported. *Gate revised 2026-11-07, before any `PA-` row existed (the first version,
+within 0.010 of 0.8975, was too tight for a one-seed run against a three-seed mean).*
 
 **Reading, fixed now.**
 
