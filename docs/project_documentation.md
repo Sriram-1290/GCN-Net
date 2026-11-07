@@ -3159,8 +3159,8 @@ and trial-level). Contrast: each leaking arm minus `none`, paired over subjects.
 three-seed 95 % CI, **[0.8794, 0.9147]**; `none` must land inside the logged correct-split
 interval for within-family accuracy, [0.4984, 0.5199] (mean 0.5090). If either check fails the
 toggles are broken: no A5 number is quoted until that is fixed and the run repeated, and the
-failure is reported. *Gate revised 2026-11-07, before any `PA-` row existed (the first version,
-within 0.010 of 0.8975, was too tight for a one-seed run against a three-seed mean).*
+failure is reported. *Gate revised 2026-11-07 in commit `4b2e702`, before any `PA-` row existed (the first
+version, within 0.010 of 0.8975, was too tight for a one-seed run against a three-seed mean).*
 
 **Reading, fixed now.**
 
@@ -3235,7 +3235,8 @@ run of each family held out: is family decodable on runs never seen.
   this cache.
 * **Cache comparison:** above chance on `car` but not on `bp830` localises the confound to
   unfiltered pipelines (Li et al.'s finding); above chance on both says the 8-30 Hz band-pass
-  does not remove it, consistent with the within-family 0.617 measured earlier. A null on
+  does not remove it, consistent with the 0.6168 family accuracy measured under the 8-30 Hz
+  band-pass in 9.8. A null on
   `bp830` is still a reportable result.
 * Tangent space and ShallowConvNet are reported separately and not pooled. If they disagree,
   both are stated and the weaker one is not discarded.
@@ -3327,8 +3328,9 @@ arm 3 with EA minus PTG-shallow.
 least 0.020 with a 95 % paired bootstrap CI excluding zero; **Holm correction across the
 three primary contrasts**; per-subject win counts reported. Predictions 1 and 2 *hold* only
 if the contrast is an effect in the predicted direction under this rule. Prediction 3 *holds*
-if |difference| < 0.020; it is called *equivalence demonstrated* only if the whole 95 % CI
-lies inside (-0.020, +0.020), otherwise *not resolved*.
+if |difference| < 0.020; it is called *equivalence demonstrated* only if the whole
+unadjusted 95 % CI lies inside (-0.020, +0.020), otherwise *not resolved*. Holm adjusts the
+p-values of the three contrasts; the equivalence check uses the unadjusted CI.
 
 **What each outcome means, fixed now.**
 
@@ -3361,7 +3363,9 @@ that is reported.
 (`scripts/run_family_analysis.decompose`), with per-subject values and the confusion matrix.
 Chance is 0.25 for 4-class and 0.5 for family and within-family. The binary figures from A6
 (`si-shallow-noea`, `si-tgsp-noea`) are the same-protocol binary baseline; the 0.604 LOSO
-figure is not.
+figure is not. Those A6 arms do not score runs 4 and 6, so every A1 row also logs a second
+confusion matrix over the trials outside runs 4 and 6, and the comparison with A6 below uses
+only that one; the main A1 figures use all trials. *(Added 2026-11-07, before any `PA-` row.)*
 
 **Reading, fixed now.**
 
@@ -4617,7 +4621,8 @@ ShallowConvNet.
   run-family decoding from rest, the cross-family task, and the GCNs-Net leakage paths one at a
   time) and A6 (Euclidean alignment, a pre-registered method test with three predictions copied
   verbatim from the design, Holm over three contrasts, 0.020 floor). Written at `846d4ae` on
-  branch `phase-a` with zero `PA-` rows in the log. Rulings recorded: `--leaks graph` covers both
+  branch `phase-a` with zero `PA-` rows in the log. Revised before any run (`4b2e702` and the
+  review commit after it): the A5 `all` gate widened to the logged CI, and four wording fixes. Rulings recorded: `--leaks graph` covers both
   the adjacency and the standardiser; the A6 pseudo-online reference is the earliest run of the
   task's family (run 4 or 6), excluded from scoring in both arms; the subject-independent protocol
   is 10-group subject-disjoint CV, not LOSO, so the 0.604 LOSO figure is not compared; all six run
