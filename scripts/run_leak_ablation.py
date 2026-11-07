@@ -33,11 +33,13 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -86,6 +88,20 @@ class BuiltFold:
     fold_id: int | None
     n_train_trials: int
     n_test_trials: int
+
+
+def seed_fold(seed: int, subject: str, fold_id: int | None) -> None:
+    """Seed torch from the fold's own identity (seed, subject, fold).
+
+    Model initialisation draws from the global torch generator. Seeding once per
+    process would make a ``--resume``d run (the job queue retries after host-memory
+    failures) initialise every later fold differently from an uninterrupted run;
+    seeding per fold makes each fold a pure function of its configuration, as
+    ``seed_stage`` does in ``run_pretrain_finetune.py``.
+    """
+    key = f"{seed}:{subject}:{'holdout' if fold_id is None else fold_id}"
+    h = hashlib.sha256(key.encode()).digest()
+    torch.manual_seed(int.from_bytes(h[:8], "big") % (2 ** 63))
 
 
 def fold_ids(leaks: Leaks, n_folds: int) -> list[int | None]:
@@ -191,6 +207,7 @@ def main() -> int:
         fold_tp: list[float] = []
 
         for fold_id in todo:
+            seed_fold(args.seed, subject, fold_id)
             built = build_fold(ep.X, ep.y, leaks, fold_id, n_folds=args.folds,
                                val_frac=args.val_frac, seed=args.seed, lmax=lmax,
                                test_frac=args.test_frac, sfreq=ep.sfreq)

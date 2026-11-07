@@ -149,6 +149,46 @@ class Log:
         return self._by_subject[tag]
 
 
+# Fields that define an arm. Every row under one PA- tag must agree on all of them; a
+# smoke row or a mid-run change of flags or code under a real tag would otherwise be
+# counted silently as part of the result (whole-branch review, item 2).
+ARM_FIELDS = ("experiment", "model", "classes", "ea", "zero_shot", "calibration_run_excluded",
+              "transductive", "source_tag", "window_start", "window", "stride",
+              "pretrain_epochs", "finetune_epochs", "pretrain_lr", "finetune_lr", "epochs",
+              "split", "task", "leaks", "cache_dir", "config_source", "seed")
+
+
+def _arm_signature(row: dict) -> str:
+    sig = {k: row.get(k) for k in ARM_FIELDS}
+    if isinstance(sig.get("config_source"), str):
+        sig["config_source"] = sig["config_source"].replace("\\", "/")
+    if isinstance(sig.get("cache_dir"), str):
+        sig["cache_dir"] = sig["cache_dir"].replace("\\", "/")
+    tc = row.get("train_config")
+    if isinstance(tc, dict):
+        sig["train_config"] = {k: tc.get(k) for k in ("epochs", "batch_size", "learning_rate")}
+    return json.dumps(sig, sort_keys=True, default=str)
+
+
+def arm_consistency(log: "Log", tags) -> tuple[list[str], list[str]]:
+    """``(errors, notes)``: a PA- tag whose rows disagree on an arm-defining field is an
+    error; any tag whose rows span several commits gets a note."""
+    errors, notes = [], []
+    for tag in tags:
+        rows = list(log.rows_for(tag).values())
+        if not rows:
+            continue
+        sigs = {_arm_signature(r) for r in rows}
+        if len(sigs) > 1 and tag.startswith("PA-"):
+            diff = sorted({k for a in sigs for b in sigs if a != b
+                           for k in json.loads(a) if json.loads(a)[k] != json.loads(b)[k]})
+            errors.append(f"{tag}: rows disagree on {', '.join(diff)}")
+        commits = {r.get("git_commit") for r in rows}
+        if len(commits) > 1:
+            notes.append(f"{tag}: rows span {len(commits)} commits")
+    return errors, notes
+
+
 # ------------------------------------------------------------ the tag plans
 def a6_tag(arm: str, problem: str) -> str:
     return (f"PTG-shallow-binary-{problem}" if arm == "PTG-shallow"
@@ -1022,6 +1062,10 @@ def analyse(experiment: str, rows: list[dict], subjects=None, allow_partial: boo
     subjects = list(subjects) if subjects is not None else default_subjects()
     pl = plan(experiment, tgsp_only=tgsp_only)
     log = Log(rows, subjects)
+    arm_errors, commit_notes = arm_consistency(log, [t for t, _ in pl.primary + pl.secondary])
+    if arm_errors and not allow_partial:
+        raise IncompleteRun(f"{experiment.upper()}: refusing, rows under one tag come from "
+                            "different arms:\n  " + "\n  ".join(arm_errors))
     short = _check_primary(log, pl)
     if short and not allow_partial:
         n = len(subjects)
@@ -1065,6 +1109,11 @@ def analyse(experiment: str, rows: list[dict], subjects=None, allow_partial: boo
     res = compute(used, tgsp_only=tgsp_only) if experiment in TGSP_CAPABLE else compute(used)
     out += fmt(res, partial)
 
+    if arm_errors:
+        out += ["", "WARNING: mixed arms under one tag: " + "; ".join(arm_errors)]
+    if commit_notes:
+        out += ["", "NOTE: " + "; ".join(commit_notes)
+                + " (the code that produced a tag changed between rows; check the diff)"]
     dups = {t: used.surplus[t] for t, _ in pl.primary + pl.secondary if used.surplus.get(t)}
     if dups:
         out += ["", "NOTE: duplicate rows replaced last-wins (surplus rows per tag): "

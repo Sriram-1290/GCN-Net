@@ -173,3 +173,17 @@ def test_split_alone_changes_only_the_split():
     assert np.array_equal(a.test.trial_id, s.fold.test.trial_id)
     assert np.array_equal(a.train.y, s.fold.train.y)
     assert not np.allclose(a.adjacency, s.fold.adjacency)
+
+
+def test_seed_fold_makes_each_fold_independent_of_process_history():
+    """A resumed run must initialise a fold exactly as an uninterrupted run does."""
+    import torch
+    abl.seed_fold(42, "S002", 3)
+    first = torch.rand(4)
+    torch.rand(1000)                      # unrelated work in between (earlier folds)
+    abl.seed_fold(42, "S002", 3)
+    assert torch.equal(first, torch.rand(4))
+    abl.seed_fold(42, "S002", 4)
+    assert not torch.equal(first, torch.rand(4))
+    abl.seed_fold(42, "S002", None)       # timepoint-holdout arms
+    assert not torch.equal(first, torch.rand(4))

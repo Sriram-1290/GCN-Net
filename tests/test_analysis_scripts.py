@@ -943,3 +943,22 @@ def test_phase_a_cli_tgsp_only_is_refused_for_a2_and_a5():
                             exp, "--tgsp-only"], capture_output=True, text=True,
                            encoding="utf-8")
         assert p.returncode != 0 and "tgsp-only" in p.stderr
+
+
+def test_phase_a_refuses_a_tag_whose_rows_mix_arms():
+    """A smoke row (or a mid-run flag change) under a real PA- tag must not be counted."""
+    pa = _pa()
+    rows = _a6_rows(0.03, 0.03, 0.0)
+    target = next(r for r in rows if r["tag"] == "PA-A6-si-shallow-ea-binary-0-1")
+    target["pretrain_epochs"] = 1                       # a smoke run's setting
+    with pytest.raises(pa.IncompleteRun, match="pretrain_epochs"):
+        pa.analyse("a6", rows, subjects=_PA_SUBJ)
+
+
+def test_phase_a_notes_tags_that_span_commits():
+    pa = _pa()
+    rows = _a6_rows(0.03, 0.03, 0.0)
+    for k, r in enumerate(rows):
+        r["git_commit"] = "aaa" if k % 2 else "bbb"
+    rep = pa.analyse("a6", rows, subjects=_PA_SUBJ)
+    assert "commits" in rep.text
