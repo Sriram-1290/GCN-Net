@@ -142,15 +142,11 @@ not a result worth reporting.
   (§9.19 spatial priors, §9.21 window length, §9.23 normalisation, plus §9.17's null DiD).
 - **MEASURED 2026-11-07 (§9.25, EXPLORATORY, 20 development subjects). Montage robustness is
   not a route to a clear win with this design.** The node-agnostic region-pooled graph model
-  (M1) trails ShallowConvNet (M2, interpolation) on **every** cap: **−0.1117** on the full
-  64-channel cap (Full guard fires), −0.0633 on IV-2a and −0.0940 on random 25 % (both
-  primaries are measured *losses*, CIs exclude zero, M1 ahead on 3/20 and 1/20). All five
-  pre-registered predictions are refuted. The Phase 2 gate is not met, so Phases 2-3 were
-  not run. M1 loses *less* than M2 when channels vanish (post hoc: +0.0483 on IV-2a), but
-  that is a smaller drop from a much lower starting point and **never makes M1 the better
-  model on any cap**. Likely mechanism (exploratory, not proven): node-shared Chebyshev
-  weights plus region-averaged band power remove electrode-specific spatial filtering, so
-  M1 underfits. **This is the fifth challenger measured; do not re-run it with tuning.**
+  trails ShallowConvNet on **every** cap: **−0.1117** on the full cap (guard fires), −0.0633
+  on IV-2a and −0.0940 on random 25 % (primaries are measured *losses*). All five predictions
+  refuted; Phases 2-3 not run. A smaller relative drop under channel loss (post hoc, 5 of 7
+  conditions) **never makes it the better model on any cap**. Fifth challenger measured; do
+  not re-run with tuning. Mechanism and post hoc detail: §9.25.
 - **Never report a G-arm difference below 0.020 as an effect.** §9.12 fixed that rule before
   the runs; the design's minimum detectable difference is ~0.020 at 80 % power.
 - **But the mechanism named in §9.7.1 is minor.** A1 lifted graph locality and node-shared

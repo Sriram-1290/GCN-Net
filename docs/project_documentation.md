@@ -2845,8 +2845,13 @@ timestamp over the clock time above. None changes a prediction, a threshold or a
 **Run 2026-11-04 to 2026-11-07, 20 development subjects (S001-S020), 100 clean rows and
 700 condition rows per tag, four tags (3,200 `ROB` rows in `runs/experiments.jsonl`).
 Pre-registered in 9.24 (commit `ada4780`, clarifications `b976a43`) before any `ROB` row
-existed. Every tag was complete (100 rows) before anything below was read; the
-completeness guard in `scripts/robustness_results.py` refuses a partial run. None of the
+existed. The decision tables were computed only after all four tags were complete (100
+rows each; the completeness guard in `scripts/robustness_results.py` refuses a partial
+run). **That is not full blinding:** after only the first problem of M1 had finished, a
+mid-run look at M1's clean score (0.6211 on left/right fist, against PTG-shallow's 0.7500
+for the same subjects) and at its fine-tuning curve had already suggested that the guard
+would fire. The user was told and the run was let finish as pre-registered; the decision
+rule was not changed. None of the
 five predictions holds, the Full-montage guard fires, both primaries are measured losses,
 and the Phase 2 gate is not met. The experiment stops here.**
 
@@ -2874,7 +2879,7 @@ M1 = ROB1-chebrp   M2 = ROB1-shallow   20 subjects (within-family accuracy, pair
 Full-montage guard: M1 - M2 = -0.1117 against a threshold of -0.020: FIRES -- a would-be win is reported as a trade-off.
 ```
 
-Integrity checks that ran before the table was read. M2's clean score reproduces the
+Integrity check. M2's clean score reproduces the
 logged PTG-shallow value for the same 20 subjects exactly (0.7500 on left/right fist, 0.7422
 on both fists/both feet, from both tags), so the evaluation hook did not disturb the
 published path (9.24.4). Both arms share identical masks per (subject, fold, draw).
@@ -2923,10 +2928,13 @@ electrode-specific spatial filtering is what ShallowConvNet's per-electrode spat
 and CSP both do. The same property is what lets M1 run on any cap. **We state this as the
 likely mechanism, not as established**: no ablation separating node sharing from region
 pooling was run, and none is planned. For context only, on these 20 subjects M1's
-within-family accuracy on left/right fist is 0.6211, below the full-electrode PTC-gbp
-(no pre-training, per-electrode readout) at 0.6344, and 0.6478 on both fists/both feet
-against PTC-gbp's 0.6967. No region-readout arm without pre-training was run, so M1's own
-pre-training gain is unmeasured.
+within-family accuracy on left/right fist is 0.6211 and on both fists/both feet 0.6478,
+against 0.6344 and 0.6967 for PTC-gbp. **PTC-gbp is not a like-for-like control for
+pre-training:** besides having no pre-training it has a different readout (flat,
+per-electrode, not region-pooled) and a different operator (`--spatial free` with a soft
+graph-smoothness prior, not M1's hard graph constraint), so the gap mixes readout and
+operator with pre-training. No region-readout arm without pre-training was run, so
+M1's own pre-training gain is unmeasured.
 
 #### 9.25.5 Post hoc observation — NOT part of the decision, EXPLORATORY, POST HOC
 
@@ -2951,9 +2959,11 @@ the script, with one unit test).
 | cluster16 | -0.0320 | -0.0763 | +0.0443 | [+0.0212, +0.0667] | 17/20 |
 ```
 
-**Both facts together.** M1 does lose less than M2 when electrodes vanish: on IV-2a by
-+0.0483 [+0.0139, +0.0828] (16/20 subjects), on random 25 % by +0.0177 [+0.0059, +0.0309]
-(14/20). Yet M1 is behind M2 in every condition, including both primaries, by 0.063 and
+**Both facts together.** M1 loses less than M2 when electrodes vanish in 5 of the 7
+reduced conditions (CI excludes zero): on IV-2a by +0.0483 [+0.0139, +0.0828] (16/20
+subjects), on random 25 % by +0.0177 [+0.0059, +0.0309] (14/20). In the other two,
+tentwenty (+0.0150 [-0.0222, +0.0522]) and random10 (+0.0060 [-0.0021, +0.0144]), the CI
+includes zero. Yet M1 is behind M2 in every condition, including both primaries, by 0.063 and
 0.094. The two statements are the same data: the IV-2a drop advantage of 0.0483 cancels
 less than half of the 0.1117 gap that already existed on the full cap (-0.1117 + 0.0483 =
 -0.0634). **This does not make M1 the better model on any cap.** A model with a lower
@@ -2967,9 +2977,10 @@ was known.
 
 **Establishes.** In this pipeline, the node-agnostic region-pooled graph model does not
 match the strongest fair baseline on a complete 64-channel cap (-0.1117 on 20 subjects,
-guard fired), and that deficit carries to every reduced montage tried. Robustness
-bought by dropping electrode-specific spatial filtering costs more on the full cap than it
-saves under channel loss. Under 9.24's own rule, the premise "the flexibility is real, so M1
+guard fired), and that deficit carries to every reduced montage tried. The measured
+trade: M1's full-cap deficit (-0.1117) exceeds its relative gain under channel loss (post
+hoc, at most +0.0483, on IV-2a). The mechanism behind it is 9.25.4's, likely and not
+proven. Under 9.24's own rule, the premise "the flexibility is real, so M1
 degrades more gracefully" has not produced a usable advantage on any condition.
 
 **Does not establish.**
@@ -2986,8 +2997,9 @@ degrades more gracefully" has not produced a usable advantage on any condition.
 (`ArrayMemoryError` while preparing the second and third pre-training groups of M1),
 paused on 2026-11-05 at the user's request, and resumed on 2026-11-07 with `--resume`
 after a behaviour-neutral change that releases each group's arrays before the next group is
-built (commit `8f47b73`). The log holds 160 rows (group 1 of `ROB1-chebrp-binary-0-1`,
-subjects S001 and S011) stamped `3562b23` and the remaining 3,040 stamped `8f47b73`; the
+built (commit `8f47b73`). The log holds 160 rows (groups 1 and 2 of `ROB1-chebrp-binary-0-1`,
+subjects S001, S011, S002 and S012) stamped `3562b23` and the remaining 3,040 stamped
+`8f47b73`; the
 change was reviewed as behaviour-neutral, so the two differ only in the recorded commit
 hash, but this is a review finding and not something re-measured. M1 pre-training was
 redone for any group that had not finished.
@@ -4224,13 +4236,17 @@ ShallowConvNet.
   PTG-gbp's 0.65 -> 0.88); node-shared Chebyshev weights plus region-averaged band power
   remove electrode-specific spatial filtering, the same property that lets it run on any cap.
 - **POST HOC, labelled as such and not part of the decision:** M1 loses less than M2 from
-  its own Full score (difference of differences +0.0483 [+0.0139, +0.0828] on IV-2a,
-  +0.0177 [+0.0059, +0.0309] on random 25 %), yet is behind in every condition. This
+  its own Full score in 5 of 7 reduced conditions (difference of differences +0.0483
+  [+0.0139, +0.0828] on IV-2a, +0.0177 [+0.0059, +0.0309] on random 25 %; tentwenty and
+  random10 have CIs that include zero), yet is behind in every condition. This
   does not make M1 the better model on any cap. Added `drop_from_full_table` and a
   `--post-hoc` flag to `scripts/robustness_results.py`, with one unit test.
 - **Provenance:** the run crashed twice on host-memory errors, was paused on 2026-11-05,
   and resumed with `--resume` after the behaviour-neutral release-per-group change
-  (`8f47b73`); 160 rows are stamped `3562b23`, the rest `8f47b73`. M2's clean scores
+  (`8f47b73`); 160 rows (groups 1-2 of `ROB1-chebrp-binary-0-1`: S001, S011, S002, S012)
+  are stamped `3562b23`, the rest `8f47b73`. Blinding was partial: a mid-run look at M1's
+  first-problem clean score (0.6211 vs PTG-shallow 0.7500) already suggested the guard
+  would fire; the run was let finish as pre-registered and the rule was not changed. M2's clean scores
   reproduce the logged PTG-shallow rows exactly for all 20 subjects. `CLAUDE.md` Expected
   Results updated with one bullet.
 
