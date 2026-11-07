@@ -331,6 +331,30 @@ def test_robustness_refuses_when_both_arms_miss_the_expected_subjects():
     assert len(rr.DEV_SUBJECTS) == 20
 
 
+def test_robustness_duplicate_rows_are_last_wins_and_warned_about():
+    rr = _load("robustness_results")
+    clean = _robustness_rows()
+    assert rr.duplicate_warning(clean, _M1, _M2) is None
+    assert rr.duplicate_counts(clean, _M1, _M2) == {}
+
+    tag = f"{_M1}-binary-0-1"
+    target = next(r for r in clean if r["tag"] == tag and r["subject"] == "S002"
+                  and r["fold"] == 3)
+    dup = dict(target, trial_accuracy=0.99, accuracy=0.99)
+    other = f"{_M2}-binary-2-3.random25"
+    dup2 = next(r for r in clean if r["tag"] == other and r["subject"] == "S001"
+                and r["fold"] == 0)
+    rows = clean + [dup, dup, dict(dup2)]       # 2 surplus rows on one tag, 1 on another
+
+    assert rr.duplicate_counts(rows, _M1, _M2) == {tag: 2, other: 1}
+    warning = rr.duplicate_warning(rows, _M1, _M2)
+    assert warning.startswith("WARNING") and f"{tag}: 2" in warning and f"{other}: 1" in warning
+    # last-wins: the later row replaces the earlier one, and the fold count stays 5
+    assert rr._folds(rows, tag)[("S002", 3)] == 0.99
+    assert len(rr._folds(rows, tag)) == len(rr._folds(clean, tag))
+    rr.robustness_table(rows, _M1, _M2, _SUBJ)      # still complete, not refused
+
+
 def test_robustness_condition_tag_matches_the_writer():
     """The script restates ``condition_tag`` to avoid importing torch; keep them equal.
 

@@ -64,10 +64,12 @@ preprocess:
   # `Stack_Dataset - mean(Stack_Dataset, 1)`, operates on a (64 channels x N
   # timepoints) matrix, so mean(...,1) is the across-CHANNEL mean at each timepoint
   # -- i.e. Common Average Reference, not dataset-wide mean centring. CAR uses no
-  # cross-sample statistics, so it is leakage-free and belongs in the cache.
-  # It also matters: CAR drops mean |PCC| from 0.686 to 0.353 and raises the
-  # neighbour/distant contrast from 1.47x to 4.45x, so the graph is far more
-  # structured with it than without.
+  # cross-sample statistics, so it is leakage-free. (That is why bandpass_8_30.yaml
+  # applies it in its cache.) THIS config is the exception, for the montage-robustness
+  # experiment: the cache holds NO reference, and CAR is applied per condition, over
+  # only the electrodes that condition keeps (see `rereference` below). CAR matters:
+  # it drops mean |PCC| from 0.686 to 0.353 and raises the neighbour/distant contrast
+  # from 1.47x to 4.45x, so the graph is far more structured with it than without.
   bandpass: [8.0, 30.0]
   notch: null
   # NOT re-referenced here (differs from bandpass_8_30.yaml, which uses `average`):

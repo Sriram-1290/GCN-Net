@@ -2860,7 +2860,22 @@ and the Phase 2 gate is not met. The experiment stops here.**
 Produced by `scripts/robustness_results.py --m1 ROB1-chebrp --m2 ROB1-shallow` and pasted
 verbatim. Within-family accuracy, subject score = mean over the two problems (left/right
 fist, both fists/both feet) and the 5 folds, paired on subject; the *p* column is
-one-sided in the direction M1 > M2 fixed in advance, so a loss reads 1.0000.
+one-sided in the direction M1 > M2, so a loss reads 1.0000. The one-sided direction was
+fixed in advance in the plan's Global Constraints
+(`docs/superpowers/plans/2026-11-04-montage-robustness.md`, decision-rule line: "Holm-corrected
+one-sided *p* < 0.05 over the two primaries"); 9.24.5 itself is silent on sidedness, so that
+plan line, not 9.24.5, is the provenance.
+
+**Two provenance notes.** (i) *No-reference cache tolerance.* Every condition re-references
+the data over the retained subset from the no-reference cache
+(`configs/bandpass_8_30_noref.yaml`). `scripts/check_noref_cache.py` verified, before any
+`ROB` run, that re-applying a common average over all 64 channels to that cache reproduces
+the standard cache within `1e-3 x median|X|`; measured worst case, subject S079,
+max |diff| = 1.065e-05 x median|X| (100x below the tolerance), 103/103 subjects matching.
+(ii) *Condition rows.* A condition row (a tag of the form `<tag>.<condition>`) inherits
+`config_source` and `preprocess.rereference: "average"` from the clean row, although its data
+came from the no-reference cache re-referenced over the *retained* channels. To select
+condition rows, filter on the `condition` / `noref_config` fields, not on `config_source`.
 
 ```
 M1 = ROB1-chebrp   M2 = ROB1-shallow   20 subjects (within-family accuracy, paired on subject; one-sided p, M1 > M2)
@@ -2917,11 +2932,31 @@ favour** (9.17's null difference of differences, 9.19, 9.21, 9.23, and now this)
 
 #### 9.25.4 Why M1 is behind — EXPLORATORY, the likely mechanism, not proven
 
-M1's pre-trained weights do transfer. Fine-tuning starts well above chance (train loss
-0.675 and accuracy 0.58, against 0.87 and 0.53 for the no-pre-training control), so this
-is not a loading bug. But M1 **underfits**: its training accuracy goes from 0.58 to only
-0.64 over 30 fine-tuning epochs, where the full-electrode PTG-gbp goes from 0.65 to 0.88.
-The most plausible cause is the very property under test. A Chebyshev convolution with
+Training curves, recomputed from the committed log (`history.train_acc` /
+`history.train_loss`, first and last of the 30 fine-tuning epochs, **means over the 20
+development subjects S001-S020 and their 5 folds, clean rows only**, i.e. 100 fold-rows
+per problem; "both problems" pools the 200 rows of left/right fist and both fists/both
+feet):
+
+| arm | problem | train acc, epoch 1 -> 30 | train loss, epoch 1 -> 30 |
+|---|---|---|---|
+| M1 (`ROB1-chebrp`) | left/right fist | 0.554 -> 0.617 | 0.684 -> 0.653 |
+| M1 (`ROB1-chebrp`) | both problems | 0.558 -> 0.630 | 0.682 -> 0.641 |
+| PTC-gbp (no pre-training) | left/right fist | 0.506 -> 0.751 | 0.902 -> 0.620 |
+| PTG-gbp (pre-trained) | left/right fist | 0.589 -> 0.851 | 0.706 -> 0.424 |
+| PTG-gbp (pre-trained) | both problems | 0.601 -> 0.856 | 0.691 -> 0.406 |
+
+(An earlier single-subject spot check on S001, taken mid-run, gave similar values; the
+figures above supersede it because they are the 20-subject means.)
+
+M1 begins fine-tuning modestly ahead of the no-pre-training control (epoch-1 training
+accuracy 0.554 against 0.506 on left/right fist) and with a lower loss (0.684 against
+0.902), which is consistent with the pre-trained weights loading and transferring, but the
+margin is small: an epoch-1 loss of 0.684 is barely below ln 2 = 0.693, and epoch-1
+accuracy is already an average over a first epoch of updates. We therefore do not claim
+more than "not obviously a loading bug". M1 then **underfits**: its training accuracy
+rises only from 0.558 to 0.630 over the 30 epochs (loss 0.682 -> 0.641), where the
+full-electrode PTG-gbp rises from 0.601 to 0.856 (loss 0.691 -> 0.406). The most plausible cause is the very property under test. A Chebyshev convolution with
 node-shared weights, followed by region-averaged band power into nine regions (9 x 40 =
 360 features), leaves nothing that can act as an electrode-specific spatial filter, and
 electrode-specific spatial filtering is what ShallowConvNet's per-electrode spatial layer
@@ -2935,6 +2970,17 @@ per-electrode, not region-pooled) and a different operator (`--spatial free` wit
 graph-smoothness prior, not M1's hard graph constraint), so the gap mixes readout and
 operator with pre-training. No region-readout arm without pre-training was run, so
 M1's own pre-training gain is unmeasured.
+
+**What the Full gap does and does not measure.** 9.24.3 describes the Full comparison as
+measuring "what the region readout costs", and 9.24.1 argues from PTG-gbp. Neither holds as
+written. PTG-gbp is G3 (`--spatial free --graph-smoothness 1e-4`): a free, per-electrode
+operator with a soft smoothness prior, **not** node-shared Chebyshev weights. M1 therefore
+differs from PTG-gbp in operator *and* readout, and no pre-trained arm with a flat readout
+and node-shared Chebyshev weights exists. The Full gap of -0.1117 is a measurement of M1
+against ShallowConvNet (M2), full stop. **The cost of the region readout alone is
+unmeasured**, and PTG-gbp's 0.7300 on these 20 subjects is the free-operator G3 model, not
+a flat-readout version of M1. (9.24 is frozen and is not edited; this note qualifies its
+wording.)
 
 #### 9.25.5 Post hoc observation — NOT part of the decision, EXPLORATORY, POST HOC
 
@@ -3008,7 +3054,9 @@ redone for any group that had not finished.
 arms are pre-trained on ~92 other subjects, **neither may be compared to the 0.650
 within-session ceiling**, and the only comparison here is M1 against M2. PTG-gbp's full-cap
 0.7301 (103 subjects) is context, not part of the rule; on these 20 subjects it is
-0.7300 (mean of 0.7078 and 0.7522), against M1's 0.6344.
+0.7300 (mean of 0.7078 and 0.7522), against M1's 0.6344. PTG-gbp is the free-operator G3
+model (`--spatial free --graph-smoothness 1e-4`), not a flat-readout version of M1, so
+this gap mixes operator and readout and is not the cost of the region readout (9.25.4).
 
 ---
 
@@ -4231,10 +4279,16 @@ ShallowConvNet.
   -0.0940, CIs exclude zero, M1 ahead on 3/20 and 1/20). All five 9.24.6 predictions
   are refuted. The Phase 2 gate (M1 ahead on a primary by >= 0.020) is not met, so
   **Phases 2 and 3 are not run** and the experiment stops here, as 9.24.7 committed.
-- **Likely mechanism, exploratory and not proven:** M1's pre-trained weights transfer
-  (fine-tuning starts above chance) but it underfits (train accuracy 0.58 -> 0.64 against
-  PTG-gbp's 0.65 -> 0.88); node-shared Chebyshev weights plus region-averaged band power
-  remove electrode-specific spatial filtering, the same property that lets it run on any cap.
+- **Likely mechanism, exploratory and not proven:** M1 underfits during fine-tuning. Over
+  the 30 fine-tuning epochs, 20-subject (S001-S020) x 5-fold means from the committed log,
+  both problems: M1 train accuracy 0.558 -> 0.630 (loss 0.682 -> 0.641) against PTG-gbp's
+  0.601 -> 0.856 (loss 0.691 -> 0.406). M1 starts only modestly ahead of the no-pre-training
+  control (epoch-1 accuracy 0.554 vs 0.506 on left/right fist), so "the pre-trained weights
+  transfer" is consistent with the curves but not shown by them. Node-shared Chebyshev
+  weights plus region-averaged band power remove electrode-specific spatial filtering, the
+  same property that lets it run on any cap. PTG-gbp is the free-operator G3 model, so the
+  Full gap is M1 against ShallowConvNet and does not isolate the cost of the region readout
+  (9.25.4).
 - **POST HOC, labelled as such and not part of the decision:** M1 loses less than M2 from
   its own Full score in 5 of 7 reduced conditions (difference of differences +0.0483
   [+0.0139, +0.0828] on IV-2a, +0.0177 [+0.0059, +0.0309] on random 25 %; tentwenty and
@@ -4249,6 +4303,19 @@ ShallowConvNet.
   would fire; the run was let finish as pre-registered and the rule was not changed. M2's clean scores
   reproduce the logged PTG-shallow rows exactly for all 20 subjects. `CLAUDE.md` Expected
   Results updated with one bullet.
+- **Final-review corrections to 9.25 (no logged number changed):** the training-curve
+  figures first written in 9.25.4 and in the mechanism bullet above (M1 0.58 -> 0.64,
+  PTG-gbp 0.65 -> 0.88, control 0.53) were S001-only values from a mid-run spot check; they
+  are replaced by the 20-subject, 5-fold means recomputed from `history` in
+  `runs/experiments.jsonl` (the earlier values were similar, the conclusion that M1 underfits
+  stands). Added to 9.25: the caveat that the Full gap does not isolate the region readout
+  (PTG-gbp is the free-operator G3 model, no pre-trained flat-readout Chebyshev arm exists),
+  the provenance of the one-sided test (plan Global Constraints; 9.24.5 is silent), the
+  measured no-reference cache agreement (worst S079, 1.065e-05 x median|X| against 1e-3), and
+  a note that condition rows inherit `config_source` / `preprocess.rereference` from the
+  clean row. Code: robustness analysis now warns on duplicate rows per tag, `--targets`
+  resume counts only target keys, a region-order check raises instead of asserting, and the
+  interpolation test no longer skips without the cache.
 
 ### 2026-11-04
 

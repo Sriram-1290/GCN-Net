@@ -331,8 +331,11 @@ def source_cache_key(args, seed: int, group_idx: int,
         fields["dsbn"] = True
     if args.readout != "flat":
         fields["readout"] = args.readout
-        # The region basis is built from this cache, so a different or regenerated
-        # one is a different source model.
+        # The region basis is built from this cache. The key hashes only this *path
+        # string*, not the cache's manifest fingerprint, so a regenerated cache at the
+        # same path would NOT change the key. Changing the key (e.g. to hash the
+        # fingerprint) would orphan the cached ROB1-chebrp source models, so it is left
+        # as is; the fingerprint is logged on every row (`noref_fingerprint`) instead.
         fields["noref_config"] = str(args.noref_config)
     payload = json.dumps(fields, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -528,7 +531,10 @@ def main() -> int:
                           if args.resume else set())
                  for c in ROBUSTNESS_CONDITIONS} if args.robustness else {}
     if args.resume:
-        print(describe_resume(done, len(target_set) * args.folds, args.tag))
+        # Count only keys of the requested targets: under --targets the log may hold
+        # other subjects' rows, which would read as "130 of 100".
+        print(describe_resume({k for k in done if k[0] in target_set},
+                              len(target_set) * args.folds, args.tag))
 
     per_subject: list[float] = []
     t0 = time.time()
@@ -589,7 +595,11 @@ def main() -> int:
             m_src = sum_moments([subject_moments[x] for x in source if x not in val_pick])
             rep_all = subset_representation(
                 m_src, np.ones(len(ch_names), dtype=bool), ch_names, lmax=args.lmax)
-            assert np.array_equal(rep_all.regions, region_vector(ch_names))
+            if not np.array_equal(rep_all.regions, region_vector(ch_names)):
+                raise RuntimeError(
+                    "region order mismatch: the subset representation's region vector "
+                    "differs from region_vector(ch_names); the region readout would "
+                    "average the wrong electrodes")
             region_graph = (rep_all.basis, rep_all.regions)
 
         # Domain labels for the source split. concat_trials preserves subject order and

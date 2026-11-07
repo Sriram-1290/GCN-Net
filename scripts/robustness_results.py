@@ -95,9 +95,40 @@ def _folds(rows: list[dict], tag: str) -> dict[tuple[str, int | None], float]:
 
     Exact tag match: ``ROB1-x-binary-0-1`` is a string prefix of its own condition
     tags, so ``startswith`` would mix Full with every condition.
+
+    Duplicates are last-wins, which matches ``--resume`` (a re-run supersedes the
+    earlier row). It is silent here on purpose; ``duplicate_warning`` is what tells
+    the reader it happened.
     """
     return {(r["subject"], r.get("fold")): float(r[FIELD]) for r in rows
             if r.get("tag") == tag and r.get(FIELD) is not None}
+
+
+def duplicate_counts(rows: list[dict], m1: str, m2: str) -> dict[str, int]:
+    """``tag -> number of surplus rows`` for every arm tag that holds duplicate folds.
+
+    A duplicate is a second row for the same (tag, subject, fold). ``_folds`` keeps the
+    last one, so the analysis is unaffected by *which* row it is, but a reader quoting
+    the table should know that the log held more rows than folds.
+    """
+    out: dict[str, int] = {}
+    for prefix in (m1, m2):
+        for tag in _arm_tags(prefix):
+            keys = [(r["subject"], r.get("fold")) for r in rows
+                    if r.get("tag") == tag and r.get(FIELD) is not None]
+            extra = len(keys) - len(set(keys))
+            if extra:
+                out[tag] = extra
+    return out
+
+
+def duplicate_warning(rows: list[dict], m1: str, m2: str) -> str | None:
+    """A one-line warning naming tags and surplus-row counts, or ``None`` if clean."""
+    dups = duplicate_counts(rows, m1, m2)
+    if not dups:
+        return None
+    detail = ", ".join(f"{t}: {n}" for t, n in dups.items())
+    return (f"WARNING: duplicate rows replaced last-wins (surplus rows per tag): {detail}")
 
 
 def _problem_scores(rows: list[dict], tag: str) -> dict[str, float]:
@@ -322,6 +353,10 @@ def main() -> int:
         print(f"refusing to report: {e}", file=sys.stderr)
         return 1
 
+    rows_for_warning = load(args.log)
+    warning = duplicate_warning(rows_for_warning, args.m1, args.m2)
+    if warning:
+        print(warning, file=sys.stderr)
     print(format_markdown(result))
     if args.post_hoc:
         print("\n" + format_drop_markdown(drop_from_full_table(
