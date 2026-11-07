@@ -3231,8 +3231,15 @@ run of each family held out: is family decodable on runs never seen.
   generalise to unseen runs. That is run identity, not family, and the gap (i) - (ii)
   measures how much is run-specific.
 * **(i) and (ii) both above chance:** family is decodable on runs never seen, from epochs
-  with no class signal: a label-free demonstration that the run-family confound exists in
-  this cache.
+  with no class label: a label-free demonstration that run family is identifiable in this
+  cache without any trial label.
+* **Caveat on attribution, pre-stated (added 2026-11-07, before any `PA-` row):** every T0
+  period except the first of a run follows an imagery trial of the run's family and precedes
+  the next one (the 'class purity' row in 7.1 already notes T0 is contaminated by preparation
+  and after-effects). Family decoding from rest can therefore come from neural after-effects
+  such as post-imagery beta rebound or anticipation, as well as from non-neural run-level
+  artefacts. A3 shows that family is identifiable without labels; it does not on its own
+  attribute the signal to non-neural sources, and the write-up says so.
 * **Cache comparison:** above chance on `car` but not on `bp830` localises the confound to
   unfiltered pipelines (Li et al.'s finding); above chance on both says the 8-30 Hz band-pass
   does not remove it, consistent with the 0.6168 family accuracy measured under the 8-30 Hz
