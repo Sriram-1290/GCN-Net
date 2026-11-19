@@ -4787,6 +4787,141 @@ ShallowConvNet.
 
 ## 18. Changelog
 
+### 2026-11-19
+
+- **Condensed report: `docs/PW-1_Review-2_Report-2.docx` (+ `.pdf`), 45 pages including front matter**,
+  down from 76.
+  - **Format:** same department template; cover unchanged and still reading "Department of
+    Computer Science".
+  - **Front matter:** contents, list of figures and list of tables. The contents lists heading
+    levels 1–2; the abbreviations list is dropped.
+  - **Text:** all 8 chapters and every subsection the guidelines require are kept. The prose was
+    condensed extractively, from about 14,600 to about 6,400 words of body text, with no new
+    claims or numbers (a script checks this).
+  - **Tables:** 8 dropped (old 2.1, 3.2, 3.3, 4.6, 5.2, 6.1, 6.2, 6.3), the rest renumbered.
+  - **Figures and equations:** all kept; the tallest figures capped at 4.6 in high.
+  - **References:** 44 of 49 still cited, renumbered by first citation; the 5 no longer cited
+    are dropped.
+  - **Checks:** a verifier confirms the page count, guideline headings, caption sequence, that
+    no cross-reference dangles, citation range and order, equations (6.1)–(6.9), department
+    text and heading style.
+  - **Source:** build scripts live in the scratchpad. The original 76-page report is unchanged
+    (md5 checked).
+- **Second Review-2 deck: `docs/PW-1_Review-2_Presentation-2.pptx` (16 slides, high-level;
+  13 when first delivered).**
+  - **Contents:** plain-language version for a non-specialist audience, with no formulas and no
+    measured results.
+  - **Slide order:** title, then how a BCI works, problem, objectives, literature and gaps, existing
+    vs proposed, requirements, architecture, workflow, modules, use case diagram, data flow
+    diagram, activity diagram, sequence diagram, state chart and summary.
+  - **Diagrams:** native editable shapes in a "Calm Teal" theme. Amber marks this project's
+    contribution and dashed outlines mark future work.
+  - **Source:** the words come from a spec (`spec.json`) and are checked automatically against
+    the built deck. The build lives in the scratchpad, not the repo. Deck 1 is unchanged.
+  - **Viewer compatibility fix:** the deck was shown in a viewer that draws freeform line paths as
+    their bounding box and ignores flipped lines. As a result, the use case diagram's connectors
+    (slide 11) appeared as rectangles. Changes:
+    - every connector is now a plain horizontal or vertical line;
+    - the use case diagram is rerouted on a right-angle grid (one vertical spine per actor, and
+      PhysioNet entering its use case from above);
+    - slide 3's decorative sensor graph is now a picture.
+    A build check now rejects freeform paths, flips, rotation and diagonal lines. Wording is
+    unchanged.
+  - **Slides 5 and 6 redesigned (user request); wording and notes unchanged.**
+    - **Slide 5:** the literature is one panel led by the "27 papers" figure. Each family's
+      limitation is set in coral, the colour of the gaps. The gap cards end in a separate
+      objective column, and the two lists use different row spacing so no family appears to map
+      to a single gap.
+    - **Slide 6:** the comparison is now two column cards, with the proposed system as the dark
+      focal card and a chevron on each row from existing to proposed. The reading order per row
+      (aspect, existing, proposed) still matches the speaker notes.
+  - **Activity, sequence and state chart diagrams added as slides 13–15 (user request); the
+    summary moves to slide 16.** Each simplifies its report original (Figures 6.2, 6.3 and 6.4)
+    to about ten nodes in the deck's plain vocabulary (split, sensor map, best version, experiment
+    log). Every connector is horizontal or vertical. Amber marks only the training-data-only steps
+    and coral only the failure path. Each slide carries its own legend and caption. Slide 12's
+    transition now leads into the activity diagram. This reverses the earlier decision to keep
+    only the use case and data flow diagrams in deck 2. The shape check gained an allowlist of
+    preset shapes.
+
+- **Review-2 architecture reframed as an MI-BCI decoder for assistive mobility (report and deck).**
+  At the user's direction, the architecture now shows only the proposed system: the signal
+  pipeline, the training-only graph, the Track A and Track B decoders, training and transfer, and
+  evaluation. Its output is the decoded motor intent. A dashed "target application — future work"
+  stage maps that intent to an assistive-device command (e.g. a wheelchair or a prosthesis); it is
+  explicitly not built in PW-1/PW-2.
+  - **Baseline and comparators** (GCNs-Net, CSP + LDA, EEGNet, ShallowConvNet) are removed from
+    the architecture. They are relabelled as evaluation-only and stay in the evaluation plan
+    (§6.5.5, slide 18).
+  - **Report:**
+    - Figures 5.1 (architecture) and 6.5 (model design pipeline) redrawn.
+    - §2.8: purpose sentence added, and the Baseline and Controls bullets relabelled.
+    - §2.11: new first bullet, "People with motor disabilities", marked as not tested with
+      patients.
+    - §5.1 intro, layers, stores and objectives paragraphs rewritten; the §5.3 M6 paragraph and
+      Table 5.1 M6 row rewritten; the §6.5 paragraph describing Figure 6.5 rewritten.
+    - Fields updated in Word: 76 pages, up from 75.
+  - **Deck:** slide 8 has the new figure, bullets and notes. Slides 2 (mobility motivation),
+    6 ("Evaluated against" replaces the Baseline and Controls bullets) and 10 (M6) have text and
+    note edits. A text diff confirms only these four slides changed.
+  - **Use case diagram (Figure 6.1, slide 12), missed in the first pass and caught by the user:**
+    - redrawn with the system boundary renamed from "Leak-free EEG Motor Imagery Decoding
+      Framework" to "Motor Imagery BCI Decoder: development and offline evaluation";
+    - a dashed second boundary added, "Target application — future work", holding one
+      unnumbered use case (control a wheelchair or prosthesis using the trained decoder) and a
+      grey actor, "Person with motor disability (future)";
+    - UC-1 to UC-9 unchanged, and Table 6.1 unchanged;
+    - the §6.1 paragraph updated; slide 12 gained a "Future work (dashed)" bullet and a notes
+      sentence.
+    - Still 76 pages. The deck diff now reads slides 2, 6, 8, 10 and 12.
+    - The workflow, DFD, activity, sequence, state chart and training-workflow figures were
+      checked and needed no change: they show how the model is built and evaluated, with no
+      deployment and no comparator in the system.
+  - **Consistency pass after review:**
+    - each store in Figure 5.1 is tagged with the module that uses it, instead of the dashed
+      connectors the §5.1 text first described;
+    - the §5.1 layer names match the figure (Acquisition, Processing, Graph, Decoder,
+      Training, Evaluation);
+    - the classes use the dataset's names (left fist, right fist, both fists, both feet);
+    - slide 8 defines the terms its figure prints: "motor-imagery BCI", "within-family
+      accuracy (each movement pair on its own)", which points back to the slide 5 notes, and
+      "leave-one-subject-out (LOSO)", the deck's first use of the abbreviation.
+  - The scratchpad build sources from 2026-11-10 had been deleted, so the edits were made
+    directly on the delivered `.docx` and `.pptx` (backed up first). The new figure and edit
+    scripts are in the scratchpad, not the repo. Nothing committed.
+
+### 2026-11-10
+
+- **PW-1 Review-2 report produced: `docs/PW-1_Review-2_Report.docx` (+ `.pdf` preview), 75 pages.**
+  Built on the department's "CSM PW1 Review-2 Report Guidelines & Format" template (cover page and
+  logo kept). The department line reads "Department of Computer Science" (the template is written
+  for CSE (AI & ML)), and chapters 1-8 follow the template exactly, with 13 redrawn diagrams
+  (UML use case, activity, sequence and state chart among them), 21 tables and 49 IEEE references.
+  - **NIP framing, as for Review-1:** analysis and design only. No internal measurement appears
+    anywhere, the leakage paths are a code reading, and results are deferred to PW-2. This follows
+    the 2026-11-04 decision and the template's own rule ("Do not present planned work as completed
+    results").
+  - **Design presented honestly against the code,** which corrects the Review-1 deck issues listed
+    as open on 2026-11-04. There is one pipeline (M1-M10) with a model family:
+    - the leak-free GCNs-Net baseline;
+    - Track A = GCNs-Net + learnable adjacency + temporal attention (the approved title);
+    - Track B = GBP-Net with the S-graph / S-free / S-prior spatial variants, stated to have
+      ShallowConvNet's macro-architecture and *neither* approved-title component;
+    - grouped cross-subject pre-training with its controls.
+    LOSO is described as the GCNs-Net family without temporal attention. The stack, preprocessing
+    (8-30 Hz zero-phase FIR + CAR, 4.0 s epochs, 0.40 s windows) and statistics (paired bootstrap +
+    Holm) are as in the code. The 65 % comparison, "breakthrough" and the mixed-metric claim are
+    absent.
+  - **Review-2 deck: `docs/PW-1_Review-2_Presentation.pptx`, 19 slides with speaker notes.** It
+    uses the same NIP framing and the report's figures. Slide order: problem → objectives →
+    literature → gaps → system analysis → requirements → architecture → workflow → modules →
+    design diagrams (DFD, use case, activity, sequence, state, Track A, Track B, evaluation) →
+    conclusion. Each slide refers back only. Built with pptxgenjs from a scratchpad script that
+    is not in the repo.
+  - **Guide's designation recorded: Dr. Gagan Kumar, Assistant Professor.** It was confirmed by
+    the user and now appears on the report cover and the deck's title slide. Build sources (chapter Markdown, diagram scripts, python-docx
+    builder) are outside the repo, so they are not versioned.
+
 ### 2026-11-07
 
 - **A3 ShallowConvNet arms dropped (dated deviation in 9.26.5).** The user decided this after
